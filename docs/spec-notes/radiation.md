@@ -67,8 +67,9 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   no falloff 13.8. Confirmed at a second distance [observed: private job `hud_radiation`,
   2026-10-29, MoveTo to the coc XMarker plus offsets, GetPos and GetDistance after each
   move]: at (4300, −170, −135.1), 554.03 units from the marker, Rad Resistance 8, the read
-  9.977171 against the formula's 9.977171 (2-D: 9.9910); and at the coc spot after Rad-X
-  (Rad Resistance 39) 5.976524 against 5.976524. Three further spots (612.97, 789.78 and
+  9.977171 against the formula's 9.977124 … 9.977193 for the distance read to 0.01 (554.03 …
+  554.04; 2-D: 9.9910); and at the coc spot after Rad-X (Rad Resistance 39) 5.976524
+  against 5.976506 … 5.976551. Three further spots (612.97, 789.78 and
   920.32 units) all read 9.570496 with Rad Resistance 6, the same value at three distances,
   and a fourth (737.68 units) 8.710030; those reads do not follow any distance and are
   left unexplained (the player may not have stood where GetPos reported, or the level was

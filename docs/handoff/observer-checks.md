@@ -415,8 +415,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     693.65 units from marker 0x00154611, 15/2000, Rad Resistance 8: 9.013784, ours
     9.013783); the `hud_corners` jobs' moves to two other spots did not move the player.
     **Partly answered 2026-10-29** (private job `hud_radiation`, MoveTo to the coc XMarker
-    plus offsets): 554.03 units, Rad Resistance 8: 9.977171 (ours 9.977171); the coc spot
-    after Rad-X, Rad Resistance 39: 5.976524 (ours 5.976524). Three other spots read one
+    plus offsets): 554.03 units, Rad Resistance 8: 9.977171 (ours 9.977124 … 9.977193 over the distance's 0.01 rounding); the coc spot
+    after Rad-X, Rad Resistance 39: 5.976524 (ours 5.976506 … 5.976551). Three other spots read one
     value (9.570496) at three distances and one 8.710030; unexplained (radiation §2).
     Still open: a read near the marker, the overlapping markers, the Fat Man's zone.
     To check, in SLNuclearTestShackINT with GetPos after each move to prove it: at the
