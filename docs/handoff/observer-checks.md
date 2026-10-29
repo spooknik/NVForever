@@ -414,6 +414,11 @@ The numbers above stay put so links to them hold; each item here gives its own p
     that times (1 − Rad Resistance ÷ 100). One distance was read (the shack's coc spot,
     693.65 units from marker 0x00154611, 15/2000, Rad Resistance 8: 9.013784, ours
     9.013783); the `hud_corners` jobs' moves to two other spots did not move the player.
+    **Partly answered 2026-10-29** (private job `hud_radiation`, MoveTo to the coc XMarker
+    plus offsets): 554.03 units, Rad Resistance 8: 9.977171 (ours 9.977171); the coc spot
+    after Rad-X, Rad Resistance 39: 5.976524 (ours 5.976524). Three other spots read one
+    value (9.570496) at three distances and one 8.710030; unexplained (radiation §2).
+    Still open: a read near the marker, the overlapping markers, the Fat Man's zone.
     To check, in SLNuclearTestShackINT with GetPos after each move to prove it: at the
     marker's x, y (4358.3, −718.9; ours 13.475 with RadResist 8), halfway
     (4338.6, −373.4; ours 11.390), and at the coc spot after Rad-X (RadResist 58; ours

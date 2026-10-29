@@ -64,8 +64,15 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   original's reads; 15 × (1 − 693.65 ÷ 2000) = 9.7976, and after Rad Resistance 8 (§4)
   9.7976 × 0.92 = 9.013783 against the read 9.013784, the three reads' small spread in
   z following the formula to 1e-6; the 2-D distance (692.05) would give 9.0248 and
-  no falloff 13.8; hypothesis: the linear shape at other distances, since all reads are
-  at one distance, issue #894.] Until 2026-10-29 the whole XRAD held in the radius, which
+  no falloff 13.8. Confirmed at a second distance [observed: private job `hud_radiation`,
+  2026-10-29, MoveTo to the coc XMarker plus offsets, GetPos and GetDistance after each
+  move]: at (4300, −170, −135.1), 554.03 units from the marker, Rad Resistance 8, the read
+  9.977171 against the formula's 9.977171 (2-D: 9.9910); and at the coc spot after Rad-X
+  (Rad Resistance 39) 5.976524 against 5.976524. Three further spots (612.97, 789.78 and
+  920.32 units) all read 9.570496 with Rad Resistance 6, the same value at three distances,
+  and a fourth (737.68 units) 8.710030; those reads do not follow any distance and are
+  left unexplained (the player may not have stood where GetPos reported, or the level was
+  not updated between moves) [hypothesis]. Issue #894.] Until 2026-10-29 the whole XRAD held in the radius, which
   gave 15 there.
 - **Overlapping markers** [hypothesis]: the strongest at the point counts; they do not
   add. The masters put markers of rising level and falling radius on one spot — Clark
