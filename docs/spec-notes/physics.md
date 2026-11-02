@@ -668,7 +668,11 @@ playtest list 5 item 59].
   pass, which also recomputes the contacts of every awake body [design:
   `crates/fnv-phys/src/refresh.rs`; issue #1383 measured it at about 2 ms a frame]. Each
   change now says why the broad phase is stale (`DirtyReasons`, counted per refresh in
-  `PhysWorld::refresh_stats`). When the only changes since the last refresh or step are
+  `PhysWorld::refresh_stats`). At `AppExit`, the physics report in `Last` logs
+  `physics refresh summary:` with the full and fast refresh counts, every full-refresh
+  reason combination sorted by count (most first), and the number of physics steps
+  [design: `engine/nvf-play/src/phys.rs::report`,
+  `crates/fnv-phys/src/world.rs::steps`]. When the only changes since the last refresh or step are
   actor hit colliders that moved (nothing added, removed or rebuilt, nothing else
   changed), `update_queries` sets their world poses (body pose times parent-relative
   pose, the product rapier's next pass computes) and the queries test them directly,

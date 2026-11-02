@@ -6844,6 +6844,7 @@ env = { NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0" }
 args = ["--play", "--pos=-53760,-24200,6200", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
+  { re = 'physics refresh summary: \d+ full', label = "physics query refresh counts are reported at exit" },
   { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-5\d{4}, -2(39|40)\d\d, 6(1[89]\d|2[0-4]\d)\)', label = "up the steps and inside the camper (floor 6185-6215)" },
   { re = 'physics: the player.s drawn height took up [1-9]\d* steps and bumps, lifted ([4-9]|1\d|2[0-4])\.\d units at most', label = "the steps are climbed smoothly by the drawn body and view (playtest list 7 item 9, physics.md §6.11)" },
 ]

@@ -1484,6 +1484,17 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
     if exit.read().last().is_none() {
         return;
     }
+    let refresh = phys.world.refresh_stats();
+    let mut reasons: Vec<_> = refresh.by_reasons.iter().collect();
+    reasons.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
+    let reasons: Vec<_> = reasons.into_iter().map(|(reason, count)| format!("{reason} {count}")).collect();
+    info!(
+        "physics refresh summary: {} full refreshes, {} without a detection pass; full by reasons: {}; {} physics steps",
+        refresh.full,
+        refresh.fast,
+        if reasons.is_empty() { "none".to_string() } else { reasons.join(", ") },
+        phys.world.steps()
+    );
     let s = &phys.stats;
     info!(
         "physics streaming: {} cells loaded in {:.0} ms ({}), {} on the main thread for the player; longest streaming frame while playing {:.1} ms on the main thread; frames while playing {} (longest {:.1} ms, {} over 33 ms)",
