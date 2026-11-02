@@ -183,27 +183,17 @@ impl PhysWorld {
                 (p.part, (len / 2.0).max(0.0), p.radius)
             })
             .collect();
-        let locals: Vec<Pose> = parts
-            .iter()
-            .map(|p| {
-                let (pa, pb) = (Vector::from(p.a), Vector::from(p.b));
-                let mid = (pa + pb) * 0.5;
-                let dir = (pb - pa).try_normalize().unwrap_or(Vector::Z);
-                Pose::from_parts((mid - feet) * k, Rotation::from_rotation_arc(Vector::Z, dir))
-            })
-            .collect();
-        let layer = v.layer();
-        // Read before anything is written: the writes below go ahead either way, so rapier
-        // sees exactly the calls it always did; only the refresh is skipped when they
-        // change nothing.
-        let unchanged = self.parts_unchanged(form_id, v, parts, &want, &locals);
         self.actor_body(form_id, v);
         self.ensure_colliders(form_id, &want);
+        let layer = v.layer();
         let a = self.actors.get_mut(&form_id).expect("added");
         a.volume = v;
         for (i, p) in parts.iter().enumerate() {
             let (h, _, old_half, old_r) = a.colliders[i];
-            let local = locals[i];
+            let (pa, pb) = (Vector::from(p.a), Vector::from(p.b));
+            let mid = (pa + pb) * 0.5;
+            let dir = (pb - pa).try_normalize().unwrap_or(Vector::Z);
+            let local = Pose::from_parts((mid - feet) * k, Rotation::from_rotation_arc(Vector::Z, dir));
             let half = want[i].1;
             a.colliders[i].2 = half;
             a.colliders[i].3 = p.radius;
@@ -215,38 +205,7 @@ impl PhysWorld {
                 }
             }
         }
-        if !unchanged {
-            self.mark_dirty(DirtyReasons::ACTOR_PARTS);
-        }
-    }
-
-    /// Whether [`PhysWorld::set_actor_parts`] with these inputs would leave every stored
-    /// value as it is (exact equality, no tolerance): the same overall volume, body
-    /// translation, parts in the same order, stored sizes (so no shape is rebuilt and the
-    /// `RESIZE` comparisons of later calls are unchanged), parent-relative poses and
-    /// owners. Then the broad phase, the colliders' world poses and every query result
-    /// are what they were after the last refresh or step, and no refresh is needed
-    /// [design: rapier recomputes a collider's world pose only from its body's pose and
-    /// its parent-relative pose, `handle_user_changes_to_colliders` /
-    /// `RigidBodyColliders::update_positions`, rapier3d 0.36.0].
-    fn parts_unchanged(&self, form_id: u32, v: HitVolume, parts: &[PartCapsule], want: &[(u8, f32, f32)], locals: &[Pose]) -> bool {
-        let Some(a) = self.actors.get(&form_id) else { return false };
-        if a.volume != v || a.colliders.len() != parts.len() {
-            return false;
-        }
-        let Some(body) = self.w.bodies.get(a.body) else { return false };
-        if body.translation() != Vector::new(v.feet[0], v.feet[1], v.feet[2]) * self.k {
-            return false;
-        }
-        let layer = v.layer();
-        a.colliders.iter().zip(parts).zip(want).zip(locals).all(|(((&(h, part, half, radius), p), w), local)| {
-            part == p.part
-                && half == w.1
-                && radius == p.radius
-                && self.w.colliders.get(h).is_some_and(|co| {
-                    co.user_data == Owner::Actor { form_id, layer, part: p.part }.encode() && co.position_wrt_parent() == Some(local)
-                })
-        })
+        self.mark_dirty(DirtyReasons::ACTOR_PARTS);
     }
 
     /// Remove an actor's hit volume (it left the loaded area or was disabled).

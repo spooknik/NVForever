@@ -692,8 +692,9 @@ eligible moved actor hit colliders for direct queries without collision detectio
 deferring collision work to the next step. This changed contact-refresh timing and
 exact-tie selection versus main: equal-distance hits preferred the broad-phase hit,
 then actor FormID and capsule order for colliders tested directly, rather than the
-full pass's tree traversal order (`crates/fnv-phys/src/actors.rs`, `src/refresh.rs`,
-`src/world.rs` and `tests/refresh.rs` at revision `615449ad`).
+full pass's tree traversal order (`crates/fnv-phys/src/actors.rs`,
+`crates/fnv-phys/src/refresh.rs`, `crates/fnv-phys/src/world.rs` and
+`crates/fnv-phys/tests/refresh.rs` at revision `615449ad`).
 
 [observed] The reported stress-tour slice measurements at `615449ad` found no useful
 frame-time gain: −0.12 ms frame mean over three order-balanced default-release pairs,

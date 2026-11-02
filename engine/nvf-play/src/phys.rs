@@ -1489,9 +1489,8 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
     reasons.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
     let reasons: Vec<_> = reasons.into_iter().map(|(reason, count)| format!("{reason} {count}")).collect();
     info!(
-        "physics refresh summary: {} full refreshes, {} without a detection pass; full by reasons: {}; {} physics steps",
+        "physics refresh summary: {} full refreshes; full by reasons: {}; {} physics steps",
         refresh.full,
-        refresh.fast,
         if reasons.is_empty() { "none".to_string() } else { reasons.join(", ") },
         phys.world.steps()
     );
