@@ -230,7 +230,7 @@ fn show_knockouts(
                             res.put_walker(id, t.translation.to_array(), crate::nav::tr_heading(&t));
                         }
                         if let Some(p) = phys.as_deref_mut() {
-                            p.remove_npc(r.0);
+                            p.remove_npc(r.0, nvf_play::phys_work::NpcReason::HeldIdle);
                         }
                     }
                 }

@@ -338,7 +338,7 @@ impl PhysWorld {
                     .restitution(0.0)
                     .active_hooks(ActiveHooks::FILTER_CONTACT_PAIRS)
                     .user_data(owner);
-                self.w.insert_collider(c, Some(body));
+                self.insert_collider(c, Some(body));
             }
             if !at_rest && !held {
                 self.set_mass(body, o.mass);

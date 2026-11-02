@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# Pipeline timers are opt-in; default releases keep Rapier's timers compiled out.
+[features]
+profiler = ["rapier3d/profiler"]
+
 [dependencies]
 fnv-collide = { path = "../fnv-collide" }
 fnv-esm = { path = "../fnv-esm" }

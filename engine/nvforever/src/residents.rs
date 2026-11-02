@@ -57,6 +57,7 @@ use fnv_game::game::{Game, GameConfig};
 use fnv_game::GameData;
 use fnv_nav::follow::{arc_step, heading_delta, heading_of, turn_towards, Advice, Unstuck};
 use fnv_nav::{NavGraph, Space, Steer, WalkEvent, Walker};
+use nvf_play::phys_work::NpcReason;
 use nvf_play::blocking::ActorBlocks;
 use nvf_play::phys::PhysState;
 use fnv_sim::{clock, FormId, FormStore, RefTable, SimConfig, World};
@@ -272,11 +273,20 @@ impl Mover for PhysMover<'_> {
         let here = in_loaded_space(walker, phys);
         let skipped = self.skip_until.get(&id).is_some_and(|t| self.now < *t);
         if !here || skipped || walker.follower.is_none() || !phys.ready_at(walker.feet) {
-            phys.remove_npc(id);
+            let reason = if !here {
+                NpcReason::LeftUnloaded
+            } else if skipped {
+                NpcReason::RetrySkip
+            } else if walker.follower.is_none() {
+                NpcReason::NoPath
+            } else {
+                NpcReason::LeftUnloaded
+            };
+            phys.remove_npc(id, reason);
             return None;
         }
         if !phys.npcs.contains_key(&id) {
-            if !phys.add_npc(id, walker.feet) {
+            if !phys.add_npc(id, walker.feet, NpcReason::EnteredLoaded) {
                 return None;
             }
             // Put down where it was moved on to: stuck again there, it is moved on again
@@ -291,8 +301,8 @@ impl Mover for PhysMover<'_> {
         let feet = phys.npcs[&id].ch.feet;
         let mut f = walker.follower.take()?;
         // Back to the walker: where physics left the actor, on the same path.
-        let give_up = |phys: &mut PhysState, walker: &mut Walker, f| {
-            phys.remove_npc(id);
+        let give_up = |phys: &mut PhysState, walker: &mut Walker, f, reason| {
+            phys.remove_npc(id, reason);
             walker.follower = Some(f);
             walker.tri = fnv_nav::graph::NONE;
         };
@@ -300,12 +310,12 @@ impl Mover for PhysMover<'_> {
         if (feet[2] - walker.feet[2]).abs() > 400.0 {
             self.skip_until.insert(id, self.now + PHYSICS_RETRY);
             self.stats[1] += 1;
-            give_up(phys, walker, f);
+            give_up(phys, walker, f, NpcReason::Stuck);
             return None;
         }
         let (event, velocity) = match f.steer(feet) {
             Steer::Arrived => {
-                phys.remove_npc(id);
+                phys.remove_npc(id, NpcReason::Arrival);
                 walker.travelled += (feet[0] - walker.feet[0]).hypot(feet[1] - walker.feet[1]);
                 walker.feet = feet;
                 walker.turning = false;
@@ -329,7 +339,7 @@ impl Mover for PhysMover<'_> {
                 walker.heading = d.arrival_heading;
                 walker.tri = d.to;
                 walker.follower = Some(f);
-                phys.remove_npc(id);
+                phys.remove_npc(id, NpcReason::Door);
                 return Some(WalkEvent::UsedDoor(d));
             }
             // The last steps to the place itself are the walker's: packages send actors
@@ -340,7 +350,7 @@ impl Mover for PhysMover<'_> {
             Steer::Walk { remaining, .. } if remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() && !self.fighting.contains_key(&actor) => {
                 self.skip_until.insert(id, self.now + 4.0);
                 walker.feet = feet;
-                give_up(phys, walker, f);
+                give_up(phys, walker, f, NpcReason::LastStretch);
                 return None;
             }
             // Standing and facing away from the way to go: it turns on the spot first, as
@@ -382,7 +392,7 @@ impl Mover for PhysMover<'_> {
                     walker.travelled += dir[0].hypot(dir[1]);
                     walker.feet = to;
                     walker.turning = false;
-                    give_up(phys, walker, f);
+                    give_up(phys, walker, f, NpcReason::Stuck);
                     return Some(WalkEvent::Moved);
                 }
                 // Stuck: the navmesh surface from here, for a while.
@@ -391,7 +401,7 @@ impl Mover for PhysMover<'_> {
                     self.unstuck.remove(&id);
                     self.stats[1] += 1;
                     walker.feet = feet;
-                    give_up(phys, walker, f);
+                    give_up(phys, walker, f, NpcReason::Stuck);
                     return None;
                 }
             },
@@ -421,16 +431,16 @@ impl Mover for PhysMover<'_> {
         }
         let Some(phys) = self.phys.as_deref_mut() else { return false };
         if !in_loaded_space(walker, phys) || !phys.ready_at(walker.feet) {
-            phys.remove_npc(id);
+            phys.remove_npc(id, NpcReason::LeftUnloaded);
             return false;
         }
-        if !phys.npcs.contains_key(&id) && !phys.add_npc(id, walker.feet) {
+        if !phys.npcs.contains_key(&id) && !phys.add_npc(id, walker.feet, NpcReason::EnteredLoaded) {
             return false;
         }
         let feet = phys.npcs[&id].ch.feet;
         // Fallen out of the world.
         if (feet[2] - walker.feet[2]).abs() > 400.0 {
-            phys.remove_npc(id);
+            phys.remove_npc(id, NpcReason::Stuck);
             return false;
         }
         let speed = walker.moving_speed();
@@ -1214,7 +1224,7 @@ impl Core {
             };
             if ours {
                 if let Some(p) = phys.as_deref_mut() {
-                    p.remove_npc(id.0);
+                    p.remove_npc(id.0, NpcReason::ScriptMove);
                 }
                 self.unstuck.remove(&id.0);
                 self.skip_until.remove(&id.0);
@@ -1425,7 +1435,7 @@ impl Core {
             // Its character, if it had one, is made again where it is now (as after a
             // MoveTo, [`Core::take_moved`]).
             if let Some(p) = phys.as_deref_mut() {
-                p.remove_npc(r.actor.0);
+                p.remove_npc(r.actor.0, NpcReason::Arrival);
             }
             self.unstuck.remove(&r.actor.0);
             self.skip_until.remove(&r.actor.0);
@@ -1615,7 +1625,7 @@ impl Core {
         }
         for (id, by) in travel {
             let carried = self.ai.agents.get(&FormId(id)).filter(|_| !game.extra.get(&FormId(id)).is_some_and(|e| e.dead || e.restrained || e.out_cold())).is_some_and(|a| {
-                in_loaded_space(&a.walker, phys) && phys.ready_at(a.walker.feet) && (phys.npcs.contains_key(&id) || phys.add_npc(id, a.walker.feet))
+                in_loaded_space(&a.walker, phys) && phys.ready_at(a.walker.feet) && (phys.npcs.contains_key(&id) || phys.add_npc(id, a.walker.feet, NpcReason::Carried))
             });
             let Some(b) = phys.npcs.get_mut(&id).filter(|_| carried && dt > 0.0) else {
                 self.carries[1] += 1;
@@ -1790,7 +1800,7 @@ impl Core {
             }
             let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| held(FormId(*id)) || (!self.carried.contains_key(id) && self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling))).collect();
             for id in idle {
-                p.remove_npc(id);
+                p.remove_npc(id, NpcReason::HeldIdle);
                 self.unstuck.remove(&id);
             }
             // Nor does one go on while it staggers, whether or not the AI walked it this
@@ -1865,7 +1875,7 @@ impl Core {
         if let Some(p) = phys {
             let ids: Vec<u32> = p.npcs.keys().copied().collect();
             for id in ids {
-                p.remove_npc(id);
+                p.remove_npc(id, NpcReason::Wait);
             }
         }
         self.unstuck.clear();

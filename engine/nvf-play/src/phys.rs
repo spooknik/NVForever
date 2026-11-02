@@ -41,6 +41,7 @@ mod tests;
 mod trace;
 
 use crate::dropped;
+use crate::phys_work::{NpcReason, NpcWork};
 use crate::player::Player;
 use crate::sim::SimState;
 use crate::{Location, PlayData, PlayWorld, RefChanged, Travel};
@@ -73,6 +74,7 @@ pub const CELLS_BEHIND_LOADING_SCREEN: usize = 8;
 #[derive(Resource)]
 pub struct PhysState {
     pub world: PhysWorld,
+    pub npc_work: NpcWork,
     pub stepper: Stepper,
     /// The player's character, once placed.
     pub player: Option<Character>,
@@ -145,8 +147,11 @@ pub fn play_params() -> PhysParams {
 
 impl Default for PhysState {
     fn default() -> Self {
+        let mut world = PhysWorld::new(play_params());
+        world.measure_work();
         PhysState {
-            world: PhysWorld::new(play_params()),
+            world,
+            npc_work: NpcWork::default(),
             stepper: Stepper::default(),
             player: None,
             npcs: BTreeMap::new(),
@@ -1145,7 +1150,8 @@ impl PhysState {
     /// above them, as actors are placed under furniture and roofs). False when the
     /// collision around `feet` is not loaded or nothing is under them. The character
     /// passes through actor hit volumes (its own included).
-    pub fn add_npc(&mut self, id: u32, feet: [f32; 3]) -> bool {
+    pub fn add_npc(&mut self, id: u32, feet: [f32; 3], reason: NpcReason) -> bool {
+        self.npc_work.record(reason, false);
         if self.npcs.contains_key(&id) {
             return true;
         }
@@ -1163,7 +1169,8 @@ impl PhysState {
         true
     }
 
-    pub fn remove_npc(&mut self, id: u32) {
+    pub fn remove_npc(&mut self, id: u32, reason: NpcReason) {
+        self.npc_work.record(reason, true);
         if let Some(b) = self.npcs.remove(&id) {
             self.world.remove_character(b.ch);
         }
@@ -1193,7 +1200,7 @@ impl PhysState {
 
     pub fn reset(&mut self, space: Space) {
         for id in self.npcs.keys().copied().collect::<Vec<_>>() {
-            self.remove_npc(id);
+            self.remove_npc(id, NpcReason::LeftUnloaded);
         }
         self.standing.clear();
         self.loader.clear();
@@ -1325,7 +1332,7 @@ impl Plugin for PhysPlugin {
         app.init_resource::<PhysState>()
             .init_resource::<FrameTimes>()
             .add_systems(Startup, init_phys)
-            .add_systems(Last, (frame_times, report).chain())
+            .add_systems(Last, (work_frame, frame_times, report).chain())
             .add_message::<crate::RefRepose>()
             .add_systems(Update, (travel, ref_changed, stream, pose_doors).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
             .add_systems(PostUpdate, trace::trace);
@@ -1467,6 +1474,11 @@ struct FrameTimes {
     over_33: u32,
 }
 
+/// End-of-frame mutation counts include loading and zero-step frames [design].
+fn work_frame(mut phys: ResMut<PhysState>) {
+    phys.world.finish_work_frame();
+}
+
 fn frame_times(time: Res<Time>, phys: Res<PhysState>, mut f: ResMut<FrameTimes>) {
     // From the frame after the player is placed: startup loading is not walking.
     if phys.player.is_none() {
@@ -1494,6 +1506,9 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         if reasons.is_empty() { "none".to_string() } else { reasons.join(", ") },
         phys.world.steps()
     );
+    if let Some(work) = phys.world.work_stats() {
+        info!("physics work summary: {work}; {}", phys.npc_work.total);
+    }
     let s = &phys.stats;
     info!(
         "physics streaming: {} cells loaded in {:.0} ms ({}), {} on the main thread for the player; longest streaming frame while playing {:.1} ms on the main thread; frames while playing {} (longest {:.1} ms, {} over 33 ms)",

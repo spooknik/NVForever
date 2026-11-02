@@ -127,7 +127,7 @@ counted (`Meter::skip`). Controller moves are the player's (on the walking path)
 walked actor's per step; blocks is the mean length of the actor block list
 (`crate::blocking`); the two times are `Instant`-based, the whole system per frame and the
 steps alone per step. Without frame-time logging no `PhysLoad` statistics are kept, no
-`Instant` is read and the line is not logged (the `phys::*` spans are independent of it).
+`Instant` is read by `PhysLoad` and its line is not logged (the `phys::*` spans are independent of it).
 The two lines do not count the same frames: the physics counts cover the frames of the
 period in which the game was playing (less those skipped above), while the
 `frame time:` mean also counts frames that were not (menus, loading) and, only with
@@ -148,6 +148,73 @@ before a query). Held by furniture or flying with ToggleCollision the steps stil
 `PhysWorld::step`, so `phys::tick` holds the actors' zones, `phys::grip_buoy`,
 `phys::rapier_step` and perhaps `phys::query_refresh`, but not the walking path's
 `phys::blocks`, `phys::player_move`, `phys::world_step` and `phys::after` wrappers.
+
+#### Collision work and churn (#1383)
+
+[design: `crates/fnv-phys/src/work.rs`, `world.rs`; `engine/nvf-play/src/phys_work.rs`,
+`phys.rs`; `engine/nvforever/src/graphics.rs`] Immediately after each `physics:` period
+line, the same `--log-frame-times` gate logs `physics work: {work}; {npc}`. At AppExit,
+without requiring that flag (including stress tours), `phys::report` logs
+`physics work summary: {work}; {npc}` after the unchanged refresh summary. `{work}` and
+`{npc}` have this exact field order (angle brackets denote numeric values):
+
+```text
+steps=<n>; per-step mean/max awake=<mean>/<max> ragdoll=<mean>/<max> moving_kinematic=<mean>/<max> active_pairs=<mean>/<max> manifold_points=<mean>/<max>; rapier_ms total/mean/max=<total>/<mean>/<max>; detect_ms count/total/mean/max=<n>/<total>/<mean>/<max>; detect_top3=[<reasons>:<n>/<total>/<mean>/<max>, ...]; frames=<n>; per-frame total/mean/max bodies_added=<total>/<mean>/<max> bodies_removed=<total>/<mean>/<max> colliders_added=<total>/<mean>/<max> colliders_removed=<total>/<mean>/<max>; characters_added=<n> removed=<n>; profiler=off
+npc_calls add/remove=[entered_loaded:<add>/<remove>, left_unloaded:<add>/<remove>, arrival:<add>/<remove>, retry_skip:<add>/<remove>, stuck:<add>/<remove>, door:<add>/<remove>, last_stretch:<add>/<remove>, no_path:<add>/<remove>, script_move:<add>/<remove>, held_idle:<add>/<remove>, wait:<add>/<remove>, carried:<add>/<remove>, other:<add>/<remove>]
+```
+
+[design] Count means use two decimal places, count maxima/totals integers; times use
+three decimals, in milliseconds. `detect_top3` is empty when no refresh ran, otherwise
+up to three exact reason combinations, ordered by total detection time descending
+(ties by reason bits). Its numbers are count/total-ms/mean-ms/max-ms. Counts of refreshes
+are not counts of changed objects. Zero-step means and empty-frame means print zero.
+
+[design: `world.rs::step`, `update_queries`] Body counts are read before `step_world`,
+after grip/buoyancy and any pending-sleep refresh: dynamics that are awake, the subset
+in `ragdoll_of`, and moving kinematics (characters and any other kinematic bodies).
+Position-based kinematics count when next pose differs from current pose; velocity-based
+ones when linear or angular velocity is nonzero. After the step, `contact_pairs()` is
+filtered by `has_any_active_contact()`; points sum all manifold points in those pairs
+(including predictive points, not just solver contacts). These are per-step snapshots,
+not distinct bodies/pairs over the period. `Instant` surrounds only `step_world` or
+`detect()`: body/contact scans are outside the step timer and `phys::rapier_step` span;
+refresh wake/sleep repairs are outside the detection timer. The existing spans remain.
+
+[design: `world.rs::insert_body`, `remove_body`, `insert_collider`, `remove_collider`;
+`character.rs`] Mutations count actual insertions/removals, including attached colliders
+removed with a body, terrain's standalone colliders, and actor-part replacement. Character
+counts are actual characters (player included). `phys::work_frame` closes frames in
+`Last`, including loading/menu/zero-step frames. Period mutation samples cover completed
+frames; work/character/NPC counters cover calls since the previous logging boundary.
+As with `PhysLoad`, the boundary frame can fall in either period; these denominators
+are deliberately printed separately. Exit totals include the final completed frame.
+
+[design: `phys.rs::add_npc`, `remove_npc`; `nvforever/src/residents.rs`, `knockouts.rs`]
+NPC counts are **call attempts**, including already-present adds, failed ground probes,
+and absent removes; compare them with actual character churn. Every call supplies an
+enum reason. `entered_loaded` means a controller is requested for walking/coasting in
+loaded collision (including re-entry/retry), not necessarily a cell crossing. `stuck`
+includes falling far off the path; `last_stretch` is the handoff to navmesh near a package
+destination; `held_idle` includes death, restraint and knockout; `carried` is animation
+or knockback travel. In the combined walk rejection, reasons follow the existing
+short-circuit priority: outside space, retry skip, no path, collision not ready.
+
+[design: `fnv-phys/Cargo.toml`, `nvforever/Cargo.toml`] `PhysWorld` work measurement is
+opt-in; `PhysState::default` enables it once so tours retain lifetime totals. Other
+fnv-phys callers take no new timers or body/contact scans unless they call
+`measure_work()`. Fixed arrays hold period/lifetime sums and maxima; no allocations
+occur while recording frames/steps (strings are made only when logging). Measurement
+scans add CPU work to the enclosing system, so use the same instrumentation for
+comparisons. The old refresh-reason counts remain independent of this gate.
+
+[design] Only engine `profile`/`tracy` enables `fnv-phys/profiler` -> `rapier3d/profiler`.
+With it, replace `profiler=off` above with
+`step_broad_ms total/mean/max=<total>/<mean>/<max>; step_narrow_ms total/mean/max=<total>/<mean>/<max>`.
+These read `PhysicsPipeline::counters.broad_phase_time_ms()` and
+`narrow_phase_time_ms()` immediately after each step. They are Rapier's step collision
+stages, not refresh detection times, and exclude its separate final broad-phase/CCD
+timers. Default release builds do not enable the profiler feature. No physics inputs,
+query filters, simulation ordering or collision decisions are changed.
 
 ## 2. Item 4: the mantis ootheca
 

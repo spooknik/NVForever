@@ -480,13 +480,15 @@ expect = [
 name = "physics-load-line"
 source = "docs/design/frame-rate-audit.md (the physics line, zones phys::*) and issue #1383: with --log-frame-times the player's fixed steps are counted and timed, and one physics line is logged each period beside the frame time"
 areas = ["physics", "profiling"]
-paths = ["engine/nvf-play/src/phys_load.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/graphics.rs"]
+paths = ["crates/fnv-phys/src/work.rs", "crates/fnv-phys/src/world.rs", "engine/nvf-play/src/phys_work.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys_load.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/graphics.rs"]
 # A test aid makes the run unattended, so the player's own NVForever.ini is not read.
 env = { NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--log-frame-times", "5"]
 run_seconds = 25
 note = "The controller moves range [1, 1000] holds only on the walking path, where the player's controller counts as 1 a tick: a period spent seated or flying (ToggleCollision), or with no ticks, reads 0.0. Do not reuse this check for seated or noclip runs"
 expect = [
+  { re = 'physics work: steps=\d+; per-step mean/max awake=', min = 1, label = "physics collision work is reported each logging period" },
+  { re = 'physics work summary: steps=\d+;.*detect_ms count/total/mean/max=.*npc_calls add/remove=', label = "physics work totals and NPC churn are reported at exit" },
   { re = '\bframe time: \d', min = 1, label = "frame-time logging is enabled" },
   { re = 'physics: [\d.]+ ticks a frame \(max \d+\) over [1-9]\d* frames, (?P<n>[\d.]+) controller moves a tick \(max \d+\), [\d.]+ blocks, [\d.]+ ms a frame in player::step, [\d.]+ ms a tick', range = [1, 1000], label = "the physics line: at least the player's controller moves each tick" },
 ]
@@ -6855,11 +6857,12 @@ expect = [
 name = "camper-steps"
 source = "owner's playtest list 5, item 17 (docs/spec-notes/physics.md §6.9): the camper at the Powder Ganger camp south of Goodsprings; running north up its two door steps (10 and 20 units, 24-unit top) into it without a jump"
 areas = ["physics", "controls"]
-paths = ["crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
+paths = ["crates/fnv-phys/src/work.rs", "crates/fnv-phys/src/world.rs", "engine/nvf-play/src/phys_work.rs", "crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0" }
 args = ["--play", "--pos=-53760,-24200,6200", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
+  { re = 'physics work summary: steps=\d+;.*detect_ms count/total/mean/max=.*npc_calls add/remove=', label = "physics work totals are reported without frame-time logging" },
   { re = 'physics refresh summary: \d+ full', label = "physics query refresh counts are reported at exit" },
   { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-5\d{4}, -2(39|40)\d\d, 6(1[89]\d|2[0-4]\d)\)', label = "up the steps and inside the camper (floor 6185-6215)" },
   { re = 'physics: the player.s drawn height took up [1-9]\d* steps and bumps, lifted ([4-9]|1\d|2[0-4])\.\d units at most', label = "the steps are climbed smoothly by the drawn body and view (playtest list 7 item 9, physics.md §6.11)" },

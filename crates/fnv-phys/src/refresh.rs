@@ -61,6 +61,10 @@ impl DirtyReasons {
         self.0 |= other.0;
     }
 
+    pub(crate) fn from_bits(bits: u16) -> Self {
+        Self(bits)
+    }
+
     pub fn bits(self) -> u16 {
         self.0
     }

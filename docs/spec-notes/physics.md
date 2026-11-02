@@ -680,6 +680,31 @@ playtest list 5 item 59].
   first (`none` when empty); the last value is `world.steps()`
   [design: `engine/nvf-play/src/phys.rs::report`, `crates/fnv-phys/src/refresh.rs`,
   `crates/fnv-phys/src/world.rs::steps`].
+- **Physics work measurement** (#1383) [design: `crates/fnv-phys/src/work.rs`,
+  `world.rs`, `character.rs`; `engine/nvf-play/src/phys.rs`, `phys_work.rs`]: play enables
+  fixed-size period/lifetime counters, independent of frame-time logging. After the
+  refresh summary, AppExit prints `physics work summary: {work}; {npc}`; with
+  `--log-frame-times`, `graphics.rs` prints `physics work: {work}; {npc}` immediately
+  after each `physics:` line. The exact fields/precision are specified in
+  [Collision work and churn](../design/frame-rate-audit.md#collision-work-and-churn-1383).
+  `{work}` reports steps; mean/max awake dynamics, awake ragdoll dynamics, moving
+  kinematics, active contact pairs and their manifold points; Rapier step total/mean/max
+  milliseconds; detection count/total/mean/max milliseconds and its top three exact
+  reason combinations by total time; completed frames and body/collider additions and
+  removals (total/mean/max per frame); and actual character additions/removals.
+  Body counts precede the step, contact counts follow it; points include predictive
+  points of active pairs. `Instant` times only `step_world()` and `detect()`, excluding
+  diagnostic scans and refresh repairs. Attached collider removals count with their
+  removed body; all mutation paths use the same wrappers. Frame samples include zero
+  mutations and loading, closed in `Last` before the exit report. Period samples reset
+  at the graphics logging boundary; lifetime totals survive period resets and snapshots.
+  `{npc}` is `npc_calls add/remove=[reason:add/remove, ...]`: all enum reasons in fixed
+  order, counting attempts (including failed probes/absent removes), distinct from
+  successful character mutations. Calls in residents/knockouts/reset supply reasons;
+  no add/remove decisions change. No recording-time allocation is added. Headless worlds
+  opt in with `measure_work()`; play always opts in for tours. Engine `profile`/`tracy`
+  enables `fnv-phys/profiler` for Rapier step broad/narrow total/mean/max milliseconds;
+  otherwise the line says `profiler=off`. These are step-only timings, not `detect()`.
 - **f32 range**: a ray–sphere test from about 10,000 units away was off by about one unit
   (cancellation in the quadratic), from 100 units by under 0.01 [observed: tests]. Probes
   and activation rays should start near what they test; `fnvtool phys` starts ground rays

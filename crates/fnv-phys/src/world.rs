@@ -314,6 +314,7 @@ pub struct PhysWorld {
     dirty: DirtyReasons,
     /// Refreshes run by [`PhysWorld::update_queries`], by reason.
     refresh_stats: RefreshStats,
+    pub(crate) work: Option<Box<crate::work::WorkMeter>>,
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
     new_bodies: Vec<RigidBodyHandle>,
     /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or moved by
@@ -358,6 +359,7 @@ impl PhysWorld {
             shells: HashMap::new(),
             dirty: DirtyReasons::NONE,
             refresh_stats: RefreshStats::default(),
+            work: None,
             new_bodies: Vec::new(),
             struck: Vec::new(),
             pending_sleep: Vec::new(),
@@ -379,14 +381,14 @@ impl PhysWorld {
         self.remove_terrain(grid);
         // Dynamic bodies rest on the terrain's contact shell too (see `TERRAIN_SHELL`).
         let c = t.collider.user_data(Owner::Terrain { x: grid.0, y: grid.1 }.encode()).contact_skin(TERRAIN_SHELL * self.k);
-        let h = self.w.insert_collider(c, None);
+        let h = self.insert_collider(c, None);
         self.terrain.insert(grid, h);
         self.mark_dirty(DirtyReasons::TERRAIN);
     }
 
     pub fn remove_terrain(&mut self, grid: (i32, i32)) -> bool {
         let Some(h) = self.terrain.remove(&grid) else { return false };
-        self.w.remove_collider(h);
+        self.remove_collider(h);
         self.mark_dirty(DirtyReasons::TERRAIN);
         true
     }
@@ -452,7 +454,7 @@ impl PhysWorld {
             if o.restitution.is_finite() && o.restitution >= 0.0 {
                 c = c.restitution(o.restitution);
             }
-            let h = self.w.insert_collider(c, Some(body));
+            let h = self.insert_collider(c, Some(body));
             if !leaf.materials.is_empty() {
                 self.materials.insert(h, leaf.materials);
             } else if let Some(code) = o.code {
@@ -520,6 +522,10 @@ impl PhysWorld {
 
     pub(crate) fn remove_body(&mut self, b: RigidBodyHandle) {
         if let Some(body) = self.w.bodies.get(b) {
+            if let Some(work) = &mut self.work {
+                work.pending[1] += 1;
+                work.pending[3] += body.colliders().len() as u64;
+            }
             for c in body.colliders() {
                 self.materials.remove(c);
                 self.shells.remove(c);
@@ -724,8 +730,55 @@ impl PhysWorld {
 
     pub(crate) fn insert_body(&mut self, b: impl Into<RigidBody>) -> RigidBodyHandle {
         let h = self.w.insert_body(b);
+        if let Some(work) = &mut self.work {
+            work.pending[0] += 1;
+        }
         self.new_bodies.push(h);
         h
+    }
+
+    pub(crate) fn insert_collider(&mut self, c: impl Into<Collider>, parent: Option<RigidBodyHandle>) -> ColliderHandle {
+        let h = self.w.insert_collider(c, parent);
+        if let Some(work) = &mut self.work {
+            work.pending[2] += 1;
+        }
+        h
+    }
+
+    pub(crate) fn remove_collider(&mut self, h: ColliderHandle) {
+        if self.w.remove_collider(h).is_some() {
+            if let Some(work) = &mut self.work {
+                work.pending[3] += 1;
+            }
+        }
+    }
+
+    /// Enable detailed work measurement once, before inserting the world's bodies.
+    /// Other callers pay no timer/scanning cost unless they opt in [design].
+    pub fn measure_work(&mut self) {
+        if self.work.is_none() {
+            self.work = Some(Box::default());
+        }
+    }
+
+    pub fn work_stats(&self) -> Option<&crate::work::WorkStats> {
+        self.work.as_ref().map(|w| &w.total)
+    }
+
+    /// Close one render frame, including loading/zero-step frames, at the caller's boundary.
+    pub fn finish_work_frame(&mut self) {
+        if let Some(work) = &mut self.work {
+            work.frame();
+        }
+    }
+
+    /// Report and reset only the period. Lifetime totals and the open frame survive.
+    pub fn take_work_line(&mut self) -> Option<String> {
+        self.work.as_mut().map(|w| {
+            let line = w.period.to_string();
+            w.period = Default::default();
+            line
+        })
     }
 
     /// A body was moved by setting its position (a teleport), which wakes it: like a
@@ -749,9 +802,39 @@ impl PhysWorld {
             self.drive_grip();
             self.buoy();
         }
-        {
+        // Count input bodies before the step, including newly inserted/woken bodies
+        // that Rapier has not registered in its islands yet. Read-only, no allocation.
+        let mut counts = [0; 5];
+        if self.work.is_some() {
+            for (h, b) in self.w.bodies.iter() {
+                if b.is_dynamic() && !b.is_sleeping() {
+                    counts[0] += 1;
+                    counts[1] += u64::from(self.ragdoll_of.contains_key(&h));
+                }
+                if b.is_kinematic() {
+                    let moving = if b.body_type() == RigidBodyType::KinematicPositionBased {
+                        b.next_position() != b.position()
+                    } else {
+                        b.is_moving()
+                    };
+                    counts[2] += u64::from(moving);
+                }
+            }
+        }
+        let ms = {
             let _span = tracing::info_span!("phys::rapier_step").entered();
+            let start = self.work.as_ref().map(|_| std::time::Instant::now());
             self.step_world();
+            start.map(|t| t.elapsed().as_secs_f64() * 1e3)
+        };
+        if let (Some(work), Some(ms)) = (&mut self.work, ms) {
+            for pair in self.w.narrow_phase.contact_pairs().filter(|p| p.has_any_active_contact()) {
+                counts[3] += 1;
+                counts[4] += pair.manifolds().iter().map(|m| m.points.len() as u64).sum::<u64>();
+            }
+            work.step(counts, ms);
+            #[cfg(feature = "profiler")]
+            work.phases(self.w.physics_pipeline.counters.broad_phase_time_ms(), self.w.physics_pipeline.counters.narrow_phase_time_ms());
         }
         self.dirty = DirtyReasons::NONE;
         self.new_bodies.clear();
@@ -770,7 +853,11 @@ impl PhysWorld {
             self.refresh_stats.record_full(self.dirty);
             // Only when there is work: this is called before every query.
             let _span = tracing::info_span!("phys::query_refresh").entered();
+            let start = self.work.as_ref().map(|_| std::time::Instant::now());
             self.detect();
+            if let (Some(work), Some(start)) = (&mut self.work, start) {
+                work.refresh(self.dirty, start.elapsed().as_secs_f64() * 1e3);
+            }
             // rapier 0.36's collision-only pipeline consumes the change flags of bodies
             // inserted since the last step without registering them with the island
             // manager, so they would never move [observed: a dynamic box added, queried
@@ -901,6 +988,7 @@ impl PhysWorld {
             shells: self.shells.clone(),
             dirty: self.dirty,
             refresh_stats: self.refresh_stats.clone(),
+            work: self.work.clone(),
             new_bodies: self.new_bodies.clone(),
             struck: self.struck.clone(),
             pending_sleep: self.pending_sleep.clone(),

@@ -43,6 +43,7 @@ pub mod swim;
 pub mod terrain;
 pub mod water;
 pub mod world;
+pub mod work;
 
 pub use actors::{HitVolume, PartCapsule};
 pub use arrival::Arrival;

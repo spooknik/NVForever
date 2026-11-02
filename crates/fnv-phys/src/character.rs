@@ -326,13 +326,21 @@ impl PhysWorld {
         let body =
             self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()));
         let groups = InteractionGroups::new(CHARACTER_SOLVER, Group::ALL, InteractionTestMode::And);
-        self.w.insert_collider(ColliderBuilder::new(c.shape.clone()).user_data(owner.encode()).collision_groups(groups).solver_groups(groups), Some(body));
+        self.insert_collider(ColliderBuilder::new(c.shape.clone()).user_data(owner.encode()).collision_groups(groups).solver_groups(groups), Some(body));
         c.body = body;
+        if let Some(work) = &mut self.work {
+            work.character(false);
+        }
         self.mark_dirty(crate::refresh::DirtyReasons::CHARACTERS);
         c
     }
 
     pub fn remove_character(&mut self, c: Character) {
+        if let Some(work) = &mut self.work {
+            if self.w.bodies.contains(c.body) {
+                work.character(true);
+            }
+        }
         self.remove_body(c.body);
     }
 

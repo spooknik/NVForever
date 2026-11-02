@@ -113,13 +113,13 @@ impl PhysWorld {
         let body = a.body;
         let old: Vec<ColliderHandle> = a.colliders.iter().map(|c| c.0).collect();
         for c in old {
-            self.w.remove_collider(c);
+            self.remove_collider(c);
         }
         let k = self.k;
         let mut cols = Vec::new();
         for &(part, half, radius) in want {
             let co = ColliderBuilder::capsule_z(half * k, radius.max(1.0) * k).collision_groups(NO_CONTACTS).solver_groups(NO_CONTACTS);
-            let h = self.w.insert_collider(co, Some(body));
+            let h = self.insert_collider(co, Some(body));
             cols.push((h, part, half, radius));
         }
         if let Some(a) = self.actors.get_mut(&form_id) {

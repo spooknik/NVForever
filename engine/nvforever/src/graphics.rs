@@ -341,7 +341,7 @@ impl Plugin for GraphicsPlugin {
             app.init_resource::<nvf_play::phys_load::PhysLoad>();
             // (time in this period, time counted, slowest, frames counted, cycle index)
             #[allow(clippy::type_complexity)]
-            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>, mut phys_load: ResMut<nvf_play::phys_load::PhysLoad>| {
+            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>, (mut phys_load, mut phys): (ResMut<nvf_play::phys_load::PhysLoad>, Option<ResMut<nvf_play::phys::PhysState>>)| {
                 let first = start_shadows.is_none();
                 let start = *start_shadows.get_or_insert((sky.shadows, sky.shadow_distance, sky.shadow_cascades, thin.ratio));
                 if first {
@@ -371,8 +371,16 @@ impl Plugin for GraphicsPlugin {
                     info!("gpu time: {total:.2} ms in all top-level passes; {}", list.join(", "));
                     // The player's fixed steps over the whole period (none logged when no
                     // frame was played).
+                    let work = phys.as_deref_mut().and_then(|p| {
+                        let line = p.world.take_work_line();
+                        let npc = p.npc_work.take_period();
+                        line.map(|line| (line, npc))
+                    });
                     if let Some(line) = phys_load.take_line() {
                         info!("{line}");
+                        if let Some((line, npc)) = work {
+                            info!("physics work: {line}; {npc}");
+                        }
                     }
                     // What the shadow passes draw (Bevy times no shadow pass): the casters
                     // in each cascade of each light with shadows, per view.

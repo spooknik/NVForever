@@ -85,6 +85,7 @@ pub mod pad;
 pub mod pause;
 pub mod phys;
 pub mod phys_load;
+pub mod phys_work;
 pub mod pickpocket;
 pub mod pipboy;
 pub mod player;

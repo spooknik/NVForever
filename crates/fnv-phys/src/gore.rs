@@ -65,7 +65,7 @@ impl PhysWorld {
             .restitution(GORE_RESTITUTION)
             .active_hooks(ActiveHooks::FILTER_CONTACT_PAIRS)
             .user_data(owner);
-        self.w.insert_collider(c, Some(h));
+        self.insert_collider(c, Some(h));
         if s.mass > 0.0 && s.mass.is_finite() {
             self.set_mass(h, s.mass);
         }

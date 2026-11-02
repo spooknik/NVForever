@@ -81,3 +81,53 @@ fn refreshes_are_counted_by_the_reasons_that_called_for_them() {
     // A snapshot keeps the counts.
     assert_eq!(w.snapshot().refresh_stats(), w.refresh_stats());
 }
+
+#[test]
+fn work_measurement_preserves_states_and_queries() {
+    let mut plain = ground();
+    let mut measured = plain.snapshot();
+    assert!(plain.work_stats().is_none());
+    measured.measure_work();
+    for world in [&mut plain, &mut measured] {
+        world.add_ref(&at(7, [0.0, 0.0, 50.0]), &[object(Shape::Sphere { radius: 5.0 }, Motion::Dynamic)]);
+    }
+    for _ in 0..120 {
+        let a = plain.queries().ray([0.0, 0.0, 100.0], [0.0, 0.0, -1.0], 200.0, &Filter::default());
+        let b = measured.queries().ray([0.0, 0.0, 100.0], [0.0, 0.0, -1.0], 200.0, &Filter::default());
+        assert_eq!(a.map(|h| (h.owner, h.distance.to_bits())), b.map(|h| (h.owner, h.distance.to_bits())));
+        plain.step();
+        measured.step();
+        measured.finish_work_frame();
+        assert_eq!(plain.state_digest(), measured.state_digest());
+        assert_eq!(plain.refresh_stats(), measured.refresh_stats());
+    }
+    let total = measured.work_stats().unwrap().clone();
+    assert_eq!(total.rapier.count, 120);
+    assert_eq!(total.frame[0].sum, 1.0);
+    assert_eq!(total.detect.count, measured.refresh_stats().full);
+    assert_eq!(measured.snapshot().work_stats(), Some(&total));
+    assert!(measured.take_work_line().unwrap().starts_with("steps=120;"));
+    assert!(measured.take_work_line().unwrap().starts_with("steps=0;"));
+    assert_eq!(measured.work_stats(), Some(&total));
+}
+
+#[test]
+fn work_counts_actual_mutations_including_body_attached_colliders() {
+    let mut w = PhysWorld::new(PhysParams::default());
+    w.measure_work();
+    w.add_terrain((0, 0), &vec![0.0; SIDE * SIDE]);
+    let ch = w.add_character(1, CharacterParams::default(), [100.0, 100.0, 50.0]);
+    w.add_ref(&at(7, [200.0, 200.0, 50.0]), &[object(Shape::Sphere { radius: 5.0 }, Motion::Dynamic)]);
+    w.remove_character(ch);
+    w.remove_ref(7);
+    w.remove_ref(7); // An absent body is not another removal.
+    w.remove_terrain((0, 0));
+    w.remove_terrain((0, 0));
+    w.finish_work_frame();
+    w.finish_work_frame(); // Zero-mutation frames contribute to the mean.
+    let s = w.work_stats().unwrap();
+    assert_eq!(s.characters, [1, 1]);
+    assert_eq!(s.frame.map(|s| s.sum), [2.0, 2.0, 3.0, 3.0]);
+    assert_eq!(s.frame.map(|s| s.mean()), [1.0, 1.0, 1.5, 1.5]);
+    assert_eq!(s.frame.map(|s| s.max), [2.0, 2.0, 3.0, 3.0]);
+}
