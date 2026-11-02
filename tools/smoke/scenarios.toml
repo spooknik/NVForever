@@ -379,6 +379,7 @@ expect = [
   "graphics:",
   { re = '\bprofile: \d', max = 0, label = "no profile report when profiling is disabled" },
   { re = '\bframe time: \d', max = 0, label = "no frame-time report when frame-time logging is disabled" },
+  { re = 'physics: [\d.]+ ticks a frame', max = 0, label = "no physics-step report when frame-time logging is disabled" },
 ]
 
 [[scenario]]
@@ -473,6 +474,21 @@ run_seconds = 15
 expect = [
   { re = '\bprofile: \d', min = 1, label = "profile reporting remains enabled" },
   { re = '\bframe time: \d', min = 1, label = "frame-time logging remains enabled" },
+]
+
+[[scenario]]
+name = "physics-load-line"
+source = "docs/design/frame-rate-audit.md (the physics line, zones phys::*) and issue #1383: with --log-frame-times the player's fixed steps are counted and timed, and one physics line is logged each period beside the frame time"
+areas = ["physics", "profiling"]
+paths = ["engine/nvf-play/src/phys_load.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/graphics.rs"]
+# A test aid makes the run unattended, so the player's own NVForever.ini is not read.
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--log-frame-times", "5"]
+run_seconds = 25
+note = "The controller moves range [1, 1000] holds only on the walking path, where the player's controller counts as 1 a tick: a period spent seated or flying (ToggleCollision), or with no ticks, reads 0.0. Do not reuse this check for seated or noclip runs"
+expect = [
+  { re = '\bframe time: \d', min = 1, label = "frame-time logging is enabled" },
+  { re = 'physics: [\d.]+ ticks a frame \(max \d+\) over [1-9]\d* frames, (?P<n>[\d.]+) controller moves a tick \(max \d+\), [\d.]+ blocks, [\d.]+ ms a frame in player::step, [\d.]+ ms a tick', range = [1, 1000], label = "the physics line: at least the player's controller moves each tick" },
 ]
 
 [[scenario]]

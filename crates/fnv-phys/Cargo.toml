@@ -15,6 +15,9 @@ rapier3d = { version = "=0.36.0", features = ["enhanced-determinism"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# Spans round the parts of a fixed step (`PhysWorld::step`), seen as zones in the engine's
+# Tracy build; the version the other crates use.
+tracing = "0.1"
 
 [dev-dependencies]
 proptest = "1"

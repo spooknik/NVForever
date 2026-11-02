@@ -1032,7 +1032,7 @@ fn step(
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
     (limbs, pace, perk_pace, reload_pace): Paces,
-    turbo: Option<Res<crate::script::PlayerTimeScale>>,
+    (turbo, mut load): (Option<Res<crate::script::PlayerTimeScale>>, Option<ResMut<crate::phys_load::PhysLoad>>),
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
@@ -1041,6 +1041,9 @@ fn step(
         phys.stepper = default();
         return;
     }
+    // Measuring (`--log-frame-times`): the frame's and each step's time and counts, into
+    // `PhysLoad` (nothing is timed without it).
+    let mut meter = crate::phys_load::Meter::start(load.as_deref_mut());
     if let Some(at) = seat.hold.filter(|_| phys.player.is_some()) {
         // Held by furniture (`crate::furniture`): the world steps on, the character
         // stays where the furniture has it and collides with nothing. Movement asked
@@ -1055,8 +1058,11 @@ fn step(
         let n = p.stepper.advance(&p.world.params, time.delta_secs());
         let body = p.player.as_ref().map(|c| (at, c.params.radius, c.params.height));
         for _ in 0..n {
-            step_npcs_alone(&mut p.world, &mut p.npcs, body, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
+            let _tick = info_span!("phys::tick").entered();
+            let began = meter.now();
+            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, body, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
             p.world.step();
+            meter.tick(began, p.npcs.len(), listed);
         }
         if let Some(c) = p.player.as_mut() {
             p.world.place_character(c, at);
@@ -1087,14 +1093,17 @@ fn step(
             f.forget(c.id);
         }
         for _ in 0..n {
+            let _tick = info_span!("phys::tick").entered();
+            let began = meter.now();
             p.prev_feet = c.feet;
             let to = [c.feet[0] + v[0] * dt, c.feet[1] + v[1] * dt, c.feet[2] + v[2] * dt];
             p.world.place_character(c, to);
             // Not falling: no fall, landing or fall damage while it flies.
             c.grounded = true;
             c.ground_gap = Some(0.0);
-            step_npcs_alone(&mut p.world, &mut p.npcs, None, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
+            let listed = step_npcs_alone(&mut p.world, &mut p.npcs, None, blocks.as_deref_mut(), falls.as_deref_mut(), &mut fell);
             p.world.step();
+            meter.tick(began, p.npcs.len(), listed);
         }
         if v != [0.0; 3] {
             player.placed = None;
@@ -1104,9 +1113,15 @@ fn step(
         player.feet = lerp3(p.prev_feet, c.feet, alpha);
         return;
     }
-    let Some(feet) = phys.player.as_ref().map(|c| c.feet) else { return };
+    // A frame with no player character or waiting for a cell is not a played frame for
+    // `PhysLoad`: the meter is dropped without recording it.
+    let Some(feet) = phys.player.as_ref().map(|c| c.feet) else {
+        meter.skip();
+        return;
+    };
     if !phys.ready_at(feet) {
         // Walked into a cell that is not loaded yet: wait for it.
+        meter.skip();
         phys.stepper = default();
         status.waiting_frames += 1;
         return;
@@ -1129,6 +1144,8 @@ fn step(
         lunge.owed = [0.0; 2];
     }
     for i in 0..n {
+        let _tick = info_span!("phys::tick").entered();
+        let began = meter.now();
         // Swimming or not is the character's state after the last step.
         let [vx, vy, vz] = if d.auto_walk > 0.0 {
             let (s, c) = player.heading.sin_cos();
@@ -1182,6 +1199,8 @@ fn step(
         // another system walks) are blocks too, where they are at this step, and pass
         // through each other's bodies: this rule alone keeps them apart. The player's
         // block gives way when the player stands still on the ground.
+        let blocks_span = info_span!("phys::blocks").entered();
+        let mut listed = None;
         let mut go = [vx, vy];
         let mut walking: Vec<[f32; 2]> = p.npcs.values().map(|b| b.velocity).collect();
         let mut pushed = [0.0f32; 2];
@@ -1197,6 +1216,7 @@ fn step(
             let mut all = std::mem::take(&mut b.list);
             all.extend(p.npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, n.ch.params.radius, n.ch.params.height, false)));
             all.push(Block::character(PLAYER, c.feet, c.params.radius, c.params.height, standing));
+            listed = Some(all.len());
             // First the walking actors: what they push is their owner's to move, but for
             // the player, which their pushes move in this step.
             let mut pushes: Vec<Push> = Vec::new();
@@ -1227,6 +1247,8 @@ fn step(
             all.truncate(placed);
             b.list = all;
         }
+        drop(blocks_span);
+        let move_span = info_span!("phys::player_move").entered();
         let was_swimming = c.swimming;
         let was_on_ground = c.grounded && !c.swimming;
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
@@ -1252,10 +1274,17 @@ fn step(
                 b.player_held = crate::blocking::HELD_STEPS;
             }
         }
+        drop(move_span);
         move_npcs(&mut p.world, &mut p.npcs, walking, falls.as_deref_mut(), &mut fell, dt);
-        p.world.step();
+        {
+            let _span = info_span!("phys::world_step").entered();
+            p.world.step();
+        }
         status.record(&s, p.prev_feet, [vx, vy], dt);
+        // The player's controller and each walked actor's.
+        meter.tick(began, 1 + p.npcs.len(), listed);
     }
+    let _after = info_span!("phys::after").entered();
     if n > 0 {
         intent.jump = false;
     }
@@ -1282,6 +1311,7 @@ fn move_npcs(
     fell: &mut MessageWriter<crate::falls::Fell>,
     dt: f32,
 ) {
+    let plan_span = info_span!("phys::npc_plan").entered();
     world.update_queries();
     let reader = &*world;
     let mut moving: Vec<(u32, &mut crate::phys::NpcBody, [f32; 2])> = npcs.iter_mut().zip(walking).map(|((&id, b), v)| (id, b, v)).collect();
@@ -1296,6 +1326,8 @@ fn move_npcs(
     } else {
         moving.par_chunk_map_mut(ComputeTaskPool::get(), MOVE_CHUNK, |_, chunk| chunk.iter_mut().map(|(_, b, v)| plan(b, *v)).collect::<Vec<_>>()).into_iter().flatten().collect()
     };
+    drop(plan_span);
+    let _apply = info_span!("phys::npc_apply").entered();
     for ((id, b, _), (was_on_ground, s, push)) in moving.into_iter().zip(plans) {
         world.apply_move(&b.ch, push);
         let (f, from) = (b.ch.feet, b.prev_feet);
@@ -1312,7 +1344,8 @@ fn move_npcs(
 /// their paths every second (owner report 2026-10-27: Doc Mitchell "teleporting" to his
 /// chair with the player already on the couch). They keep apart by `crate::blocking` as in
 /// a step of the player's; the player's block is where the furniture holds it, not pushed,
-/// or none when the player passes through everything.
+/// or none when the player passes through everything. Returns the length of the step's
+/// block list (none without `ActorBlocks`), for `crate::phys_load`.
 fn step_npcs_alone(
     world: &mut fnv_phys::PhysWorld,
     npcs: &mut std::collections::BTreeMap<u32, crate::phys::NpcBody>,
@@ -1320,9 +1353,10 @@ fn step_npcs_alone(
     blocks: Option<&mut crate::blocking::ActorBlocks>,
     falls: Option<&mut crate::falls::Falls>,
     fell: &mut MessageWriter<crate::falls::Fell>,
-) {
+) -> Option<usize> {
     use crate::blocking::{clip, Block, Push, PLAYER};
     let dt = world.params.dt;
+    let mut listed = None;
     let mut walking: Vec<[f32; 2]> = npcs.values().map(|b| b.velocity).collect();
     for n in npcs.values_mut() {
         n.ch.passes_characters = blocks.is_some();
@@ -1334,6 +1368,7 @@ fn step_npcs_alone(
         if let Some((feet, radius, height)) = player {
             all.push(Block::character(PLAYER, feet, radius, height, false));
         }
+        listed = Some(all.len());
         let mut pushes: Vec<Push> = Vec::new();
         let mut stopped = false;
         for (v, n) in walking.iter_mut().zip(npcs.values()) {
@@ -1353,6 +1388,7 @@ fn step_npcs_alone(
         b.list = all;
     }
     move_npcs(world, npcs, walking, falls, fell, dt);
+    listed
 }
 
 /// Feet, cell, heading and pitch last written to the simulation.

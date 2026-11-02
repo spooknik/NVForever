@@ -336,9 +336,12 @@ impl Plugin for GraphicsPlugin {
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
             // GPU time per render pass (timestamp queries), logged with the frame time.
             ensure_render_diagnostics(app);
+            // What the player's fixed steps cost, counted while this resource exists and
+            // logged with the frame time (`nvf_play::phys_load`).
+            app.init_resource::<nvf_play::phys_load::PhysLoad>();
             // (time in this period, time counted, slowest, frames counted, cycle index)
             #[allow(clippy::type_complexity)]
-            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>| {
+            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>, mut phys_load: ResMut<nvf_play::phys_load::PhysLoad>| {
                 let first = start_shadows.is_none();
                 let start = *start_shadows.get_or_insert((sky.shadows, sky.shadow_distance, sky.shadow_cascades, thin.ratio));
                 if first {
@@ -366,6 +369,11 @@ impl Plugin for GraphicsPlugin {
                     let total: f64 = passes.iter().filter(|(n, _)| !n.contains('/')).map(|(_, t)| t).sum();
                     let list: Vec<String> = passes.iter().filter(|(n, _)| !n.contains('/')).take(12).map(|(n, t)| format!("{n} {t:.2}")).collect();
                     info!("gpu time: {total:.2} ms in all top-level passes; {}", list.join(", "));
+                    // The player's fixed steps over the whole period (none logged when no
+                    // frame was played).
+                    if let Some(line) = phys_load.take_line() {
+                        info!("{line}");
+                    }
                     // What the shadow passes draw (Bevy times no shadow pass): the casters
                     // in each cascade of each light with shadows, per view.
                     let mut casters = Vec::new();
