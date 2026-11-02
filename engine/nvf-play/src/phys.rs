@@ -147,10 +147,8 @@ pub fn play_params() -> PhysParams {
 
 impl Default for PhysState {
     fn default() -> Self {
-        let mut world = PhysWorld::new(play_params());
-        world.measure_work();
         PhysState {
-            world,
+            world: PhysWorld::new(play_params()),
             npc_work: NpcWork::default(),
             stepper: Stepper::default(),
             player: None,
@@ -1331,11 +1329,24 @@ impl Plugin for PhysPlugin {
         }
         app.init_resource::<PhysState>()
             .init_resource::<FrameTimes>()
+            .add_systems(PreStartup, enable_work_measurement)
             .add_systems(Startup, init_phys)
             .add_systems(Last, (work_frame, frame_times, report).chain())
             .add_message::<crate::RefRepose>()
             .add_systems(Update, (travel, ref_changed, stream, pose_doors).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
             .add_systems(PostUpdate, trace::trace);
+    }
+}
+
+/// All plugins have inserted their resources, but no startup/streaming system has
+/// inserted bodies yet: preserve `PhysWorld::measure_work`'s whole-world totals.
+fn enable_work_measurement(
+    load: Option<Res<crate::phys_load::PhysLoad>>,
+    aid: Option<Res<crate::test_aid::MeasurePhysWork>>,
+    mut phys: ResMut<PhysState>,
+) {
+    if load.is_some() || aid.is_some() {
+        phys.world.measure_work();
     }
 }
 

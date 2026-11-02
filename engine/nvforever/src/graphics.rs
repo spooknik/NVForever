@@ -338,6 +338,7 @@ impl Plugin for GraphicsPlugin {
             ensure_render_diagnostics(app);
             // What the player's fixed steps cost, counted while this resource exists and
             // logged with the frame time (`nvf_play::phys_load`).
+            // PhysPlugin also uses its presence in PreStartup to enable world work measurement.
             app.init_resource::<nvf_play::phys_load::PhysLoad>();
             // (time in this period, time counted, slowest, frames counted, cycle index)
             #[allow(clippy::type_complexity)]

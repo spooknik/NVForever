@@ -682,8 +682,12 @@ playtest list 5 item 59].
   `crates/fnv-phys/src/world.rs::steps`].
 - **Physics work measurement** (#1383) [design: `crates/fnv-phys/src/work.rs`,
   `world.rs`, `character.rs`; `engine/nvf-play/src/phys.rs`, `phys_work.rs`]: play enables
-  fixed-size period/lifetime counters, independent of frame-time logging. After the
-  refresh summary, AppExit prints `physics work summary: {work}; {npc}`; with
+  fixed-size period/lifetime counters only with `--log-frame-times` or
+  `NVF_PLAY_TEST_PHYS_WORK=1`. `PhysPlugin` opts in during `PreStartup`, before any
+  startup or streaming body insertion. Without either, no work timers, body/contact
+  scans or work statistics are recorded. The NPC attempt counters remain plain
+  fixed-array integer increments. The refresh summary is always logged; only when
+  work measurement is enabled does AppExit print `physics work summary: {work}; {npc}`. With
   `--log-frame-times`, `graphics.rs` prints `physics work: {work}; {npc}` immediately
   after each `physics:` line. The exact fields/precision are specified in
   [Collision work and churn](../design/frame-rate-audit.md#collision-work-and-churn-1383).
@@ -702,7 +706,8 @@ playtest list 5 item 59].
   order, counting attempts (including failed probes/absent removes), distinct from
   successful character mutations. Calls in residents/knockouts/reset supply reasons;
   no add/remove decisions change. No recording-time allocation is added. Headless worlds
-  opt in with `measure_work()`; play always opts in for tours. Engine `profile`/`tracy`
+  opt in with `measure_work()` before inserting bodies; tours opt in with
+  `python tools/stress run tour ... --aid NVF_PLAY_TEST_PHYS_WORK=1`. Engine `profile`/`tracy`
   enables `fnv-phys/profiler` for Rapier step broad/narrow total/mean/max milliseconds;
   otherwise the line says `profiler=off`. These are step-only timings, not `detect()`.
 - **f32 range**: a ray–sphere test from about 10,000 units away was off by about one unit

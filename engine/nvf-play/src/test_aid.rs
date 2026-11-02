@@ -88,12 +88,17 @@
 //! - `NVF_PLAY_TEST_PHYS_TRACE=<seconds>[:<every seconds>]` (phys/trace.rs): log every
 //!   placed reference with a dynamic body for that long after its cell loads — offsets,
 //!   turns, speeds and the overlaps found after the first step (physics.md §4.3.1).
+//! - `NVF_PLAY_TEST_PHYS_WORK=1`: enable physics work counts/timings before the first
+//!   bodies are inserted and log their exit summary, including in stress tours via
+//!   `python tools/stress run tour ... --aid NVF_PLAY_TEST_PHYS_WORK=1`.
+//!   Otherwise work measurement requires `--log-frame-times`; periodic work lines
+//!   still require that flag. This aid leaves play attended.
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
 //! view (as with `--auto-walk`). Not the aids that only measure ([`MEASURING_AIDS`]:
-//! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`): with them alone the run is played by
-//! hand as usual and only logs its frame times, and a load's new run keeps them
+//! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PHYS_WORK`): with them
+//! alone the run is played by hand as usual and only logs measurements, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //!
 //! Debug switches for a session played by hand (off unless set; development tools, not
@@ -354,9 +359,13 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
     fired.into_iter().map(|(_, v)| v).collect()
 }
 
-/// The test aids that only log what the run costs (nvforever stress_sample.rs and
-/// profile.rs): they leave the run attended, and a load's new run keeps them.
-pub const MEASURING_AIDS: [&str; 2] = ["NVF_PLAY_TEST_SAMPLE", "NVF_PLAY_TEST_PROFILE"];
+/// The test aids that only log what the run costs (nvforever stress_sample.rs,
+/// profile.rs and play phys.rs): they leave the run attended, and a load's new run keeps them.
+pub const MEASURING_AIDS: [&str; 3] = ["NVF_PLAY_TEST_SAMPLE", "NVF_PLAY_TEST_PROFILE", "NVF_PLAY_TEST_PHYS_WORK"];
+
+/// Opt in to physics work measurement without periodic frame-time logging.
+#[derive(Resource)]
+pub(crate) struct MeasurePhysWork;
 
 /// Whether this environment variable is a test aid that drives the run (any
 /// `NVF_PLAY_TEST_*` but the [`MEASURING_AIDS`]).
@@ -433,6 +442,9 @@ pub(crate) fn setup(app: &mut App) {
         }
     }
     let var = |name: &str| std::env::var(name).ok();
+    if var("NVF_PLAY_TEST_PHYS_WORK").as_deref() == Some("1") {
+        app.insert_resource(MeasurePhysWork);
+    }
     if let Some(v) = var("NVF_PLAY_TEST_KEYS") {
         match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| real_input(r).map(|k| (s, k))).collect()) {
             Ok(due) => {
@@ -750,6 +762,8 @@ mod tests {
     fn measuring_aids_leave_the_run_attended() {
         assert!(!drives_run("NVF_PLAY_TEST_SAMPLE"));
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE"));
+        assert!(!drives_run("NVF_PLAY_TEST_PHYS_WORK"));
+        assert!(drives_run("NVF_PLAY_TEST_PHYS_WORK_X"));
         assert!(drives_run("NVF_PLAY_TEST_GOD"));
         assert!(drives_run("NVF_PLAY_TEST_SAMPLE_X"), "only the exact names measure");
         assert!(!drives_run("NVF_PLAY_DEBUG_GIVE"));

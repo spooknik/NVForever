@@ -10,6 +10,27 @@ use fnv_world::land::SIDE;
 use fnv_world::WorldIndex;
 use prepare::{Entry, RefShapes};
 
+#[test]
+fn work_measurement_requires_logging_or_the_aid_before_startup() {
+    for (logging, aid) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut app = App::new();
+        app.init_resource::<PhysState>();
+        assert!(app.world().resource::<PhysState>().world.work_stats().is_none());
+        if logging {
+            app.init_resource::<crate::phys_load::PhysLoad>();
+        }
+        if aid {
+            app.insert_resource(crate::test_aid::MeasurePhysWork);
+        }
+        app.add_systems(PreStartup, enable_work_measurement);
+        app.add_systems(Startup, move |phys: Res<PhysState>| {
+            assert_eq!(phys.world.work_stats().is_some(), logging || aid);
+            assert!(phys.cells.is_empty());
+        });
+        app.update();
+    }
+}
+
 fn sim() -> SimState {
     let forms: &'static FormStore = Box::leak(Box::default());
     let refs: &'static RefTable = Box::leak(Box::default());

@@ -34,6 +34,7 @@ untimed = [
   "NVF_PLAY_TEST_SCRIPT_MENUS", "NVF_PLAY_TEST_GIVE", "NVF_PLAY_TEST_EQUIP", "NVF_PLAY_TEST_NEAR",
   "NVF_PLAY_TEST_MENU", "NVF_PLAY_TEST_BARTER", "NVF_PLAY_TEST_BARTER_DELAY", "NVF_PLAY_TEST_NO_SPREAD",
   "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_TALK_HEAD_ONLY", "NVF_PLAY_TEST_UNSEEN",
+  "NVF_PLAY_TEST_PHYS_WORK",
   "NVF_PLAY_AIDS_FROM_SCRIPTS",
 ]
 
@@ -372,7 +373,7 @@ name = "render-diagnostics-disabled"
 source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: the profile aid and frame-time logging each register Bevy render diagnostics only when enabled; neither option should request the diagnostics plugin"
 note = "Source-reviewed on pinned Bevy 0.20.1; default-build startup/output verification passes; broader profiling validation remains"
 areas = ["renderer", "graphics", "profiling"]
-paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/test_aid.rs"]
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 15
 expect = [
@@ -380,6 +381,7 @@ expect = [
   { re = '\bprofile: \d', max = 0, label = "no profile report when profiling is disabled" },
   { re = '\bframe time: \d', max = 0, label = "no frame-time report when frame-time logging is disabled" },
   { re = 'physics: [\d.]+ ticks a frame', max = 0, label = "no physics-step report when frame-time logging is disabled" },
+  { re = 'physics work summary:', max = 0, label = "no physics work measurement without frame-time logging or the aid" },
 ]
 
 [[scenario]]
@@ -6858,11 +6860,11 @@ name = "camper-steps"
 source = "owner's playtest list 5, item 17 (docs/spec-notes/physics.md §6.9): the camper at the Powder Ganger camp south of Goodsprings; running north up its two door steps (10 and 20 units, 24-unit top) into it without a jump"
 areas = ["physics", "controls"]
 paths = ["crates/fnv-phys/src/work.rs", "crates/fnv-phys/src/world.rs", "engine/nvf-play/src/phys_work.rs", "crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0" }
+env = { NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0", NVF_PLAY_TEST_PHYS_WORK = "1" }
 args = ["--play", "--pos=-53760,-24200,6200", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
-  { re = 'physics work summary: steps=\d+;.*detect_ms count/total/mean/max=.*npc_calls add/remove=', label = "physics work totals are reported without frame-time logging" },
+  { re = 'physics work summary: steps=\d+;.*detect_ms count/total/mean/max=.*npc_calls add/remove=', label = "physics work totals are reported with the aid without frame-time logging" },
   { re = 'physics refresh summary: \d+ full', label = "physics query refresh counts are reported at exit" },
   { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-5\d{4}, -2(39|40)\d\d, 6(1[89]\d|2[0-4]\d)\)', label = "up the steps and inside the camper (floor 6185-6215)" },
   { re = 'physics: the player.s drawn height took up [1-9]\d* steps and bumps, lifted ([4-9]|1\d|2[0-4])\.\d units at most', label = "the steps are climbed smoothly by the drawn body and view (playtest list 7 item 9, physics.md §6.11)" },

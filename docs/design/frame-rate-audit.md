@@ -154,7 +154,7 @@ before a query). Held by furniture or flying with ToggleCollision the steps stil
 [design: `crates/fnv-phys/src/work.rs`, `world.rs`; `engine/nvf-play/src/phys_work.rs`,
 `phys.rs`; `engine/nvforever/src/graphics.rs`] Immediately after each `physics:` period
 line, the same `--log-frame-times` gate logs `physics work: {work}; {npc}`. At AppExit,
-without requiring that flag (including stress tours), `phys::report` logs
+only when measurement was enabled by that flag or `NVF_PLAY_TEST_PHYS_WORK=1`, `phys::report` logs
 `physics work summary: {work}; {npc}` after the unchanged refresh summary. `{work}` and
 `{npc}` have this exact field order (angle brackets denote numeric values):
 
@@ -200,9 +200,14 @@ or knockback travel. In the combined walk rejection, reasons follow the existing
 short-circuit priority: outside space, retry skip, no path, collision not ready.
 
 [design: `fnv-phys/Cargo.toml`, `nvforever/Cargo.toml`] `PhysWorld` work measurement is
-opt-in; `PhysState::default` enables it once so tours retain lifetime totals. Other
-fnv-phys callers take no new timers or body/contact scans unless they call
-`measure_work()`. Fixed arrays hold period/lifetime sums and maxima; no allocations
+opt-in; `PhysState::default` leaves it off. `PhysPlugin` enables it in `PreStartup`,
+before startup or streaming can insert bodies, if `--log-frame-times` inserted
+`PhysLoad` or the test aid `NVF_PLAY_TEST_PHYS_WORK=1` is set. Stress tours opt in with
+`python tools/stress run tour ... --aid NVF_PLAY_TEST_PHYS_WORK=1`. Without either,
+no work timers, body/contact scans or work statistics are recorded and no work summary
+is logged. The NPC attempt counters remain plain fixed-array integer increments.
+Other fnv-phys callers opt in with `measure_work()` before inserting bodies.
+Fixed arrays hold period/lifetime sums and maxima; no allocations
 occur while recording frames/steps (strings are made only when logging). Measurement
 scans add CPU work to the enclosing system, so use the same instrumentation for
 comparisons. The old refresh-reason counts remain independent of this gate.
