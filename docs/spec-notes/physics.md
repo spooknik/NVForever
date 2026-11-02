@@ -663,40 +663,50 @@ playtest list 5 item 59].
   `a_sleeping_body_struck_then_queried_still_moves`; in play, a bottle shot off a fence
   stayed put]. `update_queries` puts such a body to sleep and wakes it with its velocity
   again.
-- **Refresh of moved actor hit colliders**: posing the actors' body part capsules every
-  frame (`set_actor_parts`) made the first query of each frame run the whole collision
-  pass, which also recomputes the contacts of every awake body [design:
-  `crates/fnv-phys/src/refresh.rs`; issue #1383 measured it at about 2 ms a frame]. Each
-  change now says why the broad phase is stale (`DirtyReasons`, counted per refresh in
-  `PhysWorld::refresh_stats`). At `AppExit`, the physics report in `Last` logs
-  `physics refresh summary:` with the full and fast refresh counts, every full-refresh
-  reason combination sorted by count (most first), and the number of physics steps
-  [design: `engine/nvf-play/src/phys.rs::report`,
-  `crates/fnv-phys/src/world.rs::steps`]. When the only changes since the last refresh or step are
-  actor hit colliders that moved (nothing added, removed or rebuilt, nothing else
-  changed), `update_queries` sets their world poses (body pose times parent-relative
-  pose, the product rapier's next pass computes) and the queries test them directly,
-  leaving the broad phase and every change flag for the next pass. Eligible actor-only
-  query refreshes skip collision detection and leave deferred processing to the next
-  step. This deliberately changes contact-refresh timing versus the earlier behaviour,
-  where the detection pass ran before most first steps of a frame and rebuilt the
-  contacts of awake pairs at a zero time step without clustering; mixed changes still
-  run detection. Query results on tie-free probes are those of the full pass
-  (`update_queries_full`), and the steps after such a refresh are those of a world that
-  was not queried [design: test
-  `tie_free_queries_match_the_full_pass_and_steps_match_an_unqueried_copy`]. Exact-tie
-  selection may change: exact-distance ties may select a different
-  collider than the full pass: the fast path keeps a broad-phase hit over a kept-aside
-  collider at the same distance and orders kept-aside colliders by actor FormID, then
-  capsule order, while the full pass takes whichever its tree traversal meets first;
-  this includes distance-0 ties when a ray or sweep starts inside overlapping shapes
-  [design: test `exact_ties_follow_the_documented_order`]. Also deferred to the next
-  step: the pass's begin-touch wake-ups and its refresh of contact diagnostics
-  (`ref_contacts`). Setting the same part capsules again marks nothing.
+- **Query refresh measurement** (#1383, Stage 0): changes accumulate in `DirtyReasons`
+  until the next refresh or physics step. The reasons are `actor_parts`, `actor_volume`,
+  `bodies`, `doors`, `characters`, `placed`, `ragdolls`, `gore`, `terrain` and `sleep`;
+  `pending_refresh()` exposes the current set. When dirty, `update_queries()` counts
+  one full collision detection pass in `RefreshStats::full` and one entry for the
+  complete reason combination in `by_reasons`, then runs detection. Repeated queries
+  while clean count nothing. A physics step clears the reasons without counting its
+  simulation pass as a refresh; its preliminary `update_queries()` for bodies added
+  asleep does count. `refresh_stats()` exposes the totals accumulated since world
+  creation, and snapshots preserve them. These counters do not change refresh behaviour
+  [design: `crates/fnv-phys/src/refresh.rs`, `crates/fnv-phys/src/world.rs`].
+  At `AppExit`, the physics report in `Last` logs
+  `physics refresh summary: {} full refreshes; full by reasons: {}; {} physics steps`.
+  Reason combinations are joined with `+` and listed with their counts, most frequent
+  first (`none` when empty); the last value is `world.steps()`
+  [design: `engine/nvf-play/src/phys.rs::report`, `crates/fnv-phys/src/refresh.rs`,
+  `crates/fnv-phys/src/world.rs::steps`].
 - **f32 range**: a ray–sphere test from about 10,000 units away was off by about one unit
   (cancellation in the quadratic), from 100 units by under 0.01 [observed: tests]. Probes
   and activation rays should start near what they test; `fnvtool phys` starts ground rays
   1,000 units above the highest loaded terrain.
+
+### Query refresh experiment (removed from PR #1392)
+
+[design] Stages 1–2 avoided marking unchanged actor part capsules dirty and refreshed
+eligible moved actor hit colliders for direct queries without collision detection,
+deferring collision work to the next step. This changed contact-refresh timing and
+exact-tie selection versus main: equal-distance hits preferred the broad-phase hit,
+then actor FormID and capsule order for colliders tested directly, rather than the
+full pass's tree traversal order (`crates/fnv-phys/src/actors.rs`, `src/refresh.rs`,
+`src/world.rs` and `tests/refresh.rs` at revision `615449ad`).
+
+[observed] The reported stress-tour slice measurements at `615449ad` found no useful
+frame-time gain: −0.12 ms frame mean over three order-balanced default-release pairs,
+with `player::step` unchanged in Tracy. In one pass, 71.4 % of refreshes took the fast
+path: 8,784 without detection versus 3,516 full.
+
+[hypothesis] Attribution remains unresolved: collision work deferred to the next step,
+expensive remaining full refreshes, and fast-path overhead are possible explanations.
+
+[design] The experiment is preserved on `perf-physics-refresh-fastpath` (`615449ad`)
+and `perf-physics-refresh-experiment` (`1d64b3e8`, including the original exit summary).
+PR #1392 retains Stage 0 measurement and the adapted exit summary only
+(`crates/fnv-phys` at `315be653`; `engine/nvf-play/src/phys.rs::report`).
 
 ## 6. Character controller and capture questions
 
