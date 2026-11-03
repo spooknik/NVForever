@@ -51,6 +51,26 @@ pub const CONDITION_INTERVAL: f64 = 1.0;
 /// [observed] (docs/spec-notes/crippled-limbs.md §2).
 pub const ENGINE_ABILITIES: [&str; 1] = ["HeadCrippleEffect"];
 
+/// The wanted abilities that have no effect on `r` yet (permanent, not a worn
+/// enchantment's), in the order given, a repeated one each time it is given. One walk over
+/// the effects, crossing off what it finds, in place of a search per ability (#1389); it
+/// stops once none is left to find and does not start with none wanted, so it never
+/// visits more effects than those searches, each of which stopped at its first match
+/// [design].
+fn missing_abilities<'e>(r: FormId, wanted: impl Iterator<Item = FormId> + Clone, effects: impl IntoIterator<Item = &'e crate::game::ActiveEffect>) -> Vec<FormId> {
+    let mut unseen = std::collections::BTreeSet::new();
+    unseen.extend(wanted.clone());
+    if unseen.is_empty() {
+        return Vec::new();
+    }
+    for e in effects {
+        if e.target == r && e.permanent && e.worn.is_none() && unseen.remove(&e.source) && unseen.is_empty() {
+            return Vec::new();
+        }
+    }
+    wanted.filter(|s| unseen.contains(s)).collect()
+}
+
 impl Game<'_> {
     /// The race whose abilities the actor has: the character creator's choice for the
     /// player, else the record's (template flag "Traits").
@@ -150,13 +170,8 @@ impl Game<'_> {
             return;
         }
         let Some(x) = self.extra.get(&r) else { return };
-        let missing: Vec<FormId> = x
-            .spells
-            .iter()
-            .copied()
-            .filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ABILITY) && !x.dispelled.contains(s))
-            .filter(|s| !self.effects.iter().any(|e| e.target == r && e.source == *s && e.permanent && e.worn.is_none()))
-            .collect();
+        let wanted = x.spells.iter().copied().filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ABILITY) && !x.dispelled.contains(s));
+        let missing = missing_abilities(r, wanted, &self.effects);
         for spell in missing {
             self.apply_magic_item(r, spell, None, true);
         }
@@ -286,5 +301,154 @@ impl Game<'_> {
         if let Some(e) = self.effects.iter_mut().find(|e| e.id == id) {
             e.inactive = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod missing_abilities_tests {
+    use super::*;
+    use crate::game::ActiveEffect;
+    use std::cell::Cell;
+
+    const R: FormId = FormId(0x500);
+    const OTHER: FormId = FormId(0x501);
+    const SPELLS: [FormId; 4] = [FormId(0x870), FormId(0x871), FormId(0x872), FormId(0x873)];
+
+    fn fx(target: FormId, source: FormId, permanent: bool, worn: Option<FormId>) -> ActiveEffect {
+        ActiveEffect {
+            id: 0,
+            target,
+            source,
+            effect: FormId(0x850),
+            index: 0,
+            magnitude: 0,
+            duration: 0.0,
+            elapsed: 0.0,
+            permanent,
+            caster: None,
+            script: None,
+            change: None,
+            usage: 0.0,
+            worn,
+            inactive: false,
+        }
+    }
+
+    fn ability(source: FormId) -> ActiveEffect {
+        fx(R, source, true, None)
+    }
+
+    /// The logic before #1389: a search of the effects per wanted ability, with the effects
+    /// it visited.
+    fn searched(wanted: &[FormId], effects: &[ActiveEffect]) -> (Vec<FormId>, usize) {
+        let visits = Cell::new(0);
+        let out = wanted
+            .iter()
+            .copied()
+            .filter(|s| !effects.iter().inspect(|_| visits.set(visits.get() + 1)).any(|e| e.target == R && e.source == *s && e.permanent && e.worn.is_none()))
+            .collect();
+        (out, visits.get())
+    }
+
+    /// The set's answer, with the effects it visited.
+    fn crossed_off(wanted: &[FormId], effects: &[ActiveEffect]) -> (Vec<FormId>, usize) {
+        let visits = Cell::new(0);
+        let out = missing_abilities(R, wanted.iter().copied(), effects.iter().inspect(|_| visits.set(visits.get() + 1)));
+        (out, visits.get())
+    }
+
+    fn assert_same(wanted: &[FormId], effects: &[ActiveEffect]) {
+        let (old, old_visits) = searched(wanted, effects);
+        let (new, new_visits) = crossed_off(wanted, effects);
+        assert_eq!(new, old, "wanted {wanted:?} effects {effects:?}");
+        assert!(new_visits <= old_visits, "visits {new_visits} above {old_visits}: wanted {wanted:?} effects {effects:?}");
+    }
+
+    /// Every wanted list of up to three (repeats, every order) against every list of up to
+    /// two effects of every kind: the same abilities in the same order as the searches,
+    /// with no more effects visited.
+    #[test]
+    fn matches_the_searches_on_every_short_list() {
+        let mut kinds = Vec::new();
+        for target in [R, OTHER] {
+            for source in &SPELLS[..3] {
+                for permanent in [true, false] {
+                    for worn in [None, Some(FormId(0x890))] {
+                        kinds.push(fx(target, *source, permanent, worn));
+                    }
+                }
+            }
+        }
+        let mut effect_lists: Vec<Vec<ActiveEffect>> = vec![Vec::new()];
+        for a in &kinds {
+            effect_lists.push(vec![a.clone()]);
+            for b in &kinds {
+                effect_lists.push(vec![a.clone(), b.clone()]);
+            }
+        }
+        let mut wanted_lists: Vec<Vec<FormId>> = vec![Vec::new()];
+        for &a in &SPELLS {
+            wanted_lists.push(vec![a]);
+            for &b in &SPELLS {
+                wanted_lists.push(vec![a, b]);
+                for &c in &SPELLS {
+                    wanted_lists.push(vec![a, b, c]);
+                }
+            }
+        }
+        for wanted in &wanted_lists {
+            for effects in &effect_lists {
+                assert_same(wanted, effects);
+            }
+        }
+    }
+
+    /// Longer lists, drawn from a fixed sequence, so that the walk ends at many positions.
+    #[test]
+    fn matches_the_searches_on_longer_lists() {
+        let mut state = 0x2545_F491_u32;
+        let mut next = move |n: usize| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 16) as usize % n
+        };
+        for _ in 0..5000 {
+            let wanted: Vec<FormId> = (0..next(9)).map(|_| SPELLS[next(4)]).collect();
+            let effects: Vec<ActiveEffect> = (0..next(17)).map(|_| fx([R, R, OTHER][next(3)], SPELLS[next(4)], next(4) > 0, (next(4) == 0).then_some(FormId(0x890)))).collect();
+            assert_same(&wanted, &effects);
+        }
+    }
+
+    /// Order and repeats follow the wanted list, not the set's FormId order.
+    #[test]
+    fn keeps_the_order_and_repeats_of_the_list() {
+        let [a, b, c, d] = SPELLS;
+        assert_eq!(missing_abilities(R, [d, a, c, a, b].into_iter(), &[ability(b)]), vec![d, a, c, a]);
+    }
+
+    /// The saving, in effects visited: a search per ability walks the list once per
+    /// ability, the set once.
+    #[test]
+    fn one_walk_in_place_of_a_search_per_ability() {
+        let wanted = SPELLS;
+        let mut effects: Vec<ActiveEffect> = (0..96).map(|_| fx(OTHER, SPELLS[0], true, None)).collect();
+        // All four missing: a full walk per ability against one full walk.
+        assert_eq!(searched(&wanted, &effects), (wanted.to_vec(), 4 * 96));
+        assert_eq!(crossed_off(&wanted, &effects), (wanted.to_vec(), 96));
+        // All four on, at the end: the searches stop at positions 97 to 100, the walk at
+        // the last of them.
+        effects.extend(wanted.iter().map(|s| ability(*s)));
+        assert_eq!(searched(&wanted, &effects), (Vec::new(), 97 + 98 + 99 + 100));
+        assert_eq!(crossed_off(&wanted, &effects), (Vec::new(), 100));
+    }
+
+    /// One ability on early in the list and none wanted: as cheap as the search, no walk
+    /// over the rest.
+    #[test]
+    fn stops_early_and_does_not_start_with_nothing_wanted() {
+        let [a, ..] = SPELLS;
+        let mut effects = vec![ability(a)];
+        effects.extend((0..50).map(|_| fx(OTHER, a, true, None)));
+        assert_eq!(crossed_off(&[a], &effects), (Vec::new(), 1));
+        assert_eq!(crossed_off(&[], &effects), (Vec::new(), 0));
     }
 }

@@ -620,3 +620,107 @@ End
     assert_eq!(q("SetFunctionValue ((GetBaseSpellListSpells RobotCopy)[0])"), XVal::Ref(DT_ABILITY));
     assert_eq!(q("SetFunctionValue ((GetBaseSpellListSpells RobotCopy)[3])"), XVal::Ref(GHOUL_RAD));
 }
+
+/// The sources of an actor's effects, in the order they stand in the list.
+fn effect_sources(g: &Game, on: FormId) -> Vec<u32> {
+    g.effects.iter().filter(|e| e.target == on).map(|e| e.source.0).collect()
+}
+
+fn set_spells(g: &mut Game, on: FormId, spells: &[u32]) {
+    g.extra.entry(on).or_default().spells = spells.iter().copied().map(FormId).collect();
+}
+
+/// The abilities gained start in the order of the spell list, not in FormId order (#1389:
+/// the search for what is missing must not reorder them).
+#[test]
+fn gained_abilities_apply_in_spell_list_order() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_spells(&mut g, P, &[RAD_IMMUNITY, PERK_SPELL_2, DT_ABILITY, PERK_SPELL_1]);
+    g.sync_abilities(P);
+    assert_eq!(effect_sources(&g, P), vec![RAD_IMMUNITY, PERK_SPELL_2, DT_ABILITY, PERK_SPELL_1]);
+    let ids: Vec<u32> = g.effects.iter().filter(|e| e.target == P).map(|e| e.id).collect();
+    assert!(ids.windows(2).all(|w| w[0] < w[1]), "applied one after another: {ids:?}");
+}
+
+/// An ability already on keeps its effect (the same id); only those without one start,
+/// after it in the list; a second sync changes nothing.
+#[test]
+fn kept_abilities_stay_and_only_the_missing_start() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_spells(&mut g, P, &[DT_ABILITY]);
+    g.sync_abilities(P);
+    let kept = g.effects.iter().find(|e| e.target == P).map(|e| e.id);
+    set_spells(&mut g, P, &[PERK_SPELL_1, DT_ABILITY, RAD_IMMUNITY]);
+    g.sync_abilities(P);
+    assert_eq!(effect_sources(&g, P), vec![DT_ABILITY, PERK_SPELL_1, RAD_IMMUNITY]);
+    assert_eq!(g.effects.iter().find(|e| e.target == P).map(|e| e.id), kept);
+    let before: Vec<u32> = g.effects.iter().map(|e| e.id).collect();
+    g.sync_abilities(P);
+    assert_eq!(g.effects.iter().map(|e| e.id).collect::<Vec<_>>(), before);
+}
+
+/// Lost: leaving the loaded area ends all of them and forgets the dispels; back in the
+/// loaded area they start again in the order of the list. One that a Dispel took off
+/// stays off while loaded, and one RemoveSpell took away does not come back.
+#[test]
+fn lost_abilities_end_and_return_in_spell_list_order() {
+    let f = fixture();
+    let mut g = game(&f);
+    let robot = FormId(ROBOT_REF);
+    g.tick();
+    assert!(effect_sources(&g, robot).contains(&DT_ABILITY));
+    g.loaded_cells.remove(&FormId(CELL));
+    g.extra.get_mut(&robot).unwrap().dispelled.push(FormId(RAD_IMMUNITY));
+    g.sync_abilities(robot);
+    assert_eq!(effect_sources(&g, robot), Vec::<u32>::new());
+    assert!(g.extra[&robot].dispelled.is_empty());
+    g.loaded_cells.insert(FormId(CELL));
+    set_spells(&mut g, robot, &[RAD_IMMUNITY, DT_ABILITY]);
+    g.sync_abilities(robot);
+    assert_eq!(effect_sources(&g, robot), vec![RAD_IMMUNITY, DT_ABILITY]);
+
+    set_spells(&mut g, P, &[DT_ABILITY, RAD_IMMUNITY, GHOUL_RAD]);
+    g.extra.get_mut(&P).unwrap().dispelled.push(FormId(RAD_IMMUNITY));
+    g.sync_abilities(P);
+    assert_eq!(effect_sources(&g, P), vec![DT_ABILITY, GHOUL_RAD]);
+    call(&mut g, P, REMOVE_SPELL, &[form(DT_ABILITY)]);
+    g.sync_abilities(P);
+    assert_eq!(effect_sources(&g, P), vec![GHOUL_RAD]);
+}
+
+/// A list that names an ability twice (nothing in the engine adds one twice, a save could
+/// list one [design: abilities.rs, aid.rs add_spell, perks.rs all check first]): what is
+/// missing is read before any of them starts, so it starts twice, and once on it starts
+/// no more.
+#[test]
+fn a_repeated_ability_starts_for_each_entry_once_missing() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_spells(&mut g, P, &[DT_ABILITY, RAD_IMMUNITY, DT_ABILITY]);
+    g.sync_abilities(P);
+    assert_eq!(effect_sources(&g, P), vec![DT_ABILITY, RAD_IMMUNITY, DT_ABILITY]);
+    g.sync_abilities(P);
+    assert_eq!(effect_sources(&g, P), vec![DT_ABILITY, RAD_IMMUNITY, DT_ABILITY]);
+}
+
+/// Only the actor's own permanent effect, not tied to worn armour, counts as the ability
+/// being on: the same spell on another actor, lasting a while, or as a worn enchantment
+/// leaves it missing.
+#[test]
+fn only_the_actors_own_ability_effect_counts() {
+    let f = fixture();
+    let mut g = game(&f);
+    let robot = FormId(ROBOT_REF);
+    set_spells(&mut g, robot, &[DT_ABILITY]);
+    g.sync_abilities(robot);
+    let on_robot = g.effects.iter().find(|e| e.target == robot).unwrap().clone();
+    let lasting = fnv_game::game::ActiveEffect { id: 9000, target: P, permanent: false, ..on_robot.clone() };
+    let worn = fnv_game::game::ActiveEffect { id: 9001, target: P, worn: Some(FormId(HAT)), ..on_robot };
+    g.effects.extend([lasting, worn]);
+    set_spells(&mut g, P, &[DT_ABILITY]);
+    g.sync_abilities(P);
+    let own = g.effects.iter().filter(|e| e.target == P && e.permanent && e.worn.is_none() && e.source == FormId(DT_ABILITY)).count();
+    assert_eq!(own, 1);
+}
