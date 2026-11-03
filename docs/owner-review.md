@@ -231,7 +231,7 @@ the spec it links to.
    it is one function (`holster_for_new_weapon`). [weapon-wheel.md §4](design/weapon-wheel.md)
 42. **Cheaper moon shadows (#1369, #1371): a look by eye.** By night the moon's shadows
    reach 3,000 units in one cascade at 2048² (by day: the settings' cascades and reach,
-   4096² with finer shadows), and while the light is under a tenth of its strength at the
+   2048² since #1367), and while the light is under a tenth of its strength at the
    horizon there are none. It saves about 2.5 ms on the Strip at 22:00. Not checked by
    eye: walk the Strip or open desert at night and see whether shadows ending at 3,000
    units or their softer edges look wrong, and watch sunrise and sunset for a visible pop
@@ -242,7 +242,7 @@ the spec it links to.
    arms' shade light now draws only what lies by the eye toward the sun, and far
    shadows (hills, buildings) come from the sun's own map: 15.4 → 12.4 ms at Novac
    07:00 with finer shadows. What is left is the light's own pass, about 0.75 ms
-   whatever it draws, at 4096² maps; it is what lets the weapon shade the hand and a
+   whatever it draws, at 4096² maps (less at 2048² since #1367); it is what lets the weapon shade the hand and a
    roof right at the head shade the arms. If you rule it out, the light goes (12.4 →
    about 11.4 ms there) and the arms take only the sun's shadows from past the body.
    See [player-body.md §1.6](design/player-body.md).

@@ -217,6 +217,10 @@
 
 #[macro_use]
 extern crate alloc;
+// NVForever (#1429): the slow-vkAllocateMemory log needs a clock; this copy only
+// builds for desktop targets, where wgpu-hal turns the `std` feature off.
+#[cfg(not(feature = "std"))]
+extern crate std;
 
 #[cfg(all(not(feature = "std"), feature = "visualizer"))]
 compile_error!("Cannot enable `visualizer` feature in `no_std` environment.");

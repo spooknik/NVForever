@@ -12,10 +12,11 @@
 //! ready and is drawn at once without reading or preparing it in that frame [engineering
 //! choice].
 //!
-//! An actor is drawn only once its parts can be prepared without reading a file and
-//! its current stance and FaceGen files have been read (missing files count as ready)
-//! ([`ready_to_draw`], used by `nav::show_actor` and `world::load_cell` after the start);
-//! one that was not read ahead waits a few frames for the worker.
+//! An actor is drawn only once its parts are prepared (behind a loading screen: read, so
+//! they can be prepared without reading a file) and its current stance and FaceGen files
+//! have been read (missing files count as ready) ([`ready_to_draw`], used by
+//! `nav::show_actor` and `world::load_cell` after the start); one that was not read ahead
+//! waits a few frames for the worker and the queue (#1429).
 //!
 //! The clock: time spent drawing actors ([`clocked`]), which the stress hitch lines
 //! report (`stress_sample.rs`), so a slow frame can be told from one that spawned actors.
@@ -171,6 +172,11 @@ enum Job {
 pub struct ReadAhead {
     /// Off (`NVF_PLAY_TEST_NO_READ_AHEAD`): actors are read only when they are drawn.
     off: bool,
+    /// A frame would not be seen (a loading screen is up, `Loading::unseen_frames`; set
+    /// by [`read_ahead`] each frame): an actor whose parts are read may be drawn and its
+    /// parts prepared in that frame. Otherwise it waits until the budgeted queue has
+    /// prepared them (#1429).
+    unseen: bool,
     /// The cell the last ring was listed around.
     centre: Option<(i32, i32)>,
     jobs: VecDeque<Job>,
@@ -277,7 +283,13 @@ impl ReadAhead {
         for (path, skeleton) in plan.parts.iter().map(|p| (p, false)).chain([(&plan.skeleton, true)]) {
             let path = fnv_vfs::normalize(path);
             let state = part_state(&path);
-            ready &= matches!(state, PartState::Read | PartState::Prepared);
+            // In play an actor waits for its parts to be prepared too: preparing them
+            // (meshes, materials, GPU textures) in the frame it is drawn cost a resident
+            // that came into an interior after the start 15.6 ms in one frame
+            // [observed 2026-11-03, #1429, Sierra Madre lobby]. The queue prepares them
+            // within `PREPARE_BUDGET` a frame [engineering choice: it is drawn a few
+            // frames later]. Behind a loading screen the frame is not seen.
+            ready &= state == PartState::Prepared || (self.unseen && state == PartState::Read);
             if state != PartState::Prepared && self.queued.insert(path.clone()) {
                 self.parts_read += 1;
                 self.jobs.push_back(Job::Prepare(path, skeleton));
@@ -303,9 +315,14 @@ pub fn read_ahead(
     actor_world: Option<Res<ActorWorld>>,
     sim: Option<Res<nvf_play::sim::SimState>>,
     residents: Option<Res<crate::residents::Residents>>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
 ) {
+    let unseen = loading.as_deref().is_some_and(|l| l.unseen_frames());
+    if ahead.unseen != unseen {
+        ahead.unseen = unseen;
+    }
     let Some(aw) = actor_world.as_deref().filter(|_| !ahead.off) else { return };
     let t0 = Instant::now();
     let ahead = &mut *ahead;
@@ -571,5 +588,21 @@ mod tests {
         assert!(!ahead.queue_plan(&new, false, true, true, |_| PartState::Prepared, |_| false));
         // `FaceGenCache::has` also returns true for files found absent, avoiding a hang.
         assert!(ahead.queue_plan(&new, false, true, true, |_| PartState::Prepared, |_| true));
+    }
+
+    #[test]
+    fn in_play_an_actor_waits_for_its_parts_to_be_prepared() {
+        let plan = Plan { parts: vec!["armour.nif".into()], skeleton: "skeleton.nif".into(),
+            body: Body::Male, prefix: None, facegen: vec![], morphs: vec![] };
+        let mut ahead = ReadAhead::default();
+        // Read but not prepared: not drawn in a frame that is seen, and queued to prepare.
+        assert!(!ahead.queue_plan(&plan, false, false, true, |_| PartState::Read, |_| true));
+        assert_eq!(ahead.jobs.iter().filter(|j| matches!(j, Job::Prepare(..))).count(), 2);
+        // Behind a loading screen it may be prepared in the frame it is drawn.
+        ahead.unseen = true;
+        assert!(ahead.queue_plan(&plan, false, false, true, |_| PartState::Read, |_| true));
+        ahead.unseen = false;
+        assert!(ahead.queue_plan(&plan, false, false, true, |_| PartState::Prepared, |_| true));
+        assert!(!ahead.queue_plan(&plan, false, false, true, |_| PartState::Reading, |_| true));
     }
 }

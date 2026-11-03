@@ -23,7 +23,7 @@ impl Setting {
         match (edid.as_bytes().first(), data.len()) {
             (Some(b'f'), 4) => Setting::Float(f32::from_le_bytes(data.try_into().expect("4 bytes"))),
             (Some(b'i'), 4) => Setting::Int(i32::from_le_bytes(data.try_into().expect("4 bytes"))),
-            (Some(b's'), _) => Setting::Str(fnv_util::cp1252::decode_z(data)),
+            (Some(b's'), _) => Setting::Str(fnv_util::text::decode_z(data)),
             _ => Setting::Raw(data.to_vec()),
         }
     }

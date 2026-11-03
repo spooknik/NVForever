@@ -307,9 +307,11 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             s.karma_title = Some(model::karma_title(level as i64, word, |n| karma_titles.get(&n.to_ascii_lowercase()).cloned()));
         }
         // Aid items taking effect now (ALCH sources of active effects), after the worn
-        // apparel [hypothesis: the order].
+        // apparel [hypothesis: the order]. An effect whose conditions fail (a Stimpak's
+        // Hardcore heal outside Hardcore) is held inactive and changes nothing: not
+        // listed (#1438).
         let mut seen: Vec<FormId> = Vec::new();
-        for e in g.effects.iter().filter(|e| e.target == p) {
+        for e in g.effects.iter().filter(|e| e.target == p && !e.inactive) {
             if seen.contains(&e.source) || g.data.sig(e.source) != Some(*b"ALCH") {
                 continue;
             }
@@ -317,7 +319,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             let changes: Vec<Change> = g
                 .effects
                 .iter()
-                .filter(|x| x.target == p && x.source == e.source)
+                .filter(|x| x.target == p && x.source == e.source && !x.inactive)
                 .filter_map(|x| {
                     let (modifier, detrimental) = forms.effect(x.effect.0);
                     let code = forms.ench_code(e.source.0, x.index)?;

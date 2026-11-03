@@ -33,8 +33,9 @@ pub(super) fn ms_since(t: Instant) -> f64 {
 type Objects = Arc<Vec<CollisionObject>>;
 
 /// What a model contributes: its solid collision objects, its water volumes (phantoms
-/// on the Water layer, physics.md §6.6), for a door model with "Open" and "Close"
-/// sequences its animation (`crate::doors`), and for a model with collision the floors
+/// on the Water layer, physics.md §6.6), its animation when its sequences move a node
+/// of a keyframed collision object or it is a door model with "Open" and "Close"
+/// sequences (`crate::doors`, [`AnimatedBodies`]), and for a model with collision the floors
 /// of its drawn geometry ([`DrawnFloors`]) and its node tree (to pose the objects,
 /// [`pose_stored`]), and its trigger volumes (phantoms on the Trigger layer, the traps'
 /// pressure boxes, `crate::script_trigger`); or why it could not be read.
@@ -82,6 +83,12 @@ impl ModelCache {
     /// A door model's animation (read through the cache), when it has "Open" and
     /// "Close" sequences that move its nodes.
     pub fn door_anim(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Option<Arc<ModelAnim>> {
+        self.anim(data, path, times).filter(|a| a.door().is_some())
+    }
+
+    /// A model's animation (read through the cache), when its sequences move a node of a
+    /// keyframed collision object (or it is a door's).
+    pub fn anim(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Option<Arc<ModelAnim>> {
         self.read(data, path, times).ok().and_then(|(_, _, anim, ..)| anim)
     }
 
@@ -147,8 +154,11 @@ fn read_model_unguarded(data: &GameData, path: &str, times: &mut LoadTimes) -> M
     let (water, rest): (Vec<CollisionObject>, Vec<CollisionObject>) = phantoms.into_iter().partition(|o| o.layer == fnv_phys::layers::WATER);
     let triggers: Vec<CollisionObject> = rest.into_iter().filter(|o| o.layer == fnv_phys::layers::TRIGGER).collect();
     let dec = dec.expect("decoded with the file");
-    let anim = solid.iter().any(|o| o.motion == fnv_collide::Motion::Keyframed).then(|| ModelAnim::new(&file, &dec));
-    let anim = anim.filter(|a| a.door().is_some()).map(Arc::new);
+    // Only a model with embedded sequences and a body physics does not move itself can
+    // have collision that follows an animation.
+    let sequenced = file.blocks.iter().any(|b| b.type_name == "NiControllerSequence");
+    let anim = (sequenced && solid.iter().any(|o| o.motion != fnv_collide::Motion::Dynamic)).then(|| ModelAnim::new(&file, &dec));
+    let anim = anim.filter(|a| a.door().is_some() || solid.iter().any(|o| moved_by(a, o))).map(Arc::new);
     // Only what can be stood on needs its drawn floors.
     let drawn = if solid.is_empty() { None } else { DrawnFloors::from_nif(&file, &dec).map(Arc::new) };
     let tree = (!solid.is_empty()).then(|| Arc::new(NodeTree::new(&file, &dec)));
@@ -227,6 +237,10 @@ pub struct RefShapes {
     pub dynamic_local: Option<fnv_collide::Iso>,
     /// A door that opens in place: its keyframed bodies follow its animation.
     pub door: Option<DoorBodies>,
+    /// Any other reference whose model's sequences move its keyframed bodies (a gate, a
+    /// lift, a drawbridge built as an activator): they follow the group its drawn model
+    /// plays (`super::pose_groups`; issue #1396).
+    pub animated: Option<AnimatedBodies>,
     /// The floors of the model's drawn geometry, for a reference whose collision stays
     /// where it was placed (not dynamic, not a door that opens in place).
     pub drawn: Option<Arc<DrawnFloors>>,
@@ -242,6 +256,17 @@ pub struct DoorBodies {
     /// (object index in the reference's collision objects, node block, body transform)
     /// of each keyframed object.
     pub objects: Vec<(u16, usize, fnv_collide::Iso)>,
+}
+
+/// The keyframed bodies of a reference that is not a door opening in place, posed from
+/// whichever of its model's sequences plays on it (`PlayGroup`, an idle, an activator's
+/// Open and Close): the same shape as [`DoorBodies`], only the bodies a sequence moves.
+pub type AnimatedBodies = DoorBodies;
+
+/// Whether some sequence of `anim` moves the node of object `o`, which physics does not
+/// move itself (keyframed or fixed: a dynamic body falls and is pushed on its own).
+fn moved_by(anim: &ModelAnim, o: &CollisionObject) -> bool {
+    o.motion != fnv_collide::Motion::Dynamic && anim.moves_block(o.node_block)
 }
 
 /// The model of a DOOR reference without XTEL (a door that opens in place).
@@ -361,7 +386,7 @@ pub(super) fn fix_static_base(base_sig: Option<[u8; 4]>, objects: &mut [fnv_coll
 pub fn reference(src: &Source, pl: &Placement, model: Option<&str>, times: &mut LoadTimes) -> RefShapes {
     nvf_assets::guard::guarded(|| Ok(reference_unguarded(src, pl, model, times))).unwrap_or_else(|e| {
         bevy::log::warn!("phys: 0x{:08X}: collision not prepared ({e}); the reference has none", pl.form_id);
-        RefShapes { tallies: vec!["prepare_failed"], water: Vec::new(), prepared: None, dynamic_local: None, door: None, drawn: None, model: None }
+        RefShapes { tallies: vec!["prepare_failed"], water: Vec::new(), prepared: None, dynamic_local: None, door: None, animated: None, drawn: None, model: None }
     })
 }
 
@@ -375,7 +400,8 @@ fn reference_unguarded(src: &Source, pl: &Placement, model: Option<&str>, times:
         (Some(data), Some(path)) => src.models.door_anim(data, &path, times),
         _ => None,
     };
-    let options = RefCollisionOptions { posed_doors: anim.is_some(), model };
+    let in_place_door = anim.is_some();
+    let options = RefCollisionOptions { posed_doors: in_place_door, model };
     let mut models = src.data.as_ref().map(|data| Models { data, cache: &src.models, times: &mut *times });
     let rc = ref_collision_with(
         src.d.lo,
@@ -404,6 +430,32 @@ fn reference_unguarded(src: &Source, pl: &Placement, model: Option<&str>, times:
         bevy::log::info!("phys: 0x{:08X} {}: collision posed from XRGD ({} bodies)", pl.form_id, model_path.as_deref().unwrap_or(""), rc.objects.len());
     }
     hold_jointed(&mut rc.objects, &mut tallies);
+    // Not a door that opens in place, nor an actor: its bodies that a sequence moves
+    // follow what its drawn model plays (issue #1396), keyframed (a fixed one under a
+    // moving node is made keyframed: it would stay where the file stores it). Read from
+    // the model it collides with (a destruction model's own, when it has one).
+    let animated = match (&src.data, &model_path) {
+        (Some(data), Some(path)) if !in_place_door && !posed && !rc.base_sig.is_some_and(|s| fnv_phys::placed::is_actor_base(&s)) => {
+            src.models.anim(data, path, times).and_then(|anim| {
+                let objects: Vec<_> = rc
+                    .objects
+                    .iter_mut()
+                    .enumerate()
+                    .filter(|(_, o)| moved_by(&anim, o))
+                    .map(|(i, o)| {
+                        o.motion = fnv_collide::Motion::Keyframed;
+                        (i as u16, o.node_block, o.body_transform)
+                    })
+                    .collect();
+                (!objects.is_empty()).then_some(AnimatedBodies { anim, objects })
+            })
+        }
+        _ => None,
+    };
+    if let Some(a) = &animated {
+        tallies.push("animated_collision");
+        bevy::log::debug!("phys: 0x{:08X} {}: {} collision bodies follow its sequences", pl.form_id, model_path.as_deref().unwrap_or(""), a.objects.len());
+    }
     // Clutter starts asleep (physics.md §4.3.1).
     let prepared = (!rc.objects.is_empty()).then(|| {
         let t = Instant::now();
@@ -425,11 +477,12 @@ fn reference_unguarded(src: &Source, pl: &Placement, model: Option<&str>, times:
             .map(|(i, o)| (i as u16, o.node_block, o.body_transform))
             .collect(),
     });
-    // A posed object's drawn floors would be the file's unposed geometry.
-    let fixed = prepared.is_some() && dynamic_local.is_none() && door.is_none() && !posed;
+    // A posed object's drawn floors would be the file's unposed geometry; so would an
+    // animated one's once it moves.
+    let fixed = prepared.is_some() && dynamic_local.is_none() && door.is_none() && animated.is_none() && !posed;
     let drawn = match (&src.data, model_path) {
         (Some(_), Some(path)) if fixed => src.models.drawn(&path),
         _ => None,
     };
-    RefShapes { tallies, water: rc.water, prepared, dynamic_local, door, drawn, model: model.map(str::to_string) }
+    RefShapes { tallies, water: rc.water, prepared, dynamic_local, door, animated, drawn, model: model.map(str::to_string) }
 }

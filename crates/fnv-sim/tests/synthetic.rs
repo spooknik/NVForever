@@ -899,6 +899,65 @@ fn enable_parent_chains() {
     assert_eq!(fresh.changed().count(), 0);
 }
 
+/// `World::presence_serial` moves with every change that can change whether a reference
+/// is present (its `deleted` flag, `is_enabled` with its enable parents) and stands
+/// still for reads and for writes that change nothing: the AI keys its obstacle poll
+/// on it (`fnv_ai::Ai::obstacles_in_line`).
+#[test]
+fn presence_serial_moves_with_every_presence_change() {
+    let mut f = fixture();
+    f.refs.merchant_containers.clear();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    let mut last = w.presence_serial();
+    fn moved(w: &World, last: &mut u64, what: &str) {
+        let now = w.presence_serial();
+        assert_ne!(now, *last, "{what} did not move the presence serial");
+        *last = now;
+    }
+    // Reads leave it.
+    w.is_enabled(id(GRANDCHILD)).unwrap();
+    assert_eq!(w.presence_serial(), last);
+    // A state made (its own flag now read from it).
+    w.get(id(KEY_REF)).unwrap();
+    moved(&w, &mut last, "materialising");
+    w.get(id(KEY_REF)).unwrap();
+    assert_eq!(w.presence_serial(), last, "an existing state");
+    // Enabling a parent changes its children: the serial says so.
+    w.set_enabled(id(KEY_REF), true).unwrap();
+    moved(&w, &mut last, "set_enabled");
+    w.set_enabled(id(KEY_REF), true).unwrap();
+    assert_eq!(w.presence_serial(), last, "the same flag again");
+    w.set_deleted(id(KEY_REF), true).unwrap();
+    moved(&w, &mut last, "set_deleted");
+    w.set_deleted(id(KEY_REF), false).unwrap();
+    moved(&w, &mut last, "set_deleted back");
+    // An item picked up by activation.
+    w.get(id(CHILD_SAME)).unwrap();
+    moved(&w, &mut last, "materialising the child");
+    assert!(matches!(w.activate(p, id(CHILD_SAME)).unwrap().outcome, Outcome::PickedUp { .. }));
+    moved(&w, &mut last, "a pick-up");
+    // Created references: placed and dropped.
+    let made = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    moved(&w, &mut last, "place");
+    w.add_item(made, id(PISTOL), 1).unwrap();
+    last = w.presence_serial();
+    w.drop_item(made, id(PISTOL), 1).unwrap();
+    moved(&w, &mut last, "a drop");
+    // A respawning container reset (its state taken out).
+    w.unlock(id(SAFE_REF)).unwrap();
+    last = w.presence_serial();
+    w.detach_cell(id(CELL_A)).unwrap();
+    w.advance_hours(72.0).unwrap();
+    assert_eq!(w.attach_cell(id(CELL_A)).unwrap(), vec![id(SAFE_REF)]);
+    moved(&w, &mut last, "a cell reset");
+    // Another world, a restored one too, never shares the number.
+    let other = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_ne!(other.presence_serial(), w.presence_serial());
+    let restored = World::restore(&f.forms, &f.refs, &w.snapshot()).unwrap();
+    assert_ne!(restored.presence_serial(), w.presence_serial());
+}
+
 #[test]
 fn clock_lives_in_the_time_globals() {
     let f = fixture();
@@ -1886,7 +1945,7 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     w.give_items_of(made, id(LOCKER)).unwrap();
     let taken = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
     w.give_items_of(taken, id(LOCKER)).unwrap();
-    w.get(taken).unwrap().deleted = true;
+    w.set_deleted(taken, true).unwrap();
     w.set_inventory_source(id(SAFE_REF), Some(id(LOCKER)));
     w.set_inventory_source(id(SAFE_REF), None);
     w.set_power_armor_training(true);

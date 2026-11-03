@@ -2918,6 +2918,7 @@ version = "0.1.0"
 dependencies = [
  "fnv-esm",
  "fnv-sim",
+ "fnv-util",
  "rayon",
  "serde",
  "serde_json",
@@ -2949,6 +2950,7 @@ dependencies = [
 name = "fnv-font"
 version = "0.1.0"
 dependencies = [
+ "fnv-util",
  "thiserror 2.0.21",
 ]
 
@@ -2999,6 +3001,7 @@ name = "fnv-nav"
 version = "0.1.0"
 dependencies = [
  "fnv-esm",
+ "fnv-util",
  "fnv-world",
  "rayon",
  "serde",
@@ -3035,6 +3038,7 @@ name = "fnv-save"
 version = "0.1.0"
 dependencies = [
  "fnv-install",
+ "fnv-util",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3079,6 +3083,9 @@ dependencies = [
 [[package]]
 name = "fnv-ui"
 version = "0.1.0"
+dependencies = [
+ "fnv-util",
+]
 
 [[package]]
 name = "fnv-util"
@@ -3106,6 +3113,7 @@ dependencies = [
  "fnv-esm",
  "fnv-game",
  "fnv-sim",
+ "fnv-util",
  "fnv-vfs",
  "serde",
  "serde_json",
@@ -4573,6 +4581,7 @@ dependencies = [
  "fnv-script",
  "fnv-sim",
  "fnv-ui",
+ "fnv-util",
  "fnv-vfs",
  "fnv-voice",
  "fnv-world",
@@ -4620,6 +4629,7 @@ dependencies = [
  "fnv-script",
  "fnv-sim",
  "fnv-spt",
+ "fnv-util",
  "fnv-vfs",
  "fnv-voice",
  "fnv-world",

@@ -147,11 +147,28 @@ fn record_bounds(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Bounds> {
     (0..3).all(|k| hi[k] > lo[k]).then_some((lo, hi))
 }
 
+/// A stamp for [`NavGraph::obstacles_stamp`] that no graph of this process had.
+fn next_obstacles_stamp() -> u64 {
+    static STAMPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    STAMPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 impl NavGraph {
+    /// Changes when the obstacles or their enabled states change ([`NavGraph::set_obstacles`],
+    /// [`NavGraph::sync_obstacles`]): each change takes a number no graph of this process
+    /// had, so two graphs (or one graph before and after) with the same stamp have the
+    /// same obstacles in the same states. 0 while none was learnt. A writer of the public
+    /// `obstacles` map other than these two must not exist (none does,
+    /// fork-notes/cpu-frame-cost/frame-budget/ai-split-2026-11-03.md).
+    pub fn obstacles_stamp(&self) -> u64 {
+        self.obstacles_stamp
+    }
+
     /// Learn the obstacles: the triangles each cuts (those its bounds stand on); each is
     /// enabled as `enabled` says. Replaces what was learnt before. An obstacle no
     /// triangle lies under is left out.
     pub fn set_obstacles(&mut self, list: Vec<Obstacle>, enabled: impl Fn(&Obstacle) -> bool) {
+        self.obstacles_stamp = next_obstacles_stamp();
         self.obstacles.clear();
         for o in list {
             let (lo, hi) = o.bounds;
@@ -185,6 +202,7 @@ impl NavGraph {
             }
         }
         if !changed.is_empty() {
+            self.obstacles_stamp = next_obstacles_stamp();
             self.recut();
         }
         changed

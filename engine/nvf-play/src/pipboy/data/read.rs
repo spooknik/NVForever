@@ -5,7 +5,7 @@
 //! Subrecords are read from their raw bytes as xEdit lays them out [documented: xEdit
 //! wbDefinitionsFNV.pas, as `schemas/fnv` records them] unless marked otherwise.
 
-use super::model::{cp1252, WorldMap, CELL};
+use super::model::{game_text, WorldMap, CELL};
 use fnv_esm::{LoadOrder, Schema};
 use fnv_sim::{FormId, RefTable};
 use fnv_world::fields::{global, num, winner, Fields};
@@ -21,7 +21,7 @@ fn fields<'a>(lo: &LoadOrder, schema: &'a Schema, form: u32) -> Option<Fields<'a
 }
 
 fn text(f: &Fields, sig: &[u8; 4]) -> Option<String> {
-    f.raw(sig).map(|s| cp1252(&s.data)).filter(|s| !s.trim().is_empty())
+    f.raw(sig).map(|s| game_text(&s.data)).filter(|s| !s.trim().is_empty())
 }
 
 fn byte(f: &Fields, sig: &[u8; 4]) -> Option<u8> {
@@ -55,7 +55,7 @@ pub fn note(lo: &LoadOrder, schema: &Schema, form: u32) -> Option<Note> {
         form,
         name: text(&f, b"FULL").unwrap_or_else(|| format!("{}", FormId(form))),
         kind,
-        text: if kind == 1 { f.raw(b"TNAM").map(|s| cp1252(&s.data)) } else { None },
+        text: if kind == 1 { f.raw(b"TNAM").map(|s| game_text(&s.data)) } else { None },
         image: if kind == 2 { text(&f, b"XNAM") } else { None },
         quest,
     })
@@ -134,7 +134,7 @@ fn region_name(lo: &LoadOrder, schema: &Schema, region: u32) -> Option<(String, 
     for s in &f.subs {
         match &s.sig {
             b"RDAT" => priority = f.decode(s).and_then(|v| num(&v, "priority")).unwrap_or(0.0),
-            b"RDMP" => return Some((cp1252(&s.data), priority)).filter(|(n, _)| !n.trim().is_empty()),
+            b"RDMP" => return Some((game_text(&s.data), priority)).filter(|(n, _)| !n.trim().is_empty()),
             _ => {}
         }
     }

@@ -26,6 +26,14 @@
 //!   it was asked for in the same moment, and the sound keys passed meanwhile play when
 //!   it is drawn [design: the request comes with the Enable, and the player watches the
 //!   object appear; VMS15's bomber rises out of the lake, `Forward`].
+//! - **Drawn again** (after a load, or streamed back in): an object no request waits for
+//!   shows the last group a script asked of it (`fnv_game::anims::ObjectAnims::asked`,
+//!   saved with the game): a group played once at its end, a loop from its start
+//!   [design: a gate a script opened stays open; issue #1396].
+//! - **Collision**: the clip each rig plays and its time are published every frame
+//!   ([`publish_poses`], `nvf_play::phys::ObjectPoses`); physics poses the keyframed
+//!   bodies the sequence moves from it, so the drawn model and its collision cannot
+//!   drift (issue #1396).
 //! - **Sounds**: the `Sound: <editor ID>` text keys the playing group passes are played
 //!   where the object is (anim_sounds.rs, [`ObjectSound`]), keys at the group's very
 //!   start included (a tripwire's sound key is 0.00001 s into its Forward).
@@ -119,6 +127,7 @@ struct Stats {
     ended: u32,
     not_drawn: u32,
     shown_when_drawn: u32,
+    restored: u32,
     no_sequence: u32,
     sounds: u32,
     to_actors: u32,
@@ -177,6 +186,7 @@ pub fn drive(
     sim: Option<Res<nvf_play::sim::SimState>>,
     mut for_actors: ResMut<ActorGroups>,
     time: Res<Time>,
+    mut seen: Local<std::collections::HashSet<Entity>>,
 ) {
     let st = &mut *st;
     let now = time.elapsed_secs();
@@ -193,12 +203,31 @@ pub fn drive(
     // Rigs started this frame: their new clip is on them from the next frame.
     let mut started: std::collections::HashSet<Entity> = std::collections::HashSet::new();
 
-    // Objects drawn since last frame that a script asked for while they were not.
+    // Objects drawn since they were last looked at here that a script asked for while
+    // they were not, or asked of before (drawn again after a load or streaming). Not
+    // `is_added`: rigs drawn before the scripts run (the first frames of a load) were
+    // added while this returned early above.
+    if seen.len() > by_ref.len() {
+        seen.retain(|e| rigs.contains(*e));
+    }
     for (root, mut rig, _, mats, _) in &mut rigs {
-        if !rig.is_added() || st.waiting.is_empty() {
+        if !seen.insert(root) {
             continue;
         }
-        let Some((r, asked)) = st.waiting.remove(&rig.form_id) else { continue };
+        let Some((r, asked)) = st.waiting.remove(&rig.form_id) else {
+            let Some((group, name)) = game.anims.asked(FormId(rig.form_id)).map(|(g, n)| (g, n.to_string())) else { continue };
+            let Some(i) = rig.find(&name) else { continue };
+            let once = rig.clip(i).is_some_and(|c| c.cycle_type == CLAMP);
+            let from = if once { StartAt::End } else { StartAt::Start };
+            start(&mut commands, root, &mut rig, group, i, from, mats.map(|m| m.into_inner()));
+            started.insert(root);
+            st.stats.restored += 1;
+            if !once {
+                game.anims.set_playing(FormId(rig.form_id), Some(group));
+            }
+            info!("playgroup: {} drawn again, shows {name} {}", game.data.name(FormId(rig.form_id)), if once { "at its end" } else { "from its start" });
+            continue;
+        };
         let Some(name) = r.name.as_deref() else { continue };
         let Some(i) = rig.find(name) else { continue };
         let once = rig.clip(i).is_some_and(|c| c.cycle_type == CLAMP);
@@ -364,7 +393,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
     let s = &st.stats;
     let groups: Vec<String> = s.by_group.iter().map(|(g, n)| format!("{g} {n}")).collect();
     info!(
-        "playgroup summary: {} asked ({}); {} started, {} waited for the playing one, {} loops already playing, {} played once and ended, {} for objects not drawn ({} shown when drawn), {} without a sequence of that name; {} sound keys; {} for actors (actor group summary); {} resets (Reset3DState)",
+        "playgroup summary: {} asked ({}); {} started, {} waited for the playing one, {} loops already playing, {} played once and ended, {} for objects not drawn ({} shown when drawn), {} shown again when drawn again, {} without a sequence of that name; {} sound keys; {} for actors (actor group summary); {} resets (Reset3DState)",
         s.asked,
         if groups.is_empty() { "-".to_string() } else { groups.join(", ") },
         s.started,
@@ -373,11 +402,25 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
         s.ended,
         s.not_drawn,
         s.shown_when_drawn,
+        s.restored,
         s.no_sequence,
         s.sounds,
         s.to_actors,
         s.resets
     );
+}
+
+/// The clip every drawn object plays and how far into it (seconds after its start), for
+/// the collision that follows it (`nvf_play::phys::ObjectPoses`, issue #1396): the rigs
+/// of scripted groups, idles, activators and containers alike.
+pub fn publish_poses(poses: Option<ResMut<nvf_play::phys::ObjectPoses>>, rigs: Query<(&Playing, AnyOf<(&nvf_play::RefVisual, &GroupRig)>)>) {
+    let Some(mut poses) = poses else { return };
+    let poses = &mut poses.playing;
+    poses.clear();
+    for (p, (visual, group)) in &rigs {
+        let Some(r) = group.map(|g| g.form_id).or(visual.map(|v| v.0)) else { continue };
+        poses.insert(r, (p.name.clone(), p.sequence_time() - p.start));
+    }
 }
 
 /// A model a script enabled at run time (`nvf_play::script_draw`) whose rig has named
@@ -400,6 +443,9 @@ impl Plugin for ObjectAnimsPlugin {
             .init_resource::<ActorGroups>()
             .add_message::<ObjectSound>()
             .add_systems(Update, (script_drawn, drive).chain().after(nvf_play::PlaySet::Scripts).before(crate::advance_animations))
+            // Before physics poses the collision from it (`nvf_play::phys::pose_groups`):
+            // what was drawn last frame.
+            .add_systems(Update, publish_poses.before(nvf_play::PlaySet::Physics))
             // Actors' groups (actor_groups.rs): before their idles advance and they are posed.
             .add_systems(Update, crate::actor_groups::drive.after(drive).before(crate::idles::drive).before(crate::locomotion::walk_test))
             .add_systems(Last, (report, crate::actor_groups::report));

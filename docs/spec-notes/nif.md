@@ -1143,6 +1143,22 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   is 0.25 or more and drop fainter fragments [engineering choice; whether the game's
   hair writes depth is not known: the file has no NiZBufferProperty, and the Z-buffer
   test flag (bit 31) above says nothing of writing]. Smoke check `hair-under-fire`.
+- **Hair models are cut-outs** (2026-11-03, #1454): the HAIR record's model is drawn
+  alpha-tested, solid where its alpha is 0.25 or more and absent below (soft edges in a
+  multisampled view), not blended; beards and brows (head parts with the hair shader)
+  stay blended as above. `hairwavy.nif` (Chet) maps its outer layer onto the soft edge
+  of the texture's alpha: sampled per triangle, the outer tenth averages 0.43 where the
+  inner averages 0.92, and the texture's alpha is otherwise near 0 or 1 at every mip
+  level [observed: `characters\hair\hairwavy.dds`]. Blended, that layer drew as a
+  see-through shell around his head against the store's window; in the original his
+  hair is a solid cap with a clean hairline, and his `beardthin.nif` beard is thin
+  [observed: owner's frame of the original, Chet in dialogue in front of the
+  GSGeneralStore window, 2026-11-03]. As a cut-out at 0.5 the beard became a full one,
+  hence beards stay blended. The cut of 0.25 is an engineering choice (0.5 thinned the
+  hair's sides beside the original frame). Whether the game alpha-tests its hair or
+  draws it some other way that comes out solid is not known. A cut-out draws in the
+  opaque passes, so blended glows and rays drawn after it no longer show through it or
+  vanish behind it, and hair now casts a shadow. Smoke check `hair-solid-chet`.
 
 ## 7. Coverage status
 

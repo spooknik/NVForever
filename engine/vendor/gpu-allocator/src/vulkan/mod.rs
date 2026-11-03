@@ -388,12 +388,27 @@ impl MemoryBlock {
                 AllocationScheme::GpuAllocatorManaged => alloc_info,
             };
 
-            unsafe { device.allocate_memory(&alloc_info, None) }.map_err(|e| match e {
+            // NVForever (#1429): a slow vkAllocateMemory is logged, so a single slow
+            // frame in a system that only writes a buffer can be told apart.
+            let t0 = std::time::Instant::now();
+            let memory = unsafe { device.allocate_memory(&alloc_info, None) }.map_err(|e| match e {
                 vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => AllocationError::OutOfMemory,
                 e => AllocationError::Internal(format!(
                     "Unexpected error in vkAllocateMemory: {e:?}"
                 )),
-            })?
+            })?;
+            {
+                let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                if ms >= SLOW_ALLOCATE_MS {
+                    log::info!(
+                        "gpu memory: vkAllocateMemory of {:.1} MiB (memory type {mem_type_index}, {}{}) took {ms:.1} ms",
+                        size as f64 / (1024.0 * 1024.0),
+                        if mapped { "host-visible" } else { "device-local" },
+                        if allocation_scheme == AllocationScheme::GpuAllocatorManaged && !requires_personal_block { ", a general block" } else { ", dedicated" },
+                    );
+                }
+            }
+            memory
         };
 
         let mapped_ptr = mapped
@@ -701,6 +716,9 @@ impl MemoryType {
 /// Empty general blocks kept per memory type for reuse besides the one upstream keeps
 /// (NVForever patch, see `MemoryType::free`).
 const KEEP_EMPTY_GENERAL_BLOCKS: usize = 2;
+
+/// NVForever (#1429): a vkAllocateMemory at least this long (milliseconds) is logged.
+const SLOW_ALLOCATE_MS: f64 = 1.0;
 
 pub struct Allocator {
     pub(crate) memory_types: Vec<MemoryType>,

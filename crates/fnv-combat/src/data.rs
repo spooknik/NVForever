@@ -527,7 +527,7 @@ impl DebrisModel {
     pub fn from_bytes(b: &[u8]) -> Option<DebrisModel> {
         let (&percent, rest) = b.split_first()?;
         let end = rest.iter().position(|&c| c == 0)?;
-        let model = String::from_utf8_lossy(&rest[..end]).trim().to_string();
+        let model = fnv_util::text::decode(&rest[..end]).trim().to_string();
         let collision = rest.get(end + 1).is_some_and(|&c| c != 0);
         (!model.is_empty()).then_some(DebrisModel { percent, model, collision })
     }

@@ -248,7 +248,8 @@ pub type Start<'w> = (ResMut<'w, Credits>, Option<Res<'w, GameData>>, ResMut<'w,
 pub fn start(credits: &mut Credits, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> bool {
     // A top-level file of Data, outside the archives' namespace.
     let Some(src) = data.and_then(|d| std::fs::read(d.vfs.data_dir().join("Credits.txt")).ok()) else { return false };
-    let src: String = src.iter().map(|&b| b as char).collect();
+    // 8-bit text in this run's code page (fnv_util::text, #1439).
+    let src = fnv_util::text::decode(&src);
     for n in 1..=9u8 {
         credits.faces.entry(n).or_insert_with(|| face(crate::interface::FONT_FILES[n as usize - 1], plain_font(24.0, 12.0), data, images, bc));
     }

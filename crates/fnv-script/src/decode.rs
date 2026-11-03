@@ -273,7 +273,7 @@ fn one_param(r: &mut Rd<'_>, enc: &ParamEnc, refvar: bool) -> Option<Arg> {
         },
         ParamEnc::String => {
             let n = r.u16()?;
-            r.take(n as usize).map(|s| Arg::String(fnv_util::cp1252::decode(s)))
+            r.take(n as usize).map(|s| Arg::String(fnv_util::text::decode(s)))
         }
     };
     if v.is_none() {

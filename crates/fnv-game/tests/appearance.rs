@@ -293,3 +293,28 @@ fn power_armor_needs_the_training() {
     // The refusal's message is the masters' (none here).
     assert_eq!(fnv_game::functions::refuse_power_armor(&mut g), None);
 }
+
+/// MatchRace (Fallout 3's Vault 101 exit, TTW): the caller takes the source's race now,
+/// told to the engine; the same race again changes nothing. GetPCIsRace reads the
+/// player's race.
+#[test]
+fn match_race_copies_the_race_the_source_has_now() {
+    const MATCH_RACE: u16 = 0x11E5;
+    const GET_PC_IS_RACE: u16 = 0x1082;
+    let f = fixture();
+    let mut g = game(&f);
+    let joe = FormId(JOE_REF);
+    assert_eq!(call(&mut g, None, GET_PC_IS_RACE, &[form(HUMAN)]), 1.0);
+    call(&mut g, Some(joe), AGE_RACE, &[num(1.0)]);
+    g.take_appearance_changes();
+    call(&mut g, Some(P), MATCH_RACE, &[form(JOE_REF)]);
+    assert!(is_race(&mut g, P, HUMAN_OLD));
+    assert_eq!(call(&mut g, None, GET_PC_IS_RACE, &[form(HUMAN_OLD)]), 1.0);
+    assert_eq!(call(&mut g, None, GET_PC_IS_RACE, &[form(HUMAN)]), 0.0);
+    assert_eq!(g.take_appearance_changes().len(), 1);
+    call(&mut g, Some(P), MATCH_RACE, &[form(JOE_REF)]);
+    assert!(g.take_appearance_changes().is_empty());
+    // On an NPC: the ghoul takes Joe's.
+    call(&mut g, Some(FormId(GHOUL_REF)), MATCH_RACE, &[form(JOE_REF)]);
+    assert!(is_race(&mut g, FormId(GHOUL_REF), HUMAN_OLD));
+}

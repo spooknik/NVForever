@@ -2,7 +2,7 @@
 
 use crate::raw::{self, EsmError, Node, Record};
 use bytes::Bytes;
-use fnv_util::{cp1252, Cursor};
+use fnv_util::Cursor;
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,9 +130,9 @@ fn parse_header(r: &Record) -> Result<PluginHeader, EsmError> {
                 h.next_object_id = c.u32().map_err(|_| err("HEDR too short"))?;
                 saw_hedr = true;
             }
-            b"CNAM" => h.author = Some(cp1252::decode_z(&s.data)),
-            b"SNAM" => h.description = Some(cp1252::decode_z(&s.data)),
-            b"MAST" => h.masters.push(MasterRef { name: cp1252::decode_z(&s.data), data: None }),
+            b"CNAM" => h.author = Some(fnv_util::text::decode_z(&s.data)),
+            b"SNAM" => h.description = Some(fnv_util::text::decode_z(&s.data)),
+            b"MAST" => h.masters.push(MasterRef { name: fnv_util::text::decode_z(&s.data), data: None }),
             b"DATA" => {
                 if let Some(m) = h.masters.last_mut() {
                     if s.data.len() == 8 {

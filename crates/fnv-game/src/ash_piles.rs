@@ -97,9 +97,7 @@ impl Game<'_> {
     /// ResurrectActor of an actor that left a pile: the pile is removed [hypothesis].
     pub(crate) fn remove_ash_pile(&mut self, actor: FormId) {
         let Some(pile) = self.extra.get_mut(&actor).and_then(|e| e.ash_pile.take()) else { return };
-        if let Ok(s) = self.world.get(pile) {
-            s.deleted = true;
-        }
+        let _ = self.world.set_deleted(pile, true);
         tracing::info!("ash pile: {pile} removed, {actor} is alive again");
     }
 }

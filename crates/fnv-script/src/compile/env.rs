@@ -59,7 +59,7 @@ impl<'a> LoadOrderIndex<'a> {
                         let mut d = Def { plugin: pi, sig: r.header.sig, edid: None, script: None, base: None };
                         for s in &subs {
                             match &s.sig {
-                                b"EDID" if d.edid.is_none() => d.edid = Some(fnv_util::cp1252::decode_z(&s.data)),
+                                b"EDID" if d.edid.is_none() => d.edid = Some(fnv_util::text::decode_z(&s.data)),
                                 b"SCRI" if d.script.is_none() => d.script = formid(&s.data).and_then(|l| lo.to_global(pi, l)),
                                 b"NAME" if d.base.is_none() && matches!(&r.header.sig, b"REFR" | b"ACHR" | b"ACRE") => {
                                     d.base = formid(&s.data).and_then(|l| lo.to_global(pi, l))

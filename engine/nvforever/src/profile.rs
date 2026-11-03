@@ -15,7 +15,8 @@
 //! when the variable is set.
 //!
 //! A frame of 100 ms or more ([`HITCH_MS`], real time from one frame's report to the
-//! next) also logs `profile hitch: <ms> ms; spans ms: <span> <ms> (<entries>), …`: the
+//! next; `NVF_PLAY_TEST_PROFILE_HITCH_MS=<ms>` sets another threshold, to see what the
+//! occasional 20 ms frames hold) also logs `profile hitch: <ms> ms; spans ms: <span> <ms> (<entries>), …`: the
 //! spans that ended in it, over every thread, so a single stall is not lost in a window's
 //! means.
 //!
@@ -53,6 +54,14 @@ const LISTED: usize = 40;
 /// A frame at least this long (milliseconds of real time from one report to the next)
 /// logs its own spans (`profile hitch:`), which a window's means would hide.
 const HITCH_MS: f64 = 100.0;
+
+/// The hitch threshold: [`HITCH_MS`] or `NVF_PLAY_TEST_PROFILE_HITCH_MS`.
+fn hitch_ms() -> f64 {
+    static MS: OnceLock<f64> = OnceLock::new();
+    *MS.get_or_init(|| {
+        std::env::var("NVF_PLAY_TEST_PROFILE_HITCH_MS").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| *v > 0.0).unwrap_or(HITCH_MS)
+    })
+}
 
 /// Spans listed in a hitch's line.
 const LISTED_HITCH: usize = 25;
@@ -368,7 +377,7 @@ fn report(
     let frame = FRAME.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
     if let Some(at) = last.replace(now) {
         let ms = now.duration_since(at).as_secs_f64() * 1000.0;
-        if ms >= HITCH_MS {
+        if ms >= hitch_ms() {
             let line = format!(
                 "{}; pipelines {pipelines} ({new_pipelines} new since the frame before, {} waiting)",
                 hitch_line(ms, &frame),

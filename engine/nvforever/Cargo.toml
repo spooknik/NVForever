@@ -15,6 +15,7 @@ fnv-world.workspace = true
 fnv-dds.workspace = true
 fnv-vfs.workspace = true
 fnv-install.workspace = true
+fnv-util.workspace = true
 fnv-save.workspace = true
 texpresso.workspace = true
 fnv-spt.workspace = true

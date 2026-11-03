@@ -82,8 +82,8 @@ impl CasinoDef {
 }
 
 fn zstring(b: &[u8]) -> String {
-    let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
-    String::from_utf8_lossy(&b[..end]).trim().to_string()
+    // In this run's code page (fnv_util::text, #1439).
+    fnv_util::text::decode_z(b).trim().to_string()
 }
 
 /// The winnings level (0 to 4) of `earnings` at a casino whose max winnings are `max`: 4

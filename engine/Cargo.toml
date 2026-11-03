@@ -32,6 +32,7 @@ fnv-collide = { path = "../crates/fnv-collide" }
 fnv-nav = { path = "../crates/fnv-nav" }
 fnv-ai = { path = "../crates/fnv-ai" }
 fnv-install = { path = "../crates/fnv-install" }
+fnv-util = { path = "../crates/fnv-util" }
 fnv-save = { path = "../crates/fnv-save" }
 infinitier_bik_decoder = "=0.0.14"
 fnv-voice = { path = "../crates/fnv-voice" }

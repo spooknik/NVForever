@@ -45,8 +45,12 @@
 //!   counts as footsteps; the names are docs/spec-notes/audio.md §10]; everything else
 //!   (shots, impacts, interface, placed and background sounds, the intro) is Effects
 //!   [hypothesis]. A volume scales the samples linearly [hypothesis: the original's curve
-//!   is not known]. The settings page's Sound tab sets them ([`register_settings`]), kept
-//!   in the INI like every row.
+//!   is not known; at its default Music 60 its main menu theme plays at 0.61 of the file,
+//!   which a linear 0.6 matches; docs/spec-notes/audio.md]. They start at the original's
+//!   defaults ([`DEFAULT_VOLUMES`]; issue #1450: all at 1 made music, voices and radio
+//!   louder than the original). The settings page's Sound tab sets them
+//!   ([`register_settings`]), kept in the INI like every row: an INI written before keeps
+//!   its volumes, and the tab's Defaults goes back to these.
 //! - **Slowed sound** (owner 2026-10-18: in slow motion sounds should be "more drawn out
 //!   and lower pitch like the base game" [observed: the owner's ear, the original's kill
 //!   camera and VATS]). [`SoundSpeed`] is the speed the engine's own slow motion (VATS
@@ -190,10 +194,22 @@ struct Levels {
     audible: [AtomicU64; 5],
 }
 
+/// The volumes a new player starts with, in [`SoundCategory::ALL`]'s order: the
+/// original's (`fDefaultMusicVolume` 0.6, `fDefaultFootVolume` 0.5, `fDefaultVoiceVolume`
+/// 0.6, `fDefaultEffectsVolume` 1, `fDefaultRadioVolume` 0.5) [observed: Fallout_default.ini,
+/// and the original's sliders read with GetGameVolume on an install left at its defaults:
+/// 60, 50, 60, 100, 50]; master 1 (`fDefaultMasterVolume`).
+pub const DEFAULT_VOLUMES: [f32; 5] = [0.6, 0.5, 0.6, 1.0, 0.5];
+
 impl Default for SoundVolumes {
     fn default() -> Self {
-        let one = || AtomicU32::new(1f32.to_bits());
-        SoundVolumes(Arc::new(Levels { master: one(), categories: std::array::from_fn(|_| one()), heard: Default::default(), audible: Default::default() }))
+        let level = |v: f32| AtomicU32::new(v.to_bits());
+        SoundVolumes(Arc::new(Levels {
+            master: level(1.0),
+            categories: DEFAULT_VOLUMES.map(level),
+            heard: Default::default(),
+            audible: Default::default(),
+        }))
     }
 }
 
@@ -829,8 +845,17 @@ mod tests {
     }
 
     #[test]
+    fn the_volumes_start_at_the_originals_defaults() {
+        let volumes = SoundVolumes::default();
+        assert_eq!(volumes.master(), 1.0);
+        assert_eq!(SoundCategory::ALL.map(|c| volumes.get(c)), [0.6, 0.5, 0.6, 1.0, 0.5], "music, footstep, voice, effects, radio");
+        assert!((volumes.gain(SoundCategory::Music) - 0.6).abs() < 1e-6);
+    }
+
+    #[test]
     fn a_category_plays_at_its_volume_times_the_master_and_eases_to_a_change() {
         let volumes = SoundVolumes::default();
+        volumes.set(SoundCategory::Music, 1.0);
         let (music, source) = rodio::mixer::mixer(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap());
         let mut gain = Gain::new(source, volumes.clone(), SoundCategory::Music);
         music.add(ones(RATE as usize));

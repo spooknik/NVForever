@@ -491,6 +491,17 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
                 }
             }
         }
+        // The hair model is drawn as a cut-out, solid like the original's
+        // (`nif_spawn::hair_model_cut_out`, #1454).
+        if p.role == "hair" {
+            for (i, _) in part.shapes.iter().enumerate().filter(|(_, s)| !s.cap) {
+                let Some(mut m) = ctx.models.materials.get(&materials[i]).cloned() else { continue };
+                if matches!(m.base.alpha_mode, AlphaMode::Blend) {
+                    nvf_assets::nif_spawn::hair_model_cut_out(&mut m);
+                    materials[i] = ctx.models.materials.add(m);
+                }
+            }
+        }
         // The hair model holds a `NoHat` and a `Hat` shape (actors.md §2.4).
         let mut hidden_shapes = if p.role == "hair" { vec![if a.hat { "NoHat" } else { "Hat" }.to_string()] } else { Vec::new() };
         // The Pip-Boy light's glow shows only with the light on, which is not built, and

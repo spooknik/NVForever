@@ -883,6 +883,28 @@ the CGTutorial script read a new character as hurt, crippled and with a broken w
 on its first run (its stages 200, 210 and 218), which the capture saves never show
 (layer5-captures.md §2: only stage 2 done).
 
+**Fallout 3's functions** (2026-11-03, `functions::fo3`; Tale of Two Wastelands, audit
+docs/handoff/ttw-fo3-script-audit-2026-11-02.md §1). The New Vegas masters never call
+them, so the catalogue had no opcode for them; each opcode is the in-game GetCommandOpcode
+capture's (`schemas/script/command_opcodes.json`) [observed], and TTW's compiled calls
+agree (`Dad.MatchRace player` compiles to 0x11E5 in Vault101ExitScript) [observed].
+ModDisposition adds to what GetDisposition reads and keeps the sum as SetDisposition
+keeps its value, within 0–100 [documented: catalogue summary; the range is a
+hypothesis]. GetPCIsRace is GetIsRace on the player. GetForceSneak reads SetForceSneak's
+flag. SetMerchantContainer puts the actor's goods in another container
+(`RefExtra::merchant_container`, read by `Game::merchant_container` for the barter menu,
+actors that buy, and GetMerchantContainer), refused for a container that is not
+persistent [documented: catalogue notes]. MatchRace gives the caller the race the source
+has now and is drawn again as AgeRace's change is (appearance-changes.md).
+ClearActorsFactionsPlayerEnemyFlag clears the player's enemy flag in each crime-tracking
+faction of the actor. GetPCSleepHours reads the hours of a sleep in progress, 0 while
+awake or waiting. SetLastExtDoorActivated sets the door GetPCLastExteriorDoor reads.
+SetPCYoung, SetPCToddler, SetNoActivationSound / ClearNoActivationSound and
+SetLocationSpecificLoadScreensOnly are kept in `PlayerState` (`young`, `toddler`,
+`no_activation_sound`, `location_load_screens_only`), but nothing draws, animates or
+plays by them yet: the child's default hair, the toddler's walk, the refused-activation
+sound and the load screen choice are not built.
+
 ### 7.4 Coverage (`fnvtool script coverage`, 2026-10-09, after rounds 3 and 4)
 
 `implemented` and `stub` are filled per opcode. Over the ten masters (401 opcodes called

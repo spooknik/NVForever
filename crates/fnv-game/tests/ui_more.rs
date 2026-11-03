@@ -259,12 +259,12 @@ fn attachments_replace_by_reference_node_and_rect_and_are_pruned_each_frame() {
         assert_eq!(g.ui_tree.tile(a.tile).get("visible").unwrap().num(), 0.0);
     }
     let gone: Vec<_> = g.ui_extra.attached.iter().filter(|a| a.reference == reference).map(|a| a.tile).collect();
-    g.world.get(reference).unwrap().deleted = true;
+    g.world.set_deleted(reference, true).unwrap();
     frame(&mut g, 0.0);
     assert_eq!(g.ui_extra.attached.len(), 1);
     assert!(gone.iter().all(|&t| !g.ui_tree.tile(t).live));
-    g.world.get(reference).unwrap().deleted = false;
-    g.world.get(reference).unwrap().enabled = false;
+    g.world.set_deleted(reference, false).unwrap();
+    g.world.set_enabled(reference, false).unwrap();
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Head"), s(xml)]);
     frame(&mut g, 0.0);
     assert_eq!(g.ui_extra.attached.len(), 1);

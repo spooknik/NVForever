@@ -307,8 +307,7 @@ fn path(v: Option<&Value>) -> Option<String> {
 fn raw_string(r: &Record, sig: &[u8; 4]) -> Option<String> {
     let subs = r.subrecords().ok()?;
     let s = subs.iter().find(|s| &s.sig == sig)?;
-    let end = s.data.iter().position(|&b| b == 0).unwrap_or(s.data.len());
-    let t = String::from_utf8_lossy(&s.data[..end]).trim().to_string();
+    let t = fnv_util::text::decode_z(&s.data).trim().to_string();
     (!t.is_empty()).then_some(t)
 }
 

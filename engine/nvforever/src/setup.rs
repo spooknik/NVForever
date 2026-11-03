@@ -68,7 +68,7 @@ pub fn game_install(cli: Option<&Path>) -> Result<GameInstall, String> {
             format!("The game folder Mod Organizer 2 manages ({}) cannot be used:\n\n{e}", dir.display())
         });
     }
-    let cfg =Config::load(&home).map_err(|e| e.to_string())?;
+    let cfg = Config::load(&home).map_err(|e| e.to_string())?;
     let mut problem = None;
     if let Some(dir) = &cfg.game_dir {
         match validate(dir, &home) {
@@ -83,9 +83,17 @@ pub fn game_install(cli: Option<&Path>) -> Result<GameInstall, String> {
         }
     }
     let game = ask(&home, problem)?;
-    Config { game_dir: Some(game.root.clone()) }.save(&home, Some(&game)).map_err(|e| e.to_string())?;
+    Config { game_dir: Some(game.root.clone()), ..cfg }.save(&home, Some(&game)).map_err(|e| e.to_string())?;
     eprintln!("setup: game folder {} stored in {}", game.root.display(), home.config_file().display());
     Ok(game)
+}
+
+/// The code page of the game's text for this run (`fnv_util::text::chosen`, #1439):
+/// `NVF_CODE_PAGE`, else `[Text] CodePage` of the home's NVForever.ini, else
+/// Windows-1252. Set before any of the game's text is read.
+pub fn text_code_page() -> Result<fnv_util::text::CodePage, String> {
+    let ini = EngineHome::user().and_then(|h| Config::load(&h).ok()).and_then(|c| c.code_page);
+    fnv_util::text::chosen(ini.as_deref())
 }
 
 #[cfg(windows)]

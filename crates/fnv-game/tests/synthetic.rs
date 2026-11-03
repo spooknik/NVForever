@@ -690,6 +690,9 @@ fn snapshots_round_trip() {
     g.weather.raining = true;
     g.provocations.grudges.insert((FormId(ACT_REF), FormId::PLAYER_REF), fnv_game::provocation::Grudge { why: fnv_game::provocation::Why::Assault, since: 3.0 });
     g.provocations.forgiven.insert(FormId(ACT_REF), 7.5);
+    // A gate a script opened (PlayGroup Forward) shows and collides open after a load
+    // (issue #1396).
+    g.ask_anim(fnv_game::anims::AnimRequest { on: FormId(ACT_REF), group: 1, name: Some("Forward".into()), start: fnv_game::anims::Start::Normal });
     let s = g.snapshot();
     let text = serde_json::to_string(&s).unwrap();
     let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
@@ -704,13 +707,14 @@ fn snapshots_round_trip() {
     assert_eq!((h.weather.shown, h.weather.raining), (g.weather.shown, true));
     assert_eq!(h.provocations.grudges, g.provocations.grudges);
     assert_eq!(h.provocations.forgiven, g.provocations.forgiven);
+    assert_eq!(h.anims.asked(FormId(ACT_REF)), Some((1, "Forward")));
     // A snapshot written before these fields existed still loads.
     let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
-    for k in ["terminals", "pipboy_radio_on", "pipboy_station", "npc_radios", "weather_shown", "raining", "grudges", "forgiven"] {
+    for k in ["terminals", "pipboy_radio_on", "pipboy_station", "npc_radios", "weather_shown", "raining", "grudges", "forgiven", "object_groups"] {
         old.as_object_mut().unwrap().remove(k);
     }
     let older: fnv_game::game::GameSnapshot = serde_json::from_value(old).unwrap();
-    assert!(older.terminals.is_empty() && older.grudges.is_empty());
+    assert!(older.terminals.is_empty() && older.grudges.is_empty() && older.object_groups.is_empty());
     g.frames(90);
     h.frames(90);
     assert_eq!(g.quests, h.quests);

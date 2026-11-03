@@ -104,6 +104,15 @@ impl Game<'_> {
         Some(to)
     }
 
+    /// `actor.MatchRace source` (`functions::fo3`): the actor takes `race`, drawn again
+    /// as AgeRace's change is.
+    pub(crate) fn change_race(&mut self, r: FormId, race: FormId) {
+        if self.actor_race(r) != Some(race) {
+            self.set_race(r, race);
+            self.appearance_changes.push(AppearanceChange { actor: r, reset: false });
+        }
+    }
+
     fn set_race(&mut self, r: FormId, race: FormId) {
         if r == FormId::PLAYER_REF {
             match self.player.look.as_mut() {

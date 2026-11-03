@@ -1292,7 +1292,8 @@ pub struct ActorValueInfo {
 
 /// A NUL-terminated string as stored.
 fn zstring(b: &[u8]) -> String {
-    String::from_utf8_lossy(b.split(|c| *c == 0).next().unwrap_or_default()).trim().to_string()
+    // In this run's code page (fnv_util::text, #1439).
+    fnv_util::text::decode_z(b).trim().to_string()
 }
 
 /// The timing of an image space modifier (IMAD DNAM) [documented: xEdit
@@ -2541,7 +2542,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     for s in &subs {
         match &s.sig {
             b"EDID" if out.edid.is_none() => out.edid = val(s).and_then(|v| v.as_str().map(str::to_string)),
-            b"FULL" if out.full.is_none() => out.full = Some(fnv_util::cp1252::decode_z(&s.data)).filter(|n| !n.is_empty()),
+            b"FULL" if out.full.is_none() => out.full = Some(fnv_util::text::decode_z(&s.data)).filter(|n| !n.is_empty()),
             b"SCRI" if out.script.is_none() => out.script = val(s).as_ref().and_then(hexid).and_then(map).map(FormId),
             _ => {}
         }
@@ -2894,7 +2895,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 .collect();
             n.snam = form_of(b"SNAM");
             match n.kind {
-                1 => n.text = subs.iter().find(|s| &s.sig == b"TNAM").map(|s| fnv_util::cp1252::decode_z(&s.data)),
+                1 => n.text = subs.iter().find(|s| &s.sig == b"TNAM").map(|s| fnv_util::text::decode_z(&s.data)),
                 3 => n.topic = form_of(b"TNAM"),
                 _ => {}
             }

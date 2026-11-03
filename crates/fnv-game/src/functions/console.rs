@@ -516,7 +516,7 @@ pub fn delete_reference(g: &mut Game, ctx: &ConsoleCtx, _a: &[String]) -> Result
     }
     let what = label(g, r);
     g.extra.entry(r).or_default().marked_for_delete = true;
-    g.world.get(r).map_err(|e| e.to_string())?.deleted = true;
+    g.world.set_deleted(r, true).map_err(|e| e.to_string())?;
     Ok(vec![format!("{what} deleted")])
 }
 
@@ -970,7 +970,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (33, 123), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (33, 110), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));

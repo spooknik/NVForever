@@ -1127,6 +1127,14 @@ fn main() -> ExitCode {
     crash_report::install();
     let cli = Cli::parse();
     init_logging();
+    // The code page of the game's text: NVF_CODE_PAGE, else Windows-1252 (#1439).
+    match fnv_util::text::chosen(None) {
+        Ok(c) => fnv_util::text::set_code_page(c),
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
     // The game folder a command reads (its data-folder argument, wherever the command
     // takes it): every `fnv_install::guard_write` then refuses outputs inside it (#994).
     if let Some(a) = std::env::args_os().skip(1).map(PathBuf::from).find(|p| p.is_dir() && fnv_install::GameInstall::open(p).is_ok()) {

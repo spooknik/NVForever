@@ -23,10 +23,14 @@
 //! and loading a save start NVForever again with `--load` (`crate::save::LoadRequest`).
 //!
 //! **The theme**: the original's main menu music, the track its INI names
-//! (`SMainMenuMusicTrack=special\maintitle.mp3`, at `fMainMenuMusicVolume=0.6`)
-//! [documented: Fallout_default.ini], read from the owner's `Data\Music` and played from
-//! the start, looping [hypothesis: the original loops it], times the music volume
-//! (`crate::music::MusicSettings`; silent with `--no-music`). The place's own music stays
+//! (`SMainMenuMusicTrack=special\maintitle.mp3`) [documented: Fallout_default.ini], read
+//! from the owner's `Data\Music` and played from the start, looping [hypothesis: the
+//! original loops it], at the file's own level times the music volume
+//! (`crate::music::MusicSettings`; silent with `--no-music`) and the Music slider. The
+//! original plays it at 0.61 of the file with its Music slider at 60 and
+//! `fMainMenuMusicVolume=0.6` [observed: loopback recording fitted to the file, issue
+//! #1450]: one 0.6, not both, so the slider (default 0.6) is the theme's only level
+//! [hypothesis: the slider and not the INI value; docs/spec-notes/audio.md]. The place's own music stays
 //! silent while the menu is open; New Game fades the theme out over [`THEME_FADE`].
 //!
 //! The INI's main menu colour (`iSystemColorMainMenu…` 199, 255, 165) is not used: the
@@ -67,9 +71,8 @@ pub const FADE_SECS: f32 = 0.9;
 const SLIDE_BRIGHTNESS: f32 = 0.55;
 
 const LOGO: &str = "textures\\interface\\main\\main_title.dds";
-/// The theme [documented: Fallout_default.ini `SMainMenuMusicTrack`, `fMainMenuMusicVolume`].
+/// The theme [documented: Fallout_default.ini `SMainMenuMusicTrack`].
 const THEME: &str = "music\\special\\maintitle.mp3";
-const THEME_VOLUME: f32 = 0.6;
 /// Seconds the theme takes to fade out after New Game [design].
 pub const THEME_FADE: f32 = 1.5;
 
@@ -573,7 +576,7 @@ fn show_entries(
 fn theme(real: Res<Time<Real>>, mut menu: ResMut<MainMenu>, settings: Option<Res<crate::music::MusicSettings>>, mut commands: Commands) {
     let open = menu.open;
     let Some(t) = menu.theme.as_mut() else { return };
-    let volume = settings.as_deref().map_or(1.0, |s| if s.play { s.volume.max(0.0) } else { 0.0 }) * THEME_VOLUME;
+    let volume = settings.as_deref().map_or(1.0, |s| if s.play { s.volume.max(0.0) } else { 0.0 });
     let dt = real.delta_secs().min(0.1);
     t.level = if open { (t.level + dt / 0.5).min(1.0) } else { (t.level - dt / THEME_FADE).max(0.0) };
     t.levels[0].store((t.level * volume).to_bits(), std::sync::atomic::Ordering::Relaxed);

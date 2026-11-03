@@ -582,6 +582,9 @@ pub struct Ai {
     applied_switches: Option<BTreeMap<u32, bool>>,
     /// The world's lock serial last brought into the graph ([`Ai::apply_door_locks`]).
     applied_locks: Option<u64>,
+    /// The world's presence serial and the graph's obstacle stamp after the obstacles
+    /// were last brought into the graph ([`Ai::obstacles_in_line`]).
+    applied_obstacles: Option<(u64, u64)>,
     /// The graph's locked doors as last brought in ([`Ai::apply_door_locks`]): the ones an
     /// actor owns are open to its paths ([`Ai::path_params`]).
     locked_doors: Vec<u32>,
@@ -621,7 +624,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new() }
     }
 
     /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
@@ -715,12 +718,21 @@ impl Ai {
     /// triangle takes up its package afresh from where it stands, as for a navmesh
     /// switched off ([`Ai::apply_navmesh_switches`]). Returns the obstacles that changed
     /// and the actors sent to plan again, `None` when none changed.
+    ///
+    /// Nothing is polled while [`Ai::obstacles_in_line`] holds: then every obstacle's
+    /// state in the graph is the game's already, and the poll would change nothing.
     pub fn apply_obstacles(&mut self, game: &Game, nav: &mut NavGraph) -> Option<(Vec<u32>, Vec<FormId>)> {
         if nav.obstacles.is_empty() {
             return None;
         }
+        if self.obstacles_in_line(game, nav) {
+            // A missed writer of the presence serial would show here in debug builds.
+            debug_assert!(nav.obstacles.iter().all(|(&r, o)| o.enabled == game.present(FormId(r))), "obstacle cache out of line with the game");
+            return None;
+        }
         let states: Vec<(u32, bool)> = nav.obstacles.keys().map(|&r| (r, game.present(FormId(r)))).collect();
         let changed = nav.sync_obstacles(states);
+        self.applied_obstacles = Some((game.world.presence_serial(), nav.obstacles_stamp()));
         if changed.is_empty() {
             return None;
         }
@@ -738,6 +750,17 @@ impl Ai {
             }
         }
         Some((changed, blocked))
+    }
+
+    /// Whether the graph's obstacles were brought in line with this game's world and
+    /// nothing that could change either happened since: the world's presence serial
+    /// (`fnv_sim::World::presence_serial`: every write of a reference's `enabled` or
+    /// `deleted`, every state made, created or reset, a new world) and the graph's
+    /// obstacle stamp (`fnv_nav::NavGraph::obstacles_stamp`: obstacles learnt again or
+    /// switched) are the ones seen after the last poll. [`Game::present`] reads nothing
+    /// else, so a poll now would find every obstacle as the graph has it.
+    pub fn obstacles_in_line(&self, game: &Game, nav: &NavGraph) -> bool {
+        self.applied_obstacles == Some((game.world.presence_serial(), nav.obstacles_stamp()))
     }
 
     /// Give `actor` speeds of its own; its walker turns at its own rate from now on.

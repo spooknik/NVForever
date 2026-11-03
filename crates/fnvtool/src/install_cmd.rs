@@ -68,6 +68,6 @@ pub fn setup(game_dir: &Path, args: &HomeArg) -> anyhow::Result<Value> {
         bail!(fnv_install::InstallError::Overlap(viol));
     }
     home.create()?;
-    Config { game_dir: Some(PathBuf::from(&game.root)) }.save(&home, Some(&game))?;
+    Config { game_dir: Some(PathBuf::from(&game.root)), ..Config::default() }.save(&home, Some(&game))?;
     Ok(report(&home, Some(&game)))
 }

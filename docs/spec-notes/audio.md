@@ -1195,3 +1195,32 @@ Attack without a key (above), super mutants' and robots' combat voices (dialogue
 topics, not creature sounds), and the 26 creatures whose templates give none. Checks:
 the `anim sounds summary` (types counted, "Aware n"), smoke `creature-sounds-ghoul`,
 `creature-sounds-aware`, `bighorner`.
+
+## 17. Volume sliders (issue #1450, 2026-11-03)
+
+- **Defaults** [observed: `Fallout_default.ini` `[Audio]`]: `fDefaultMasterVolume=1.0`,
+  `fDefaultFootVolume=0.5`, `fDefaultMusicVolume=0.6`, `fDefaultRadioVolume=0.5`,
+  `fDefaultEffectsVolume=1.0`, `fDefaultVoiceVolume=0.6`. An install left at its
+  defaults reads back the same with JIP's `GetGameVolume` 0-5 (master, footsteps, voice,
+  effects, music, radio): 100, 50, 60, 100, 60, 50 [observed: capture job, the owner's
+  install]. NVForever starts its sliders there (`audio_out::DEFAULT_VOLUMES`); before,
+  all were 1, and music, voices and radio played louder than the original's.
+- **Main menu theme** [observed: WASAPI loopback of the original at its main menu,
+  `MainTitle.mp3` decoded and fitted to the recording per channel, offset by
+  cross-correlation; four runs, the fit explaining all of the recording]: the theme
+  plays at 0.61 of the file (−4.3 dB) with the Music slider at 60, master 100 and
+  `fMainMenuMusicVolume=0.6`. One 0.6, not the two multiplied (0.36): either the theme
+  takes the slider and not the INI value, or the INI value and not the slider.
+  NVForever takes the slider alone [hypothesis], so the default menu matches the
+  original and the slider still turns the theme down.
+- **`SetGameVolume` from the console** (JIP) changed nothing heard, at the main menu
+  (the theme's level was the same after `SetGameVolume 4` 80, 60, 40 and 20) or in game
+  (no step in the level when the music slider was set to 0 and back, and the other
+  categories kept playing after being set to 0) [observed: loopback, same runs]; the
+  sliders read back at their defaults afterwards. It does not reach the playing mix, so
+  it cannot measure the slider's curve.
+- **The curve** stays linear [hypothesis]; the menu result fits it (0.6 → 0.6) but does
+  not tell it from the other hypothesis above. The reporter of #1450 found NVForever's
+  music at 0.6 still louder than the original's in game; the in-game music level (music
+  types' `ANAM` decibels, §13) was not measured. Owner checks:
+  docs/handoff/observer-checks.md.

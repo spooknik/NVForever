@@ -68,10 +68,15 @@ masters, absent from `functions/mod.rs`.
 | 0x11EE | ShowSPECIALBookMenuParams | 1 | Fallout3 |
 
 Two more vanilla-range opcodes have no name in the catalogue: 0x11F3 and 0x1231, each a
-bare statement without arguments in a stage of a character-creation quest (QUST
-0x06014E9E stage 60, 0x06014E83 stage 90) [observed]; which source word they are is
-unknown, so the next step is to line their stages' SCTX up with SCDA as
-script-functions.md §3 did for the base game.
+bare statement without arguments in a quest stage [observed]. Lined up with their
+stages' source text (2026-11-03): 0x1231 is **KillQuestUpdates** (CG01 stage 90, between
+`AutoDisplayObjectives 0` and `imod FadeToWhiteAndBackISFX`) and 0x11F3 is
+**TriggerLODApocalypse** (QUST 0x06014E9E is MS11, The Power of the Atom, not a
+character-creation quest: stage 60, Megaton's destruction, between
+`MS11MegatonToggle.disable` and `MegatonMapMarkerREF.disable`) [observed: SCTX lines
+against the compiled order]. Neither is in the catalogue or in the GetCommandOpcode
+capture; the GECK wiki extract has a page for KillQuestUpdates (`Misc.xml`), none for
+TriggerLODApocalypse.
 
 The character-creation group (SetPCToddler, SetPCYoung, MatchRace, MatchFaceGeometry,
 SetLocationSpecificLoadScreensOnly, SetNoActivationSound, the two unnamed opcodes) is
@@ -132,3 +137,19 @@ first real data.
    SetMerchantContainer first).
 3. The JIP event handlers of §2 (one script registers them all).
 4. The §3 opcode capture, then ttw_nvse's two functions.
+
+## Outcome (2026-11-03)
+
+Built (`crates/fnv-game/src/functions/fo3.rs`; the catalogue entries got their
+opcodes from `schemas/script/command_opcodes.json`): ModDisposition, GetPCIsRace,
+GetForceSneak, SetMerchantContainer, MatchRace, ClearActorsFactionsPlayerEnemyFlag,
+GetPCSleepHours, SetLastExtDoorActivated. Kept as state only, nothing draws or plays by
+them yet: SetPCYoung, SetPCToddler, SetNoActivationSound, ClearNoActivationSound,
+SetLocationSpecificLoadScreensOnly (docs/spec-notes/scripts.md §7.3).
+
+Left in §1: MatchFaceGeometry (Vault101ExitScript and CG04 stage 65 call
+`Dad.MatchFaceGeometry player CGMatchFace`, a global for the percentage [observed:
+source]: it changes an NPC's FaceGen geometry, and the engine has no per-reference face
+yet), the two opcodes above, and SetCellFullName, TriggerHitShader, ResetInterior,
+FadeSFX, SetFactionReaction, SetZoneRespawns, DisableAllMines, StopWaiting,
+TriggerScreenBlood, RemapWaterType, GetLastPlayerAction.

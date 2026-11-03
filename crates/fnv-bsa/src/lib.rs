@@ -9,7 +9,7 @@
 //! Tolerance rules (spec section 7): unknown flag bits are preserved and reported,
 //! never silently dropped. Anything inconsistent becomes a `Warning`, not a panic.
 
-use fnv_util::{cp1252, Cursor};
+use fnv_util::Cursor;
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -149,9 +149,9 @@ impl<'a> Entry<'a> {
     /// Full path as stored (`folder\name`), decoded from Windows-1252.
     pub fn path(&self) -> String {
         if self.folder.name.is_empty() {
-            cp1252::decode(&self.record.name)
+            fnv_util::text::decode(&self.record.name)
         } else {
-            format!("{}\\{}", cp1252::decode(&self.folder.name), cp1252::decode(&self.record.name))
+            format!("{}\\{}", fnv_util::text::decode(&self.folder.name), fnv_util::text::decode(&self.record.name))
         }
     }
 }
@@ -296,7 +296,7 @@ impl Archive {
                     // still loads but will not re-serialize byte-identically.
                     warnings.push(Warning {
                         code: "noncanonical_folder_name",
-                        detail: format!("folder #{fi}: length byte {len_byte}, name {:?}", cp1252::decode(&f.name)),
+                        detail: format!("folder #{fi}: length byte {len_byte}, name {:?}", fnv_util::text::decode(&f.name)),
                     });
                 }
             }
@@ -352,26 +352,26 @@ impl Archive {
             if has_dir_names && name_hash(&f.name, false) != f.hash {
                 warnings.push(Warning {
                     code: "folder_hash_mismatch",
-                    detail: format!("{} stored {:016x}", cp1252::decode(&f.name), f.hash),
+                    detail: format!("{} stored {:016x}", fnv_util::text::decode(&f.name), f.hash),
                 });
             }
             for r in &f.files {
                 if has_file_names && name_hash(&r.name, true) != r.hash {
                     warnings.push(Warning {
                         code: "file_hash_mismatch",
-                        detail: format!("{} stored {:016x}", cp1252::decode(&r.name), r.hash),
+                        detail: format!("{} stored {:016x}", fnv_util::text::decode(&r.name), r.hash),
                     });
                 }
                 if r.offset as u64 + r.stored_size() as u64 > file_len {
                     warnings.push(Warning {
                         code: "data_out_of_bounds",
-                        detail: format!("{} offset {} size {}", cp1252::decode(&r.name), r.offset, r.stored_size()),
+                        detail: format!("{} offset {} size {}", fnv_util::text::decode(&r.name), r.offset, r.stored_size()),
                     });
                 }
                 if r.size_field & SIZE_UNKNOWN_BIT31 != 0 {
                     warnings.push(Warning {
                         code: "size_bit31_set",
-                        detail: cp1252::decode(&r.name),
+                        detail: fnv_util::text::decode(&r.name),
                     });
                 }
             }
@@ -397,7 +397,7 @@ impl Archive {
             if r.offset as u64 != expected {
                 gaps += 1;
                 if first_gap.is_none() {
-                    first_gap = Some(format!("{}: offset {} expected {}", cp1252::decode(&r.name), r.offset, expected));
+                    first_gap = Some(format!("{}: offset {} expected {}", fnv_util::text::decode(&r.name), r.offset, expected));
                 }
             }
             expected = expected.max(r.offset as u64 + r.stored_size() as u64);
@@ -443,8 +443,8 @@ impl Archive {
             "{} file record(s) point past the end of the file ({} bytes); first {}\\{} at offset {}, {} bytes",
             1 + past.count(),
             self.file_len,
-            cp1252::decode(&f.name),
-            cp1252::decode(&r.name),
+            fnv_util::text::decode(&f.name),
+            fnv_util::text::decode(&r.name),
             r.offset,
             r.stored_size()
         )))
@@ -473,7 +473,7 @@ impl Archive {
     pub fn read_raw(&mut self, r: &FileRecord) -> Result<Vec<u8>, BsaError> {
         let size = r.stored_size() as usize;
         if r.offset as u64 + size as u64 > self.file_len {
-            return Err(BsaError::Truncated(format!("data for {} beyond end", cp1252::decode(&r.name))));
+            return Err(BsaError::Truncated(format!("data for {} beyond end", fnv_util::text::decode(&r.name))));
         }
         let mut buf = vec![0u8; size];
         self.file.seek(SeekFrom::Start(r.offset as u64))?;
@@ -532,7 +532,7 @@ impl Archive {
             let decoded: Vec<_> = batch
                 .into_par_iter()
                 .map(|(r, compressed, raw)| {
-                    let (data, trailer) = decode_block_checked(&raw?, compressed, embeds, &cp1252::decode(&r.name))?;
+                    let (data, trailer) = decode_block_checked(&raw?, compressed, embeds, &fnv_util::text::decode(&r.name))?;
                     Ok((f(&data), trailer))
                 })
                 .collect();
@@ -548,8 +548,8 @@ impl Archive {
             Some(i) => (&p[..i], &p[i + 1..]),
             None => ("", &p[..]),
         };
-        let dir_b = cp1252::encode(dir)?;
-        let name_b = cp1252::encode(name)?;
+        let dir_b = fnv_util::text::encode(dir)?;
+        let name_b = fnv_util::text::encode(name)?;
         let dh = name_hash(&dir_b, false);
         let fh = name_hash(&name_b, true);
         let dir_lower: Vec<u8> = dir_b.iter().map(|b| b.to_ascii_lowercase()).collect();
@@ -596,7 +596,7 @@ impl StoredBlock {
 
     /// Like [`StoredBlock::decode`], also returning the zlib trailer status.
     pub fn decode_checked(&self) -> Result<(Vec<u8>, fnv_inflate::Trailer), BsaError> {
-        decode_block_checked(&self.raw, self.compressed, self.embedded_name, &cp1252::decode(&self.name))
+        decode_block_checked(&self.raw, self.compressed, self.embedded_name, &fnv_util::text::decode(&self.name))
     }
 }
 

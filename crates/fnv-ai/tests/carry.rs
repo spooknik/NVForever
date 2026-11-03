@@ -641,6 +641,65 @@ fn a_place_that_cannot_be_reached_sets_the_package_aside() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// The obstacle poll is skipped while nothing that could change an obstacle's presence or
+/// the graph's obstacles happened since the last one (`Ai::obstacles_in_line`), and runs
+/// again after each such change: a script's Disable/Enable, a deletion, any reference
+/// state created, the obstacles learnt again. Whenever it is skipped, polling would have
+/// found every obstacle as the graph has it.
+#[test]
+fn the_obstacle_poll_is_skipped_only_while_nothing_changed() {
+    let f = fixture();
+    let mut s = sim(&f, &[]);
+    let ob = FormId(M3);
+    let sandbag = || fnv_nav::obstacles::Obstacle { reference: M3, space: A, position: [150.0, 150.0, 0.0], rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0, bounds: ([-40.0, -40.0, 0.0], [40.0, 40.0, 90.0]), initially_enabled: false };
+    s.nav.set_obstacles(vec![sandbag()], |_| false);
+    assert_eq!(s.nav.obstacles.len(), 1);
+    // Skipped means a poll would change nothing.
+    let in_line = |s: &Sim| {
+        let skip = s.ai.obstacles_in_line(&s.game, &s.nav);
+        if skip {
+            assert!(s.nav.obstacles.iter().all(|(&r, o)| o.enabled == s.game.present(FormId(r))), "skipped while out of line");
+        }
+        skip
+    };
+    let changed = |s: &mut Sim| s.ai.apply_obstacles(&s.game, &mut s.nav).map(|(c, _)| c);
+    assert!(!in_line(&s), "never polled");
+    // M3 stands enabled in the game: the first poll brings it in and cuts.
+    assert_eq!(changed(&mut s), Some(vec![M3]));
+    assert!(s.nav.cut_triangles() > 0);
+    assert!(in_line(&s));
+    assert_eq!(changed(&mut s), None);
+    // A script's Disable.
+    s.game.world.set_enabled(ob, false).unwrap();
+    assert!(!in_line(&s));
+    assert_eq!(changed(&mut s), Some(vec![M3]));
+    assert_eq!(s.nav.cut_triangles(), 0);
+    assert!(in_line(&s));
+    // The same flag again changes nothing, and nothing is polled.
+    s.game.world.set_enabled(ob, false).unwrap();
+    assert!(in_line(&s));
+    // Any reference state created: polled again, nothing changed.
+    s.game.world.place(FormId(STAT), Some(FormId(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    assert!(!in_line(&s));
+    assert_eq!(changed(&mut s), None);
+    assert!(in_line(&s));
+    // Enabled again, then deleted (MarkForDelete).
+    s.game.world.set_enabled(ob, true).unwrap();
+    assert_eq!(changed(&mut s), Some(vec![M3]));
+    s.game.world.set_deleted(ob, true).unwrap();
+    assert!(!in_line(&s));
+    assert_eq!(changed(&mut s), Some(vec![M3]));
+    assert_eq!(s.nav.cut_triangles(), 0);
+    // The obstacles learnt again (as enabled): the graph's stamp changed, polled again.
+    s.nav.set_obstacles(vec![sandbag()], |_| true);
+    assert!(!in_line(&s));
+    assert_eq!(changed(&mut s), Some(vec![M3]));
+    assert!(in_line(&s));
+    // Another AI has polled nothing yet.
+    let fresh = Ai::new(AiConfig::default());
+    assert!(!fresh.obstacles_in_line(&s.game, &s.nav));
+}
+
 /// A door the game locks (a script's Lock) shuts the way: the actor sets its package
 /// aside. Unlocked again (a script's Unlock, a key, a picked lock), the graph learns it,
 /// the package is chosen again at once and the actor gets through

@@ -181,6 +181,8 @@ pub struct ActorParts {
     /// [`ActorCtx::part`], with when they came in; and the reads under way.
     fetched: HashMap<String, (Nif, f64)>,
     fetching: HashMap<String, Task<Fetched>>,
+    /// KF clips being read on a worker thread ([`ActorCtx::clip_ready`]).
+    clip_reads: HashMap<String, Task<Result<Clip, String>>>,
     pub failures: Vec<String>,
 }
 
@@ -632,13 +634,30 @@ impl ActorCtx<'_, '_> {
         part
     }
 
-    /// The first controller sequence of the KF file at `path` (loaded on first use).
-    pub fn clip(&mut self, path: &str) -> Option<Arc<Clip>> {
+    /// Whether [`clip`](Self::clip) can give the KF file at `path` without reading it:
+    /// loaded (or failed to load), or read on a worker thread since the last ask. When
+    /// not, its read is started on a worker thread (once), so a caller can wait a few
+    /// frames for it instead of reading it in this frame (#1429).
+    pub fn clip_ready(&mut self, path: &str) -> bool {
         let key = fnv_vfs::normalize(path);
-        if let Some(c) = self.cache.clips.get(&key) {
-            return c.clone();
+        if self.cache.clips.contains_key(&key) {
+            return true;
         }
-        let c = match read_clip(&self.models.data, &key) {
+        if let Some(task) = self.cache.clip_reads.get_mut(&key) {
+            let Some(read) = check_ready(task) else { return false };
+            self.cache.clip_reads.remove(&key);
+            self.take_clip(key, read);
+            return true;
+        }
+        let (data, job) = ((*self.models.data).clone(), key.clone());
+        let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { read_clip(&data, &job) });
+        self.cache.clip_reads.insert(key, task);
+        false
+    }
+
+    /// Keep a clip read (or its failure) under `key`.
+    fn take_clip(&mut self, key: String, read: Result<Clip, String>) -> Option<Arc<Clip>> {
+        let c = match read {
             Ok(c) => Some(Arc::new(c)),
             Err(e) => {
                 crate::guard::failed(&mut self.cache.failures, "actor file", format!("{key}: {e}"));
@@ -647,6 +666,18 @@ impl ActorCtx<'_, '_> {
         };
         self.cache.clips.insert(key, c.clone());
         c
+    }
+
+    /// The first controller sequence of the KF file at `path` (loaded on first use).
+    pub fn clip(&mut self, path: &str) -> Option<Arc<Clip>> {
+        let key = fnv_vfs::normalize(path);
+        if let Some(c) = self.cache.clips.get(&key) {
+            return c.clone();
+        }
+        // A read started on a worker thread is not started again here; it is dropped.
+        self.cache.clip_reads.remove(&key);
+        let read = read_clip(&self.models.data, &key);
+        self.take_clip(key, read)
     }
 
     /// The material of shape `i` of the part at `path` with its base texture replaced by

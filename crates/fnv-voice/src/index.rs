@@ -92,7 +92,7 @@ impl VoiceIndex {
                 let Ok(subs) = r.subrecords() else { return };
                 let edid = || {
                     let s = subs.iter().find(|s| &s.sig == b"EDID")?;
-                    Some(String::from_utf8_lossy(&s.data[..zstring_len(&s.data)]).into_owned())
+                    Some(fnv_util::text::decode(&s.data[..zstring_len(&s.data)]))
                 };
                 match sig {
                     b"INFO" => {
@@ -118,7 +118,7 @@ impl VoiceIndex {
                                 b"NAM1" => {
                                     if let Some(r) = line.responses.last_mut() {
                                         r.chars = zstring_len(&s.data);
-                                        r.letters = crate::lip::letter_groups(&String::from_utf8_lossy(&s.data[..r.chars]));
+                                        r.letters = crate::lip::letter_groups(&fnv_util::text::decode(&s.data[..r.chars]));
                                     }
                                 }
                                 _ => {}

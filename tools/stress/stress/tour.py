@@ -368,7 +368,7 @@ def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_ar
         "not_released": not_released(samples),
         "startup": startup,
         "hitches": hitches,
-        "machine": lib.machine_load(r.cpu),
+        "machine": lib.machine_load(r.cpu, r.cpu_skipped),
         "profile_hitches": lib.profile_hitches(r.lines),
         "crash_groups": lib.group_crashes([("tour", c) for c in r.crashes]),
         "stray_commands": lib.stray_commands(r.lines),

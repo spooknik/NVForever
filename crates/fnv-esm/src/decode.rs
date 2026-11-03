@@ -5,7 +5,7 @@
 use crate::raw::{Record, Subrecord};
 use crate::schema::{Prim, Schema, TypeDef};
 use serde_json::{json, Map, Value};
-use fnv_util::{cp1252, sha256::to_hex, Cursor};
+use fnv_util::{sha256::to_hex, Cursor};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 
@@ -67,9 +67,9 @@ fn read_prim(p: Prim, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<Value, Stri
             if rest.last() != Some(&0) && !rest.is_empty() {
                 // Not terminated: keep the text but flag it via an error so the
                 // definition gets reviewed.
-                return Err(format!("zstring not NUL-terminated: {:?}", cp1252::decode(rest)));
+                return Err(format!("zstring not NUL-terminated: {:?}", fnv_util::text::decode(rest)));
             }
-            Value::from(cp1252::decode_z(rest))
+            Value::from(fnv_util::text::decode_z(rest))
         }
         Prim::ZStringArray => {
             let rest = c.bytes(c.remaining()).unwrap();
@@ -77,19 +77,19 @@ fn read_prim(p: Prim, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<Value, Stri
                 return Ok(Value::Array(Vec::new()));
             }
             let Some(body) = rest.strip_suffix(&[0]) else {
-                return Err(format!("zstring array not NUL-terminated: {:?}", cp1252::decode(rest)));
+                return Err(format!("zstring array not NUL-terminated: {:?}", fnv_util::text::decode(rest)));
             };
             // Drop the extra NUL that closes the list, when present.
             let body = body.strip_suffix(&[0]).unwrap_or(body);
             if body.is_empty() {
                 return Ok(Value::Array(Vec::new()));
             }
-            Value::Array(body.split(|&b| b == 0).map(|s| Value::from(cp1252::decode(s))).collect())
+            Value::Array(body.split(|&b| b == 0).map(|s| Value::from(fnv_util::text::decode(s))).collect())
         }
-        Prim::String => Value::from(cp1252::decode(c.bytes(c.remaining()).unwrap())),
+        Prim::String => Value::from(fnv_util::text::decode(c.bytes(c.remaining()).unwrap())),
         Prim::LString => {
             let n = c.u32().map_err(e)? as usize;
-            Value::from(cp1252::decode(c.bytes(n).map_err(e)?))
+            Value::from(fnv_util::text::decode(c.bytes(n).map_err(e)?))
         }
         Prim::Bytes => Value::from(to_hex(c.bytes(c.remaining()).unwrap())),
     })

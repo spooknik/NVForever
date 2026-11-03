@@ -80,19 +80,15 @@ fn u32_at(b: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
 }
 
-/// The code of a character in the game's text (Windows-1252); `?` for one it lacks.
+/// The code of a character in the game's text, in this run's code page
+/// (`fnv_util::text::code_page`, Windows-1252 unless set otherwise); `?` for one it lacks.
 pub fn code_of(c: char) -> u8 {
-    const HIGH: [(char, u8); 27] = [
-        ('\u{20AC}', 0x80), ('\u{201A}', 0x82), ('\u{0192}', 0x83), ('\u{201E}', 0x84), ('\u{2026}', 0x85), ('\u{2020}', 0x86),
-        ('\u{2021}', 0x87), ('\u{02C6}', 0x88), ('\u{2030}', 0x89), ('\u{0160}', 0x8A), ('\u{2039}', 0x8B), ('\u{0152}', 0x8C),
-        ('\u{017D}', 0x8E), ('\u{2018}', 0x91), ('\u{2019}', 0x92), ('\u{201C}', 0x93), ('\u{201D}', 0x94), ('\u{2022}', 0x95),
-        ('\u{2013}', 0x96), ('\u{2014}', 0x97), ('\u{02DC}', 0x98), ('\u{2122}', 0x99), ('\u{0161}', 0x9A), ('\u{203A}', 0x9B),
-        ('\u{0153}', 0x9C), ('\u{017E}', 0x9E), ('\u{0178}', 0x9F),
-    ];
-    match c as u32 {
-        n if n < 0x80 || (0xA0..0x100).contains(&n) => n as u8,
-        _ => HIGH.iter().find(|(h, _)| *h == c).map_or(b'?', |(_, b)| *b),
-    }
+    code_in(c, fnv_util::text::code_page())
+}
+
+/// The code of a character in a given code page; `?` for one it lacks.
+pub fn code_in(c: char, page: fnv_util::text::CodePage) -> u8 {
+    page.code_of(c).unwrap_or(b'?')
 }
 
 impl Font {
@@ -244,5 +240,20 @@ mod tests {
         assert_eq!(code_of('é'), 0xE9);
         assert_eq!(code_of('\u{2019}'), 0x92);
         assert_eq!(code_of('\u{4E2D}'), b'?');
+    }
+
+    #[test]
+    fn codes_follow_the_code_page() {
+        use fnv_util::text::CodePage::*;
+        for page in [Windows1252, Windows1251, Windows1250] {
+            for b in 0u8..=255 {
+                assert_eq!(code_in(page.char_of(b), page), b, "{page} {b:#04x}");
+            }
+        }
+        assert_eq!(code_in('Ж', Windows1251), 0xC6);
+        assert_eq!(code_in('Ж', Windows1252), b'?');
+        assert_eq!(code_in('ż', Windows1250), 0xBF);
+        assert_eq!(code_in('é', Windows1252), 0xE9);
+        assert_eq!(code_in('\u{2019}', Windows1251), 0x92);
     }
 }

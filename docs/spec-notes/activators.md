@@ -270,9 +270,40 @@ script), and whether that base's model has a sequence named like the group.
     applied, the root carrying the placement [design]; particle, refraction and morph
     controllers are not played (§6);
   - `Sound: <SOUN>` keys the group passes play where the object is (anim_sounds.rs).
+  - **Drawn again and saved** (issue #1396): the rules keep the last group asked of each
+    reference (`ObjectAnims::asked`, until `Reset3DState`) and save it with the game
+    (`object_groups` in the snapshot). An object drawn again with no request waiting
+    (after a load, or streamed back in) shows it: a group played once at its end, a
+    loop from its start [design: a gate a script opened and left open is open after a
+    load; whether the original keeps the pose is the capture question below]. Each rig
+    is looked at once when the scripts run (not only in the frame it was drawn: a load
+    draws the cells before the scripts start). Smoke test: `animated-collision-write`
+    and `-load` (a Goodsprings plant played Forward, saved, loaded: `… drawn again,
+    shows Forward at its end` and its collision following Forward).
+  - **Collision follows the drawn model** (issue #1396; nvf-play `phys`): a reference that
+    is not a door opening in place (doors: docs/spec-notes/doors.md) and whose model's
+    sequences move the node of a collision body physics does not move itself (a gate, a
+    lift, a drawbridge built as an activator or a static) keeps those bodies posed from the sequence its
+    rig plays. The renderer publishes each rig's clip and time every frame
+    (`nvf_play::phys::ObjectPoses`, from the clip drawn: one clock for both); an object
+    not drawn is posed at the last group asked (a group played once at its end, a loop at
+    its start), otherwise in its bind pose. A sequence moves a node when it has a track
+    on that node or a parent whose pose leaves the node's stored transform somewhere in
+    the sequence (sampled at its keys and at 16 even steps); a track holding the stored
+    pose (an idle listing every node) does not count [engine choice]. The bodies stay solid while they move
+    [engine choice: a lift or a drawbridge has to carry and stop actors; a door's leaf is
+    not solid while it swings; hypothesis: the original pushes actors with them, as with
+    doors]; nothing pushes an actor out of a body that moves into it beyond what the
+    character controller does. Such a reference's drawn floors are not used (they are the
+    file's unposed geometry). Tallied `animated_collision` per reference prepared and
+    `animated_collision_refs` per reference added; log `phys: 0x<ref>: <n> animated
+    collision bodies follow <sequence> at <t> s` the first time they move. The
+    navigation tools (`fnvtool nav`, `phys`) pose doors only: other animated bodies stand
+    in their bind pose there, which the static navmesh does not depend on.
 - Log: `playgroup: <ref> plays <group> (once|loop, <s> s), flag <n>`; `… not drawn, shown
   when it is`; `… drawn, shows <group> as asked while it was not`; `… drawn (enabled at run time),
-  plays <group> from <s> s as asked while it was not`; `… its model has no
+  plays <group> from <s> s as asked while it was not`; `… drawn again, shows <group> at its
+  end|from its start`; `… its model has no
   sequence of that name`; at exit `playgroup summary: …`; the `anim sounds summary`
   counts "object group sounds".
 - Smoke test (CLAUDE.md): Goodsprings at 21:00. On load the plants' OnLoad blocks play
@@ -289,7 +320,9 @@ script), and whether that base's model has a sequence named like the group.
   group. PlayGroup on actors is §7; alpha and visibility tracks §6; the bear trap's sound
   §8.
 - Capture questions: does a picked agave keep its picked pose after a save and reload
-  (we show Forward's end through OnLoad)? Does the saloon's sign flicker at night and
+  (we show Forward's end through OnLoad)? Does an activator gate a script opened keep
+  its open pose, drawn and solid, after a save and reload, and does it push the player
+  while it moves (issue #1396)? Does the saloon's sign flicker at night and
   stay steady by day? After a group played once, does an activator return to its idle,
   and does `IsAnimPlaying <that group>` stay 1 while its end is held (§6.1)? Do
   Goodsprings' house windows change at 19:30 and 6:30 (§6)? Does `PlayGroup Aim 1` on a

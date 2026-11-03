@@ -72,7 +72,13 @@
 //! Device, switches between the keyboard and mouse and a controller (`crate::pad`);
 //! with Controller chosen the list shows and rebinds each control's controller button
 //! (kept in `[Controller]`), a row waiting for the next button pressed ("Press a
-//! button..."), Start cancelling.
+//! button..."), Start cancelling. After the controls, Invert Y turns the vertical look
+//! upside down, and a slider as the settings page's sets how fast the view turns as a
+//! percentage of the game's: Mouse Sensitivity with keyboard and mouse
+//! (`fMouseSensitivity`), Stick Sensitivity with a controller (the right stick's look
+//! speeds), each kept apart (Left/Right or the arrows a step of 5%, a press or drag on the
+//! meter the value under the pointer; `crate::bindings::SENSITIVITY_LEAST`..`SENSITIVITY_MOST`)
+//! [design: owner 2026-11-03, #1451]; with a controller Rumble comes last.
 //!
 //! **Quit** asks first [observed: the original's question and its choices]: Main Menu
 //! (nvforever starts again with `--menu`, [`MainMenuRequest`]), Exit Game, Cancel.
@@ -111,7 +117,8 @@
 //! (INI names, e.g. `bind:Jump=J`) binds a control there as Enter on its row and that key
 //! would, `padbind:<control>=<button>` (`padbind:Jump=RB`) a controller button,
 //! `device:<name>` (`device:Controller`) picks the input device, `rumble:1` or `rumble:0`
-//! sets the controller's Rumble row.
+//! sets the controller's Rumble row, `invert:1` or `invert:0` the Invert Y row and
+//! `sensitivity:<percent>` (`sensitivity:150`) the sensitivity slider of the device in use.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page, the
 //! quit question, a list's row or its open dropdown, where `down` and `up` move too),
@@ -664,18 +671,33 @@ const WAITING_PAD: &str = "Press a button...";
 const DEVICE_ROW: &str = "Input Device";
 /// The Controls tab's last row with a controller chosen (`crate::rumble`).
 const RUMBLE_ROW: &str = "Rumble";
+/// The Controls tab's row after the controls (`bInvertYValues`).
+const INVERT_ROW: &str = "Invert Y";
+/// The Controls tab's slider after Invert Y, with keyboard and mouse and with a controller.
+const SENSITIVITY_ROWS: [&str; 2] = ["Mouse Sensitivity", "Stick Sensitivity"];
 
 /// The control on the Controls tab's row `row` (row 0 is the input device).
 fn control_at(row: usize) -> Option<crate::bindings::Control> {
     row.checked_sub(1).and_then(|i| crate::bindings::GAME_CONTROLS.get(i)).map(|x| x.0)
 }
 
-/// The Controls tab's Rumble row, after the controls (shown with a controller only).
-fn rumble_row() -> usize {
+/// The Controls tab's Invert Y row, after the controls.
+fn invert_row() -> usize {
     crate::bindings::GAME_CONTROLS.len() + 1
 }
 
-/// The Controls tab's rows: the device, the controls, and with a controller Rumble.
+/// The Controls tab's sensitivity slider, after Invert Y.
+fn sensitivity_row() -> usize {
+    invert_row() + 1
+}
+
+/// The Controls tab's Rumble row, the last (shown with a controller only).
+fn rumble_row() -> usize {
+    sensitivity_row() + 1
+}
+
+/// The Controls tab's rows: the device, the controls, Invert Y, the sensitivity and with
+/// a controller Rumble.
 fn control_rows(controller: bool) -> usize {
     rumble_row() + usize::from(controller)
 }
@@ -865,6 +887,10 @@ struct Drawn {
     device: (&'static str, bool),
     /// The controller rumbles.
     rumble: bool,
+    /// The vertical look is inverted.
+    invert_y: bool,
+    /// The device in use's look sensitivity, a multiple of the game's.
+    sensitivity: f32,
     /// The settings page's (or the load page's) first row shown ([`PauseView::scroll`]).
     scroll: usize,
     /// The list rows: each one's row, choices and chosen one.
@@ -1291,6 +1317,8 @@ fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     scroll_bar(root, look, n, first, top, left);
     for (row, i) in (first..n).take(OPTION_ROWS).enumerate() {
         let (name, value) = match control_at(i) {
+            None if i == invert_row() => (INVERT_ROW, (if d.invert_y { "ON" } else { "OFF" }).to_string()),
+            None if i == sensitivity_row() => (SENSITIVITY_ROWS[usize::from(controller)], crate::bindings::sensitivity_text(d.sensitivity)),
             None if i == rumble_row() => (RUMBLE_ROW, (if d.rumble { "ON" } else { "OFF" }).to_string()),
             None => (DEVICE_ROW, device.to_string()),
             Some(_) if listening && i == selected => ("", (if controller { WAITING_PAD } else { WAITING }).to_string()),
@@ -1300,12 +1328,29 @@ fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
         root.spawn((Button, PauseButton::ControlRow(i), boxed(from_middle(left, top + row as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
         .with_children(|r| {
             sm_text(r, &f.entry, name, 10.0, BASE + 2.0, color(Shade::Bright));
+            if i == sensitivity_row() {
+                slider_row(r, look, i, crate::bindings::sensitivity_part(d.sensitivity), &value);
+                return;
+            }
             let vw = f.entry.font.width(&value);
             r.spawn((SwitchState(i), Text::new(value.clone()), Node { display: Display::None, ..default() }));
             sm_text(r, &f.entry, &value, (VALUE_AT - vw / 2.0).min(OPTIONS_WIDTH - vw - 14.0), BASE + 2.0, color(Shade::Bright));
         });
     }
     let note = match control_at(selected) {
+        None if selected == invert_row() => format!(
+            "Enter or a click: look up and down the other way round (the mouse and the right stick). Kept as \"{INVERT_ROW}\" in [Controls] of NVForever.ini."
+        ),
+        None if selected == sensitivity_row() && controller => format!(
+            "Left/Right or a click on the meter: how fast the right stick turns the view, a step of 5% ({} to {} of the game's). Kept as \"Stick Sensitivity\" in [Controller] of NVForever.ini.",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
+        ),
+        None if selected == sensitivity_row() => format!(
+            "Left/Right or a click on the meter: how far the view turns as the mouse moves, a step of 5% ({} to {} of the game's). Kept as \"Mouse Sensitivity\" (radians a mouse count) in [Controls] of NVForever.ini.",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
+        ),
         None if selected == rumble_row() => format!(
             "A or a click: the controller shakes when you fire (harder for a heavier weapon), take damage, land a hard fall or an explosion goes off near you. Kept as \"{RUMBLE_ROW}\" in [Controller] of NVForever.ini."
         ),
@@ -1685,6 +1730,31 @@ fn choose(
             }
             continue;
         }
+        if let Some(v) = item.strip_prefix("invert:") {
+            // `invert:1` or `invert:0`: the Invert Y row set so.
+            match v {
+                "1" | "0" => {
+                    let on = v == "1";
+                    *page = Page::Controls { selected: invert_row(), listening: false };
+                    commands.queue(move |world: &mut World| crate::bindings::set_invert_y(world, on));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected invert:1 or invert:0"),
+            }
+            continue;
+        }
+        if let Some(v) = item.strip_prefix("sensitivity:") {
+            // `sensitivity:<percent>`: the device in use's sensitivity slider set to it (onto its
+            // steps).
+            match v.trim_end_matches('%').parse::<f32>() {
+                Ok(p) if p.is_finite() => {
+                    let m = crate::bindings::step_sensitivity(p / 100.0, 0);
+                    *page = Page::Controls { selected: sensitivity_row(), listening: false };
+                    commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected sensitivity:<percent>"),
+            }
+            continue;
+        }
         if let Some(d) = item.strip_prefix("device:") {
             match InputDevice::parse(d) {
                 Some(d) => {
@@ -1795,6 +1865,15 @@ fn choose(
     let flip_rumble = |commands: &mut Commands| {
         commands.queue(move |world: &mut World| crate::bindings::set_rumble(world, !rumble_on));
     };
+    // The Invert Y row flips the vertical look, the sensitivity slider steps.
+    let invert_on = bindings.as_ref().is_some_and(|b| b.invert_y);
+    let flip_invert = |commands: &mut Commands| {
+        commands.queue(move |world: &mut World| crate::bindings::set_invert_y(world, !invert_on));
+    };
+    let sensitivity = bindings.as_ref().map_or(1.0, |b| b.sensitivity());
+    let set_sensitivity = |commands: &mut Commands, m: f32| {
+        commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
+    };
     let mut clicked = None;
     // A list takes the row the pointer moves onto (not one it rests on while the keys
     // move the choice, nor the one a redrawn page puts under it).
@@ -1829,7 +1908,7 @@ fn choose(
             }
             (PointerState::Hovered, PauseButton::Keep(k), _) if moved => view.keep_selected = *k,
             (PointerState::Hovered, ..) if over => {}
-            (PointerState::Pressed, PauseButton::Meter(i), Page::Settings { selected }) => {
+            (PointerState::Pressed, PauseButton::Meter(i), Page::Settings { selected } | Page::Controls { selected, .. }) => {
                 *selected = *i;
                 view.dragging = Some(*i);
             }
@@ -2150,12 +2229,19 @@ fn choose(
             *selected = (*selected).min(n - 1);
             let control = control_at(*selected);
             let on_rumble = *selected == rumble_row();
+            let on_invert = *selected == invert_row();
+            let on_sensitivity = *selected == sensitivity_row();
             if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
                 *page = Page::Main;
             } else if let Some(PauseButton::ControlRow(i)) = clicked {
                 *selected = i;
                 if control_at(i).is_some() {
                     *listening = true;
+                } else if i == invert_row() {
+                    flip_invert(&mut commands);
+                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+                } else if i == sensitivity_row() {
+                    // A click on the slider's row away from its meter and arrows only chooses it.
                 } else if i == rumble_row() {
                     flip_rumble(&mut commands);
                     sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
@@ -2166,6 +2252,19 @@ fn choose(
             } else if on_rumble && keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) {
                 flip_rumble(&mut commands);
                 sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+            } else if on_invert && keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) {
+                flip_invert(&mut commands);
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+            } else if let Some(PauseButton::SliderStep(i, step)) = clicked {
+                *selected = i;
+                set_sensitivity(&mut commands, crate::bindings::step_sensitivity(sensitivity, step));
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+            } else if on_sensitivity && keys.any_just_pressed([KeyCode::ArrowLeft, KeyCode::KeyA, KeyCode::ArrowRight, KeyCode::KeyD]) {
+                let step = if keys.any_just_pressed([KeyCode::ArrowLeft, KeyCode::KeyA]) { -1 } else { 1 };
+                set_sensitivity(&mut commands, crate::bindings::step_sensitivity(sensitivity, step));
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+            } else if on_sensitivity && keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) {
+                // Enter on the slider does nothing, as on the settings page's sliders.
             } else if control.is_none() && keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) {
                 switch_device(&mut commands);
                 sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
@@ -2183,6 +2282,21 @@ fn choose(
             } else if let (true, Some(c)) = (keys.just_pressed(KeyCode::Delete), control) {
                 commands.queue(move |world: &mut World| crate::bindings::clear_key(world, c));
                 sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+            }
+            // A drag on the sensitivity meter: the value under the pointer while the button is
+            // held, as the settings page's sliders.
+            if let Some(i) = view.dragging {
+                if mouse.pressed(MouseButton::Left) {
+                    let under = meters.iter().find(|(b, _)| **b == PauseButton::Meter(i)).and_then(|(_, at)| at.normalized);
+                    if let Some(p) = under {
+                        let m = crate::bindings::sensitivity_at_part(p.x + 0.5);
+                        if (m - sensitivity).abs() > 1e-4 {
+                            set_sensitivity(&mut commands, m);
+                        }
+                    }
+                } else {
+                    view.dragging = None;
+                }
             }
             if let (Page::Controls { listening: true, selected }, Some(_)) = (*page, control) {
                 if let Some(c) = control_at(selected) {
@@ -2408,6 +2522,8 @@ fn drawn_now(world: &mut World) -> Drawn {
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
         device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
+        invert_y: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.invert_y),
+        sensitivity: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.sensitivity()),
         scroll: view.scroll,
         lists,
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
@@ -2696,7 +2812,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: entries(false).iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, scroll: 0, lists: vec![], dropdown: None, keep: None, delete_ask: None, view_w: VIEW_W as u32 };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: entries(false).iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, invert_y: false, sensitivity: 1.0, scroll: 0, lists: vec![], dropdown: None, keep: None, delete_ask: None, view_w: VIEW_W as u32 };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &BorderColor)>();
@@ -2820,5 +2936,34 @@ mod tests {
         assert_eq!(rumble(&mut app).as_deref(), Some("OFF"));
         crate::bindings::set_device(app.world_mut(), crate::bindings::InputDevice::KeyboardMouse);
         assert_eq!(rumble(&mut app), None, "no Rumble row with keyboard and mouse");
+        // Mouse Sensitivity, the game's at first, kept apart from the stick's.
+        let sensitivity = |app: &mut App| {
+            app.update();
+            let world = app.world_mut();
+            let mut q = world.query::<(&SwitchState, &Text)>();
+            q.iter(world).find(|(s, _)| s.0 == sensitivity_row()).map(|(_, t)| t.0.clone())
+        };
+        *app.world_mut().resource_mut::<Page>() = Page::Controls { selected: sensitivity_row(), listening: false };
+        assert_eq!(sensitivity(&mut app).as_deref(), Some("100%"));
+        crate::bindings::set_sensitivity(app.world_mut(), 1.5);
+        assert_eq!(sensitivity(&mut app).as_deref(), Some("150%"));
+        crate::bindings::set_device(app.world_mut(), crate::bindings::InputDevice::Controller);
+        assert_eq!(sensitivity(&mut app).as_deref(), Some("100%"), "the stick's own");
+        crate::bindings::set_sensitivity(app.world_mut(), 0.5);
+        assert_eq!(sensitivity(&mut app).as_deref(), Some("50%"));
+        crate::bindings::set_device(app.world_mut(), crate::bindings::InputDevice::KeyboardMouse);
+        assert_eq!(sensitivity(&mut app).as_deref(), Some("150%"), "the mouse's kept");
+        let buttons: Vec<PauseButton> = app.world_mut().query::<&PauseButton>().iter(app.world()).copied().collect();
+        assert!(buttons.contains(&PauseButton::Meter(sensitivity_row())) && buttons.contains(&PauseButton::SliderStep(sensitivity_row(), 1)), "a meter with arrows: {buttons:?}");
+        let invert = |app: &mut App| {
+            app.update();
+            let world = app.world_mut();
+            let mut q = world.query::<(&SwitchState, &Text)>();
+            q.iter(world).find(|(s, _)| s.0 == invert_row()).map(|(_, t)| t.0.clone())
+        };
+        *app.world_mut().resource_mut::<Page>() = Page::Controls { selected: invert_row(), listening: false };
+        assert_eq!(invert(&mut app).as_deref(), Some("OFF"));
+        crate::bindings::set_invert_y(app.world_mut(), true);
+        assert_eq!(invert(&mut app).as_deref(), Some("ON"));
     }
 }

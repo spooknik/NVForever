@@ -66,8 +66,12 @@ uGridsToLoad=5).
   time, `readahead::ready_to_draw` asks `ActorCtx::parts_ready` for its part models, its
   weapon's model and its skeleton; those not prepared or read yet are read, inflated and
   parsed on a worker thread, with the texture files their texture sets name
-  (`TextureCache::offer`). The actor is drawn once they are in [engineering choice: a few
-  frames later, at the edge of the loaded cells]. Residents and travellers
+  (`TextureCache::offer`). The actor is drawn once they are in and, unless a loading
+  screen is up, prepared by the read-ahead's queue within its budget (below) [engineering
+  choice: a few frames later, at the edge of the loaded cells]. Drawn as soon as its parts
+  were read, a resident who came into an interior after the start (which no ring lists)
+  had its parts prepared in the frame it was drawn: one frame of 15.6 ms in the Sierra
+  Madre lobby [observed 2026-11-03, #1429]. Residents and travellers
   (`nav::show_actor`) wait so; so do the placed actors of a cell loaded after the start
   (`world::load_cell` puts them in `Streamer::waiting`, `world::draw_waiting_actors`
   draws them); before the start's cells are in, behind the loading screen, they are drawn
@@ -90,6 +94,13 @@ uGridsToLoad=5).
   load a set once and the first kept wins [engineering choice]. A weapon's `UPB` node
   strings are cached (`ModelCtx::node_strings`) instead of reading the model again for
   every NPC holding it.
+- **Idle clips** (`idles.rs`, #1429). An idle asked for whose KF file is not loaded yet
+  waits for it to be read on a worker thread (`ActorCtx::clip_ready`), for at most
+  `CLIP_WAIT` (0.5 s), after which it is read in the frame it starts; a collection's next
+  idle has its file read as soon as it is picked, while the actor waits to play it.
+  Reading it in the frame it started cost one 8.4 ms frame at the Gomorrah floor
+  [observed 2026-11-03]. A run ends with `idle clip summary: …` (idles that waited,
+  the longest wait, those read late).
 
   An actor walking into the loaded cells, or a cell of them loading, then finds its
   parts, skeleton and clips ready: what is left on the frame it is drawn is resolving it,

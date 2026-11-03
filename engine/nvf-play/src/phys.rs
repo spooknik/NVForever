@@ -99,6 +99,9 @@ pub struct PhysState {
     /// Doors that open in place, in the world now: their keyframed bodies follow
     /// `crate::doors::Doors` ([`pose_doors`]).
     pub doors: BTreeMap<u32, PosedDoor>,
+    /// Other references whose keyframed bodies a sequence of their model moves, in the
+    /// world now: they follow the group their drawn model plays ([`pose_groups`]).
+    pub animated: BTreeMap<u32, PosedGroup>,
     /// Destroyed references whose destruction stage names a model (DSTD's DMDL as stored,
     /// a car's hulk): their collision is built from it ([`destruction_models`]).
     pub destruction_models: HashMap<u32, String>,
@@ -166,6 +169,7 @@ impl Default for PhysState {
             placed_dynamic: BTreeMap::new(),
             moved_now: Vec::new(),
             doors: BTreeMap::new(),
+            animated: BTreeMap::new(),
             destruction_models: HashMap::new(),
             built_models: HashMap::new(),
             refs_built: 0,
@@ -358,6 +362,96 @@ impl PosedDoor {
     /// The timing of its sequences, for [`crate::doors::Doors::register`].
     pub fn timing(&self) -> Option<crate::doors::DoorTiming> {
         self.bodies.anim.door().map(|(o, c)| crate::doors::DoorTiming::from_sequences(o, c))
+    }
+}
+
+/// A reference (not a door that opens in place) whose keyframed bodies follow the
+/// sequence its drawn model plays (issue #1396).
+#[derive(Clone)]
+pub struct PosedGroup {
+    pub pose: RefPose,
+    pub bodies: prepare::AnimatedBodies,
+    /// The sequence (index in the model's, `None`: the bind pose) and the time its bodies
+    /// were last posed at; `None` before the first pose (they were built in the bind pose).
+    pub shown: Option<(Option<usize>, f32)>,
+}
+
+impl PosedGroup {
+    /// Pose the bodies for sequence `seq` of the model (`None`: its bind pose) at `time`
+    /// seconds after its start (held at its ends). Returns whether anything was posed.
+    pub fn pose(&mut self, world: &mut PhysWorld, seq: Option<usize>, time: f32) -> bool {
+        if self.shown == Some((seq, time)) || (self.shown.is_none() && seq.is_none()) {
+            return false;
+        }
+        let anim = &self.bodies.anim;
+        let sequence = seq.and_then(|i| anim.sequences.get(i));
+        for (object, block, body) in &self.bodies.objects {
+            if let Some(node) = anim.node_to_root(sequence, time, *block) {
+                world.pose_ref_object(&self.pose, *object, &node.iso, body);
+            }
+        }
+        self.shown = Some((seq, time));
+        true
+    }
+}
+
+/// The sequence each drawn object plays and how far into it (seconds after its start),
+/// by reference: written by whoever draws them (nvforever `object_anims.rs`, from the
+/// clip each rig plays), so the collision of [`PhysState::animated`] follows the drawn
+/// model, not a clock of its own ([`pose_groups`]).
+#[derive(Resource, Default, Debug)]
+pub struct ObjectPoses {
+    pub playing: HashMap<u32, (String, f32)>,
+}
+
+/// NIF cycle type "clamp": played once and held at its end [documented: nif.xml CycleType].
+const CYCLE_CLAMP: i64 = 2;
+
+/// Where an animated reference's bodies go: the sequence its drawn model plays
+/// ([`ObjectPoses`]); not drawn, the last group a script asked of it (saved with the
+/// game, `fnv_game::anims::ObjectAnims::asked`): a group played once at its end, a loop
+/// at its start [design: as the renderer shows such a group when the object is drawn];
+/// otherwise the bind pose. (sequence index, seconds after its start).
+pub fn group_pose(anim: &fnv_collide::anim::ModelAnim, drawn: Option<&(String, f32)>, asked: Option<&str>) -> (Option<usize>, f32) {
+    let find = |name: &str| anim.sequences.iter().position(|s| s.name.eq_ignore_ascii_case(name));
+    if let Some((i, t)) = drawn.and_then(|(n, t)| Some((find(n)?, *t))) {
+        return (Some(i), t);
+    }
+    match asked.and_then(find) {
+        Some(i) => {
+            let s = &anim.sequences[i];
+            (Some(i), if s.cycle_type == CYCLE_CLAMP { s.length() } else { 0.0 })
+        }
+        None => (None, 0.0),
+    }
+}
+
+/// Move the keyframed bodies of [`PhysState::animated`] to the pose of the sequence
+/// their drawn model plays ([`group_pose`]). They stay solid while they move [engine
+/// choice: a lift or a drawbridge carries and stops actors; a door's leaf is not solid
+/// while it swings, `DoorMotion::swinging`]. Their drawn floors are not used
+/// (`prepare::reference`): those are the file's unposed geometry.
+fn pose_groups(poses: Option<Res<ObjectPoses>>, script: Option<Res<crate::script::ScriptState>>, mut phys: ResMut<PhysState>) {
+    if phys.animated.is_empty() {
+        return;
+    }
+    let anims = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.anims);
+    phys.pose_animated(poses.as_deref(), |id| anims.and_then(|a| a.asked(FormId(id))).map(|(_, n)| n));
+}
+
+impl PhysState {
+    /// Pose every reference of [`PhysState::animated`] ([`group_pose`]): `asked` gives the
+    /// last group a script asked of a reference.
+    pub fn pose_animated<'a>(&mut self, poses: Option<&ObjectPoses>, asked: impl Fn(u32) -> Option<&'a str>) {
+        for (&id, g) in self.animated.iter_mut() {
+            let drawn = poses.and_then(|p| p.playing.get(&id));
+            let (seq, time) = group_pose(&g.bodies.anim, drawn, asked(id));
+            let first = g.shown.is_none();
+            if g.pose(&mut self.world, seq, time) && first {
+                let name = seq.and_then(|i| g.bodies.anim.sequences.get(i)).map_or("-", |s| s.name.as_str());
+                info!("phys: 0x{id:08X}: {} animated collision bodies follow {name} at {time:.2} s", g.bodies.objects.len());
+            }
+        }
     }
 }
 
@@ -805,7 +899,7 @@ impl PhysState {
             *counts.entry("not_present").or_default() += 1;
             return false;
         }
-        let RefShapes { tallies, water, prepared, dynamic_local, door, drawn, model } = shapes(&pl);
+        let RefShapes { tallies, water, prepared, dynamic_local, door, animated, drawn, model } = shapes(&pl);
         for what in tallies {
             *counts.entry(what).or_default() += 1;
         }
@@ -859,6 +953,15 @@ impl PhysState {
             let pose = RefPose::from_placement(&pl);
             self.doors.insert(pl.form_id, PosedDoor { pose, bodies, open_by_default: pl.open_by_default, shown: None, solid: None });
         }
+        match animated.filter(|a| !a.objects.is_empty()) {
+            Some(bodies) => {
+                *counts.entry("animated_collision_refs").or_default() += 1;
+                self.animated.insert(pl.form_id, PosedGroup { pose: RefPose::from_placement(&pl), bodies, shown: None });
+            }
+            None => {
+                self.animated.remove(&pl.form_id);
+            }
+        }
         rep.bodies > 0
     }
 
@@ -907,6 +1010,7 @@ impl PhysState {
             self.created.remove(&r);
             self.placed_dynamic.remove(&r);
             self.doors.remove(&r);
+            self.animated.remove(&r);
             self.drawn.remove(&r);
             self.built_models.remove(&r);
             if self.ref_cell.get(&r) == Some(&cell) {
@@ -926,6 +1030,7 @@ impl PhysState {
         if !ctx.sim.present(form_id) {
             self.placed_dynamic.remove(&form_id);
             self.doors.remove(&form_id);
+            self.animated.remove(&form_id);
             self.drawn.remove(&form_id);
             if self.world.remove_ref(form_id) {
                 debug!("collision of {form_id:08X} removed");
@@ -934,6 +1039,7 @@ impl PhysState {
             // A script set its scale (SetScale): built again at that scale.
             self.placed_dynamic.remove(&form_id);
             self.doors.remove(&form_id);
+            self.animated.remove(&form_id);
             self.drawn.remove(&form_id);
             self.world.remove_ref(form_id);
             if self.add_ref(ctx, form_id) {
@@ -971,6 +1077,7 @@ impl PhysState {
         } else {
             self.placed_dynamic.remove(&id);
             self.doors.remove(&id);
+            self.animated.remove(&id);
             self.drawn.remove(&id);
             self.add_ref(ctx, id)
         };
@@ -1011,6 +1118,7 @@ impl PhysState {
             }
             self.placed_dynamic.remove(&r);
             self.doors.remove(&r);
+            self.animated.remove(&r);
             self.drawn.remove(&r);
             self.world.remove_ref(r);
             let built = self.add_ref(ctx, r);
@@ -1399,11 +1507,12 @@ impl Plugin for PhysPlugin {
             app.insert_resource(t);
         }
         app.init_resource::<PhysState>()
+            .init_resource::<ObjectPoses>()
             .init_resource::<FrameTimes>()
             .add_systems(Startup, init_phys)
             .add_systems(Last, (frame_times, report).chain())
             .add_message::<crate::RefRepose>()
-            .add_systems(Update, (travel, ref_changed, destruction_models, stream, pose_doors).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
+            .add_systems(Update, (travel, ref_changed, destruction_models, stream, pose_doors, pose_groups).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
             .add_systems(PostUpdate, trace::trace);
     }
 }

@@ -120,6 +120,12 @@ pub const CAMERA_NODE: &str = "Camera1st";
 /// not load), seconds until the collection is tried again [engineering choice].
 const RETRY_SECONDS: f32 = 5.0;
 
+/// How long an idle asked for waits for its clip to be read on a worker thread before it
+/// is read in the frame it starts [engineering choice, #1429: a KF read and parse on the
+/// main thread cost 8.4 ms in one frame at the Gomorrah floor; a few frames' delay to an
+/// idle's start is not seen, a frame that long is].
+const CLIP_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
 /// Seconds between two looks at the idle tree for an actor's drawn-weapon fidget
 /// [design: how often the original evaluates its tree is not known; with the rifle
 /// branch's three 5% leaves a standing rifleman fidgets about every 14 s].
@@ -454,6 +460,12 @@ pub struct Stats {
     pub no_gesture: u32,
     /// Cower idles started on fleeing actors.
     pub cowers: u32,
+    /// Idles that waited for their clip to be read on a worker thread, the longest wait
+    /// (milliseconds), and those whose clip was read in the frame they started after
+    /// [`CLIP_WAIT`].
+    pub clip_waits: u32,
+    pub longest_clip_wait_ms: f64,
+    pub clip_read_late: u32,
 }
 
 /// An actor's part in a conversation as the gestures last saw it: talking or listening,
@@ -502,6 +514,8 @@ pub struct Idles {
     player_feet: Option<[f32; 3]>,
     /// What each actor was last reported to the rules as playing.
     told: HashMap<u32, u32>,
+    /// Idles asked for whose clip is being read on a worker thread, and since when.
+    waiting: Vec<(IdleRequest, std::time::Instant)>,
     rng: Rng,
     pub stats: Stats,
 }
@@ -516,14 +530,15 @@ impl Default for Idles {
             gesturing: HashMap::new(),
             clock: 0.0,
             player_feet: None,
-            told: HashMap::new(), rng: Rng(0x1D1E_5EED), stats: Stats::default() }
+            told: HashMap::new(),
+            waiting: Vec::new(), rng: Rng(0x1D1E_5EED), stats: Stats::default() }
     }
 }
 
 /// The clip of an idle and its playback, as its record and text keys say.
 fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng) -> Result<(Arc<Clip>, IdlePlay), String> {
     let def = game.data.idles.get(&idle).ok_or("not an idle animation")?;
-    let path = meshes_path(def.model.as_deref().ok_or("it names no file")?);
+    let path = clip_path(game, idle).ok_or("it names no file")?;
     let clip = ctx.clip(&path).ok_or_else(|| format!("{path} does not load"))?;
     let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
     let passes = match def.loops(|n| rng.below(n)) {
@@ -531,6 +546,24 @@ fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng) -> Result<
         Loops::Times(n) => Some(n),
     };
     Ok((clip, IdlePlay::new(keys, passes)))
+}
+
+/// The KF file an idle plays, as its record names it.
+fn clip_path(game: &Game, idle: FormId) -> Option<String> {
+    Some(meshes_path(game.data.idles.get(&idle)?.model.as_deref()?))
+}
+
+/// Whether the clip of `idle` is loaded (or known not to load), so starting it reads no
+/// file; when not, its read is started on a worker thread. An idle naming no file is
+/// ready ([`load`] says why it does not play).
+fn clip_ready(ctx: &mut ActorCtx, game: &Game, idle: FormId) -> bool {
+    clip_path(game, idle).is_none_or(|p| ctx.clip_ready(&p))
+}
+
+/// Whether an idle asked for waits for its clip: not ready, and asked for less than
+/// [`CLIP_WAIT`] ago.
+fn waits_for_clip(ready: bool, waited: std::time::Duration) -> bool {
+    !ready && waited < CLIP_WAIT
 }
 
 fn describe(game: &Game, idle: FormId, play: &IdlePlay) -> String {
@@ -702,6 +735,11 @@ pub fn drive(
     for r in &game.idle_requests {
         busy.insert(r.actor.0, true);
     }
+    // So is one waiting for its clip; a script's StopIdle drops it.
+    st.waiting.retain(|(r, _)| !stops.contains(&r.actor));
+    for (r, _) in &st.waiting {
+        busy.insert(r.actor.0, true);
+    }
 
     // Collections: the standing residents', and the player's under a script package.
     let candidates = standing.iter().map(|(a, m)| (*a, *m)).chain(package_of(game, player_ref).map(|_| (player_ref, None)));
@@ -736,8 +774,12 @@ pub fn drive(
                     }
                 }
             });
-            if c.next.is_none() {
-                c.retry = RETRY_SECONDS.max(collection.timer);
+            match c.next {
+                None => c.retry = RETRY_SECONDS.max(collection.timer),
+                // Its clip is read while the actor waits to play it.
+                Some((idle, _)) => {
+                    clip_ready(&mut ActorCtx { cache: &mut parts, models: &mut models }, game, idle);
+                }
             }
         }
         let Some((idle, wait)) = c.next.as_mut() else { continue };
@@ -833,7 +875,8 @@ pub fn drive(
     }
 
     // Talking gestures: NPCs drawn in a conversation (idles.md §12).
-    let asked_now: Vec<u32> = game.idle_requests.iter().map(|r| r.actor.0).collect();
+    // Those waiting for their clip were asked for too (#1429).
+    let asked_now: Vec<u32> = game.idle_requests.iter().chain(st.waiting.iter().map(|(r, _)| r)).map(|r| r.actor.0).collect();
     st.gesturing.retain(|a, _| talk_parts.iter().any(|p| p.actor.0 == *a));
     let mut gestures: Vec<(u32, FormId, Vec<FormId>, TalkKey)> = Vec::new();
     for part in &talk_parts {
@@ -934,21 +977,30 @@ pub fn drive(
         }
     }
 
-    // Start what was asked for.
-    let requests = std::mem::take(&mut game.idle_requests);
+    // Start what was asked for: those that waited for their clip first, in the order
+    // asked. An actor's later asks wait behind one that waits, so its idles start in
+    // the order asked, as they did in one frame.
+    let fresh = std::mem::take(&mut game.idle_requests);
+    let mut requests: Vec<(IdleRequest, Option<std::time::Instant>)> = std::mem::take(&mut st.waiting).into_iter().map(|(r, t)| (r, Some(t))).collect();
+    requests.extend(fresh.into_iter().map(|r| (r, None)));
     if !requests.is_empty() {
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
-        for IdleRequest { actor, idle, source } in requests {
-            if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak) {
-                st.stats.asked += 1;
-            }
-            match source {
-                IdleSource::Script | IdleSource::Picked => st.stats.script += 1,
-                IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
-                IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
-                IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp => {}
+        let mut held_up: HashSet<u32> = HashSet::new();
+        for (request, since) in requests {
+            let IdleRequest { actor, idle, source } = request;
+            // Counted once, when asked for (not again after waiting for its clip).
+            if since.is_none() {
+                if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak) {
+                    st.stats.asked += 1;
+                }
+                match source {
+                    IdleSource::Script | IdleSource::Picked => st.stats.script += 1,
+                    IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
+                    IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
+                    IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
+                    IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp => {}
+                }
             }
             let name = game.data.name(actor);
             let failed = |st: &mut Idles, why: &str| {
@@ -961,6 +1013,24 @@ pub fn drive(
                 st.stats.not_drawn += 1;
                 failed(st, "the actor is not drawn");
                 continue;
+            }
+            // Its clip read on a worker thread rather than in this frame (#1429).
+            let ready = clip_ready(&mut ctx, game, idle);
+            let waited = since.map_or(std::time::Duration::ZERO, |t| t.elapsed());
+            if held_up.contains(&actor.0) || waits_for_clip(ready, waited) {
+                if since.is_none() && !ready {
+                    st.stats.clip_waits += 1;
+                }
+                held_up.insert(actor.0);
+                st.waiting.push((request, since.unwrap_or_else(std::time::Instant::now)));
+                continue;
+            }
+            if since.is_some() {
+                st.stats.longest_clip_wait_ms = st.stats.longest_clip_wait_ms.max(waited.as_secs_f64() * 1000.0);
+            }
+            if !ready {
+                st.stats.clip_read_late += 1;
+                debug!("idle: {name}: the clip of {} was not read in {} ms: read now", game.data.name(idle), CLIP_WAIT.as_millis());
             }
             let (clip, play) = match load(&mut ctx, game, idle, &mut st.rng) {
                 Ok(l) => l,
@@ -1126,6 +1196,13 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
     );
     info!("fidget summary: {} drawn-weapon fidgets started on actors, {} on the player", s.actor_fidgets, s.player_fidgets);
     info!("creature combat idle summary: {} combat idles started on alerted creatures", s.combat_idles);
+    info!(
+        "idle clip summary: {} idles waited for their clip to be read on a worker thread (longest {:.0} ms); {} read in the frame they started after {} ms",
+        s.clip_waits,
+        s.longest_clip_wait_ms,
+        s.clip_read_late,
+        CLIP_WAIT.as_millis()
+    );
     info!("furniture fidget summary: {} fidgets on furniture started on actors, {} on the player", s.actor_furniture_fidgets, s.player_furniture_fidgets);
     info!("talk gesture summary: {} gestures picked while talking, {} while listening; {} walks of the tree gave none", s.talk_gestures, s.listen_gestures, s.no_gesture);
     info!("cower summary: {} cower idles started on fleeing actors", s.cowers);
@@ -1134,6 +1211,16 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_idle_waits_for_its_clip_for_a_bounded_time() {
+        use std::time::Duration;
+        assert!(waits_for_clip(false, Duration::ZERO));
+        assert!(waits_for_clip(false, CLIP_WAIT - Duration::from_millis(1)));
+        // Past the bound it is read in the frame it starts; a clip in is never waited for.
+        assert!(!waits_for_clip(false, CLIP_WAIT));
+        assert!(!waits_for_clip(true, Duration::ZERO));
+    }
 
     fn play(length: f32, blend_in: f32, passes: Option<u32>) -> IdlePlay {
         IdlePlay::new(IdleKeys { length, loop_range: None, blend_in, blend_out: 0.25 }, passes)

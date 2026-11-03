@@ -7,7 +7,7 @@ use crate::expr::Scope;
 use crate::header::{RawString, V20_1_0_3};
 use crate::schema::{Field, Prim, Schema, TypeRef};
 use crate::value::{FieldScope, Struct, Value};
-use fnv_util::{cp1252, Cursor};
+use fnv_util::Cursor;
 
 /// Error while decoding or encoding, with the field path and (for decoding) the offset
 /// within the block.
@@ -267,7 +267,7 @@ impl<'a> Codec<'a> {
                 Prim::String | Prim::SizedString => {
                     let n = c.u32().map_err(oob)? as usize;
                     let b = c.bytes(n).map_err(oob)?;
-                    Value::Str { index: None, text: Some(cp1252::decode(b)) }
+                    Value::Str { index: None, text: Some(fnv_util::text::decode(b)) }
                 }
                 Prim::Bytes => return Err(err(path, "bytes without length".into(), None)),
                 Prim::Triangle | Prim::ByteColor4 => {
@@ -410,7 +410,7 @@ impl<'a> Codec<'a> {
                     out.extend_from_slice(&i.to_le_bytes())
                 }
                 (Prim::String | Prim::SizedString, Value::Str { index: None, text: Some(t) }) => {
-                    let b = cp1252::encode(t).ok_or_else(|| err(path, "text not encodable".into(), None))?;
+                    let b = fnv_util::text::encode(t).ok_or_else(|| err(path, "text not encodable".into(), None))?;
                     out.extend_from_slice(&(b.len() as u32).to_le_bytes());
                     out.extend_from_slice(&b);
                 }

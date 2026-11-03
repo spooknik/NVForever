@@ -20,6 +20,7 @@ mod ai_state;
 pub mod camera;
 pub mod console;
 mod fighting;
+mod fo3;
 pub mod toggles;
 pub(crate) mod furniture;
 pub(crate) mod items;
@@ -720,6 +721,20 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x1236, "AddItemToLeveledList", Impl(items::add_item_to_leveled_list)),
             (0x126F, "IsDLCInstalled", Impl(misc::is_dlc_installed)),
             (0x1215, "GetXPForNextLevel", Impl(player::get_xp_for_next_level)),
+            // Called only by Fallout 3's scripts (Tale of Two Wastelands; fo3.rs).
+            (0x1053, "ModDisposition", Impl(fo3::mod_disposition)),
+            (0x1082, "GetPCIsRace", Impl(fo3::get_pc_is_race)),
+            (0x10D2, "GetForceSneak", Impl(fo3::get_force_sneak)),
+            (0x11B7, "SetMerchantContainer", Impl(fo3::set_merchant_container)),
+            (0x11E5, "MatchRace", Impl(fo3::match_race)),
+            (0x11CA, "ClearActorsFactionsPlayerEnemyFlag", Impl(fo3::clear_actors_factions_player_enemy_flag)),
+            (0x10BC, "GetPCSleepHours", Impl(fo3::get_pc_sleep_hours)),
+            (0x11E6, "SetPCYoung", Impl(fo3::set_pc_young)),
+            (0x1202, "SetPCToddler", Impl(fo3::set_pc_toddler)),
+            (0x11FC, "SetNoActivationSound", Impl(fo3::set_no_activation_sound)),
+            (0x11FD, "ClearNoActivationSound", Impl(fo3::clear_no_activation_sound)),
+            (0x1200, "SetLocationSpecificLoadScreensOnly", Impl(fo3::set_location_specific_load_screens_only)),
+            (0x1230, "SetLastExtDoorActivated", Impl(fo3::set_last_ext_door_activated)),
         ]
     };
     REGISTRY

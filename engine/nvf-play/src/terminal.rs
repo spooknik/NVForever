@@ -284,7 +284,9 @@ fn read_words(data: Option<Res<GameData>>, mut words: ResMut<Words>) {
     let text = data.as_deref().and_then(|d| d.read(DICTIONARY));
     match text {
         Some(bytes) => {
-            words.0 = Dictionary::parse(&String::from_utf8_lossy(&bytes));
+            // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
+            let text = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
+            words.0 = Dictionary::parse(&text);
             info!("terminal: {} words in {DICTIONARY}", words.0.len());
         }
         None => warn!("terminal: {DICTIONARY} not found; terminals cannot be hacked"),

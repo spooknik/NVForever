@@ -263,6 +263,14 @@ fn scripts_open_barter(script: Option<ResMut<crate::script::ScriptState>>, mut o
     }
 }
 
+/// The container of a merchant's goods: a script's SetMerchantContainer, else its
+/// reference's (`fnv_game::Game::merchant_container`); the merchant itself without one.
+fn merchant_stock(script: Option<&mut crate::script::ScriptState>, sim: &mut SimState, merchant: FormId) -> FormId {
+    let placed = sim.refs.get(merchant).and_then(|p| p.merchant_container);
+    let scripted = script.and_then(|s| s.rt.as_mut()).and_then(|rt| crate::script::with_world(rt, sim, |rt| rt.game.merchant_container(merchant)));
+    scripted.or(placed).unwrap_or(merchant)
+}
+
 /// What `merchant` sells, by its services (`fnv_game::services`,
 /// docs/spec-notes/vendor-services.md §4), logged with whether it offers its services now;
 /// `None` without the script data (everything is sold).
@@ -342,7 +350,7 @@ pub(crate) fn open_menus(
     let opened = match (barter, container) {
         (Some(b), _) => {
             let merchant = FormId(b.merchant);
-            let stock = sim.refs.get(merchant).and_then(|p| p.merchant_container).unwrap_or(merchant);
+            let stock = merchant_stock(script.as_deref_mut(), &mut sim, merchant);
             let skill = barter_skill(script.as_deref_mut(), &mut sim);
             info!("menu: barter with {merchant}: stock in {stock}, Barter skill {skill}");
             let sells = vendor_sells(script.as_deref_mut(), &mut sim, merchant);

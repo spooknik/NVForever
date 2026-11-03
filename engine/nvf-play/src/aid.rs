@@ -231,7 +231,7 @@ pub fn after_tick(rt: &mut Runtime, from: usize) {
     }
     for item in ended {
         // Only once no effect of the item is left on the player.
-        if rt.game.effects.iter().any(|e| e.target == P && e.source == item && e.effect != fnv_game::aid::USAGE_MONITOR) {
+        if rt.game.effects.iter().any(|e| e.target == P && e.source == item && !e.inactive && e.effect != fnv_game::aid::USAGE_MONITOR) {
             continue;
         }
         let Some(codes) = rt.aid.lasting.remove(&item) else { continue };

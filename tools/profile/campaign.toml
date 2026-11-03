@@ -1,0 +1,316 @@
+# The profiling campaign's scenarios (tools/profile/campaign.py; docs/design/frame-rate-audit.md §5).
+# Each is one launch of a `profile` build with the span profile, the frame-time log and the
+# stress samples, the enhanced look at 1920x1080, vsync off, in a home without stored settings,
+# as the stress runs make it (god mode, unseen, script boxes closed: tools/stress lib.py).
+#
+# Fields: `group` (stand, interior, crowd, combat, move, stream), `args` (nvforever arguments
+# besides the defaults), `aids` (test aids), `seconds` (run length), `battle` = { per_side,
+# third } (the stress battle's layout at Goodsprings, tools/stress battle.py), `play = false`
+# (the free camera, for the fly-through).
+
+[defaults]
+seconds = 60
+# Seconds after the first frame-time line that are left out (loading, pipelines, spawning).
+warmup = 15
+every = 5
+# Frames this long or longer are listed with their spans (NVF_PLAY_TEST_PROFILE_HITCH_MS): the
+# occasional 20 ms frames of 7 ms scenes. Battles, slower throughout, set their own.
+slow_ms = 16
+size = "1920x1080"
+graphics = "enhanced"
+
+# ---------------------------------------------------------------- standing in exteriors
+
+[[scenario]]
+name = "goodsprings-noon"
+group = "stand"
+args = ["--cell", "Goodsprings", "--hour", "12"]
+
+[[scenario]]
+name = "goodsprings-dusk"
+group = "stand"
+args = ["--cell", "Goodsprings", "--hour", "19"]
+
+[[scenario]]
+name = "goodsprings-night"
+group = "stand"
+args = ["--cell", "Goodsprings", "--hour", "23"]
+
+[[scenario]]
+name = "primm-noon"
+group = "stand"
+args = ["--cell", "Primm", "--hour", "12"]
+
+[[scenario]]
+name = "novac-morning"
+group = "stand"
+args = ["--cell", "Novac", "--hour", "7"]
+
+[[scenario]]
+name = "novac-noon"
+group = "stand"
+args = ["--cell", "Novac", "--hour", "12"]
+
+[[scenario]]
+name = "nipton-noon"
+group = "stand"
+args = ["--cell", "Nipton", "--hour", "12"]
+
+[[scenario]]
+name = "helios-noon"
+group = "stand"
+args = ["--cell", "HeliosOne", "--hour", "12"]
+
+[[scenario]]
+name = "boulder-noon"
+group = "stand"
+args = ["--cell", "BoulderCity", "--hour", "12"]
+
+[[scenario]]
+name = "hoover-noon"
+group = "stand"
+args = ["--cell", "HooverDamExtMapCenter", "--hour", "12"]
+
+[[scenario]]
+name = "jacobstown-noon"
+group = "stand"
+args = ["--cell", "Jacobstown", "--hour", "12"]
+
+[[scenario]]
+name = "westside-noon"
+group = "stand"
+args = ["--cell", "Westside", "--hour", "12"]
+
+# ---------------------------------------------------------------- crowds (people about by schedule)
+
+[[scenario]]
+name = "strip-evening"
+group = "crowd"
+args = ["--cell", "StripGomorrah", "--world", "TheStripWorldNew", "--hour", "20"]
+
+[[scenario]]
+name = "strip-night"
+group = "crowd"
+args = ["--cell", "StripGomorrah", "--world", "TheStripWorldNew", "--hour", "22"]
+
+[[scenario]]
+name = "strip-lucky38"
+group = "crowd"
+args = ["--cell", "StripLucky38", "--world", "TheStripWorldNew", "--hour", "13"]
+
+[[scenario]]
+name = "freeside-afternoon"
+group = "crowd"
+args = ["--cell", "FreesideCentral", "--world", "FreesideWorld", "--hour", "14"]
+
+[[scenario]]
+name = "freeside-night"
+group = "crowd"
+args = ["--cell", "FreesideCentral", "--world", "FreesideWorld", "--hour", "22"]
+
+[[scenario]]
+name = "mccarran-morning"
+group = "crowd"
+args = ["--cell", "CampMcCarranGate", "--hour", "8"]
+
+[[scenario]]
+name = "mccarran-noon"
+group = "crowd"
+args = ["--cell", "CampMcCarranGate", "--hour", "12"]
+
+# ---------------------------------------------------------------- interiors
+
+[[scenario]]
+name = "saloon"
+group = "interior"
+args = ["--cell", "GSProspectorSaloonInterior", "--hour", "20"]
+
+[[scenario]]
+name = "doc-mitchell"
+group = "interior"
+args = ["--cell", "GSDocMitchellHouse", "--hour", "12"]
+
+[[scenario]]
+name = "gomorrah-floor"
+group = "interior"
+args = ["--cell", "Gomorrah01", "--hour", "22"]
+
+[[scenario]]
+name = "gomorrah-lobby"
+group = "interior"
+args = ["--cell", "Gomorrah00", "--hour", "22"]
+
+[[scenario]]
+name = "tops-casino"
+group = "interior"
+args = ["--cell", "TOPSCasino", "--hour", "22"]
+
+[[scenario]]
+name = "lucky38-floor"
+group = "interior"
+args = ["--cell", "Lucky38CasinoFloor01", "--hour", "22"]
+
+[[scenario]]
+name = "bison-steve"
+group = "interior"
+args = ["--cell", "BisonSteve01", "--hour", "12"]
+
+[[scenario]]
+name = "repconn-rocket-lab"
+group = "interior"
+args = ["--cell", "RocketLabMid", "--hour", "12"]
+
+[[scenario]]
+name = "repconn-hq"
+group = "interior"
+args = ["--cell", "RepconHQ01", "--hour", "12"]
+
+[[scenario]]
+name = "goodsprings-cave"
+group = "interior"
+args = ["--cell", "SLGoodspringsCaveINT", "--hour", "12"]
+
+[[scenario]]
+name = "vault22"
+group = "interior"
+args = ["--cell", "Vault22c", "--hour", "12"]
+
+[[scenario]]
+name = "vault3"
+group = "interior"
+args = ["--cell", "Vault3a", "--hour", "12"]
+
+[[scenario]]
+name = "vault19"
+group = "interior"
+args = ["--cell", "Vault19a", "--hour", "12"]
+
+[[scenario]]
+name = "black-mountain"
+group = "interior"
+args = ["--cell", "BlackMountainPrison", "--hour", "12"]
+
+[[scenario]]
+name = "sewers"
+group = "interior"
+args = ["--cell", "OVNorthSewers01", "--hour", "12"]
+
+[[scenario]]
+name = "novac-motel"
+group = "interior"
+args = ["--cell", "NovacMotelLobby", "--hour", "12"]
+
+[[scenario]]
+name = "think-tank"
+group = "interior"
+args = ["--cell", "NVDLC03ThinkTank", "--hour", "12"]
+
+[[scenario]]
+name = "sierra-madre-lobby"
+group = "interior"
+args = ["--cell", "NVDLC01Lobby", "--hour", "12"]
+
+# ---------------------------------------------------------------- combat (NCR against the Legion)
+
+[[scenario]]
+name = "battle-10"
+group = "combat"
+seconds = 90
+battle = { per_side = 10, third = 0 }
+
+[[scenario]]
+name = "battle-25"
+group = "combat"
+seconds = 90
+slow_ms = 40
+battle = { per_side = 25, third = 0 }
+
+[[scenario]]
+name = "battle-50"
+group = "combat"
+seconds = 90
+slow_ms = 100
+battle = { per_side = 50, third = 0 }
+
+[[scenario]]
+name = "battle-25-creatures"
+group = "combat"
+seconds = 90
+slow_ms = 40
+battle = { per_side = 25, third = 15 }
+
+# ---------------------------------------------------------------- the player moving
+
+[[scenario]]
+name = "run-goodsprings"
+group = "move"
+seconds = 70
+args = ["--cell", "Goodsprings", "--hour", "12", "--heading", "0"]
+aids = { NVF_PLAY_TEST_MOVE = "3:1:0", NVF_PLAY_TEST_LOOK = "15:90:0,27:180:0,39:270:0,51:0:0,63:90:0" }
+
+[[scenario]]
+name = "walk-goodsprings"
+group = "move"
+seconds = 70
+args = ["--cell", "Goodsprings", "--hour", "12", "--heading", "180"]
+aids = { NVF_PLAY_TEST_MOVE = "3:1:0:walk", NVF_PLAY_TEST_LOOK = "15:270:0,27:0:0,39:90:0,51:180:0" }
+
+[[scenario]]
+name = "run-third-person"
+group = "move"
+seconds = 70
+args = ["--cell", "Goodsprings", "--hour", "12", "--heading", "90"]
+aids = { NVF_PLAY_TEST_CONTROL = "2:view", NVF_PLAY_TEST_MOVE = "3:1:0", NVF_PLAY_TEST_LOOK = "15:180:0,27:270:0,39:0:0,51:90:0" }
+
+[[scenario]]
+name = "turn-in-place-novac"
+group = "move"
+seconds = 60
+args = ["--cell", "Novac", "--hour", "12"]
+aids = { NVF_PLAY_TEST_LOOK = "16:45:0,18:90:0,20:135:0,22:180:0,24:225:0,26:270:0,28:315:0,30:0:0,32:45:0,34:90:0,36:135:0,38:180:0,40:225:0,42:270:0,44:315:0,46:0:0,48:45:0,50:90:0,52:135:0,54:180:0,56:225:0,58:270:0" }
+
+[[scenario]]
+name = "run-strip"
+group = "move"
+seconds = 70
+args = ["--cell", "StripGomorrah", "--world", "TheStripWorldNew", "--hour", "21", "--heading", "0"]
+aids = { NVF_PLAY_TEST_MOVE = "3:1:0", NVF_PLAY_TEST_LOOK = "20:180:0,40:0:0,60:180:0" }
+
+[[scenario]]
+name = "walk-lucky38-floor"
+group = "move"
+seconds = 70
+args = ["--cell", "Lucky38CasinoFloor01", "--hour", "22"]
+aids = { NVF_PLAY_TEST_MOVE = "3:1:0", NVF_PLAY_TEST_LOOK = "12:90:0,22:180:0,32:270:0,42:0:0,52:90:0" }
+
+[[scenario]]
+name = "walk-repconn"
+group = "move"
+seconds = 70
+args = ["--cell", "RocketLabMid", "--hour", "12"]
+aids = { NVF_PLAY_TEST_MOVE = "3:1:0", NVF_PLAY_TEST_LOOK = "12:90:0,22:180:0,32:270:0,42:0:0,52:90:0" }
+
+# ---------------------------------------------------------------- streaming the world
+
+[[scenario]]
+name = "run-desert-east"
+group = "stream"
+seconds = 120
+args = ["--cell", "Goodsprings", "--hour", "12", "--heading", "90"]
+aids = { NVF_PLAY_TEST_MOVE = "3:1:0" }
+
+[[scenario]]
+name = "fly-mojave"
+group = "stream"
+seconds = 120
+play = false
+args = ["--cell", "Goodsprings", "--hour", "12", "--heading", "60", "--pitch=-10"]
+aids = { NVF_PLAY_TEST_FLY = "1500" }
+
+[[scenario]]
+name = "fly-strip"
+group = "stream"
+seconds = 90
+play = false
+args = ["--cell", "StripGomorrah", "--world", "TheStripWorldNew", "--hour", "22", "--heading", "0", "--pitch=-10"]
+aids = { NVF_PLAY_TEST_FLY = "800" }

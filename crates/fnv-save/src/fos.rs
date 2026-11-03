@@ -110,11 +110,12 @@ impl<'a> Cur<'a> {
     fn ref3(&mut self) -> Result<[u8; 3], FosError> {
         Ok(self.take(3)?.try_into().unwrap())
     }
-    /// A string: u16 length, `|`, the bytes (§3.1).
+    /// A string: u16 length, `|`, the bytes (§3.1), in this run's code page
+    /// (fnv_util::text, #1439).
     fn string(&mut self) -> Result<String, FosError> {
         let n = self.u16()? as usize;
         self.bar()?;
-        Ok(String::from_utf8_lossy(self.take(n)?).into_owned())
+        Ok(fnv_util::text::decode(self.take(n)?))
     }
     fn at_end(&self) -> bool {
         self.p >= self.b.len()

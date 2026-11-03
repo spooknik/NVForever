@@ -228,8 +228,8 @@ fn u32_at(b: &[u8], o: usize) -> Option<u32> {
 }
 
 fn zstring(b: &[u8]) -> String {
-    let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
-    String::from_utf8_lossy(&b[..end]).into_owned()
+    // In this run's code page (fnv_util::text, #1439).
+    fnv_util::text::decode_z(b)
 }
 
 /// The player's cards, deck and record against each opponent (saved with the game).

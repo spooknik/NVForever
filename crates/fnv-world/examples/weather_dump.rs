@@ -8,10 +8,15 @@
 //! With `--sounds`: every weather with sounds, a precipitation model, lightning or a
 //! classification flag: its SNAM sounds by kind, MODL, DATA fades and lightning, and
 //! which climates and regions list it (docs/spec-notes/world.md §6 "Weather sound").
+//! With `--day`: every weather's NAM0 size and day sky-upper, sky-lower and horizon.
+//! With `--worlds`: every worldspace's climate (WRLD CNAM), its parent and its plugin.
 //! With `--imad`: every image space adapter's cinematic tracks (IAD 0x11-0x14 multiply
 //! and 0x51-0x54 add) as (time, value) keys, and every image space's cinematic values.
 //!
 //! cargo run --release -p fnv-world --example weather_dump -- <Data dir> <esm schema dir> [climate EDID | --survey | --fog | --imad | --sounds]
+//!
+//! `WEATHER_DUMP_MASTERS` (comma-separated plugin names or paths, in load order) replaces
+//! the New Vegas masters, e.g. to read Tale of Two Wastelands' Capital Wasteland weathers.
 
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_world::fields::Fields;
@@ -28,7 +33,10 @@ fn main() {
     let data = Path::new(&a[1]);
     let schema = Schema::load_dir(Path::new(&a[2])).unwrap();
     let want = a.get(3).map_or("NVDefaultClimate", |s| s.as_str());
-    let plugins: Vec<Plugin> = MASTERS.iter().map(|m| Plugin::open(data.join(m)).unwrap()).collect();
+    let masters: Vec<String> = std::env::var("WEATHER_DUMP_MASTERS")
+        .map(|v| v.split(',').map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect())
+        .unwrap_or_else(|_| MASTERS.iter().map(|m| m.to_string()).collect());
+    let plugins: Vec<Plugin> = masters.iter().map(|m| Plugin::open(data.join(m)).unwrap()).collect();
     let lo = LoadOrder::new(&plugins).unwrap();
     if want == "--survey" {
         survey(&lo, &schema);
@@ -40,6 +48,14 @@ fn main() {
     }
     if want == "--sounds" {
         sound_survey(&lo, &schema);
+        return;
+    }
+    if want == "--day" {
+        day_survey(&lo, &schema, &masters);
+        return;
+    }
+    if want == "--worlds" {
+        world_survey(&lo, &schema, &masters);
         return;
     }
     if want == "--imad" {
@@ -270,4 +286,37 @@ fn sound_survey(lo: &LoadOrder, schema: &Schema) {
         }
     }
     println!("{shown} of {total} weathers have sounds, precipitation, lightning or a classification");
+}
+
+fn world_survey(lo: &LoadOrder, schema: &Schema, masters: &[String]) {
+    for (pi, recs) in lo.records.iter().enumerate() {
+        for r in recs.iter().filter(|r| &r.header.sig == b"WRLD") {
+            let Ok(f) = Fields::new(r, pi, schema) else { continue };
+            let clim = f.formid(b"CNAM", lo);
+            let name = clim.and_then(|c| climate(lo, schema, c)).and_then(|c| c.edid);
+            println!(
+                "{:?} {:#010x} parent {:?} climate {:?} {:?} in {}",
+                f.string(b"EDID"),
+                lo.to_global(pi, r.header.form_id).unwrap_or(0),
+                f.formid(b"WNAM", lo).map(|w| format!("{w:#010x}")),
+                clim.map(|c| format!("{c:#010x}")),
+                name,
+                masters[pi]
+            );
+        }
+    }
+}
+
+fn day_survey(lo: &LoadOrder, schema: &Schema, masters: &[String]) {
+    for (pi, recs) in lo.records.iter().enumerate() {
+        for r in recs.iter().filter(|r| &r.header.sig == b"WTHR") {
+            let Some(id) = lo.to_global(pi, r.header.form_id) else { continue };
+            let Some(w) = weather(lo, schema, id) else { continue };
+            let nam0 = fnv_world::fields::winner(lo, id)
+                .and_then(|(wp, wr)| Fields::new(wr, wp, schema).ok())
+                .and_then(|f| f.subs.iter().find(|s| &s.sig == b"NAM0").map(|s| s.data.len()));
+            let day = |t: usize| w.colors.get(t).and_then(|c| c.get(1).copied());
+            println!("{:?} {id:#010x} NAM0 {nam0:?} upper {:?} lower {:?} horizon {:?} in {}", w.edid, day(0), day(7), day(8), masters[pi]);
+        }
+    }
 }

@@ -7,7 +7,9 @@
 //! work, which tells the rules what each reference plays ([`ObjectAnims::set_playing`])
 //! so `IsAnimPlaying` can answer ([`ObjectAnims::driven`]). With nothing animating (a
 //! headless run), nothing is ever playing [design: as `IsIdlePlaying`, `crate::idles`],
-//! and at most [`crate::sound::MAX_PENDING`] requests are kept. Not part of the saved state.
+//! and at most [`crate::sound::MAX_PENDING`] requests are kept. Only the last group asked of each
+//! reference is saved ([`ObjectAnims::asked`]): a gate a script opened and left open is
+//! drawn, and collides, open after a load (issue #1396) [design].
 //!
 //! `LoopGroup` is not here: no script in the masters calls it and its opcode is not
 //! known [observed: docs/spec-notes/script-functions-catalogue.md].
@@ -18,7 +20,7 @@ use crate::trace::EventKind;
 use fnv_script::vm::{ArgValue, Value};
 use fnv_sim::FormId;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// How a group starts, PlayGroup's InitFlag [documented: GECK wiki PlayGroup].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -84,6 +86,10 @@ pub struct ObjectAnims {
     /// References whose animation state a script reset (`Reset3DState`), for the engine
     /// to stop their groups.
     pub resets: Vec<FormId>,
+    /// The last group asked of each reference (code, name), kept until a reset: what an
+    /// object shows when it is drawn or given collision again, a group played once at its
+    /// end (`nvforever` object_anims.rs, `nvf_play::phys`). Saved [design].
+    asked: BTreeMap<FormId, (u16, String)>,
 }
 
 impl ObjectAnims {
@@ -105,6 +111,7 @@ impl ObjectAnims {
     pub fn reset(&mut self, on: FormId) {
         self.playing.remove(&on);
         self.traced.remove(&on);
+        self.asked.remove(&on);
         self.requests.retain(|r| r.on != on);
         if !self.resets.contains(&on) {
             if self.resets.len() >= crate::sound::MAX_PENDING {
@@ -112,6 +119,21 @@ impl ObjectAnims {
             }
             self.resets.push(on);
         }
+    }
+
+    /// The last group asked of `on` (code, name), until a reset ([`ObjectAnims::reset`]).
+    pub fn asked(&self, on: FormId) -> Option<(u16, &str)> {
+        self.asked.get(&on).map(|(g, n)| (*g, n.as_str()))
+    }
+
+    /// Every reference's last group asked, for the saved game.
+    pub fn asked_all(&self) -> &BTreeMap<FormId, (u16, String)> {
+        &self.asked
+    }
+
+    /// The last groups asked, from a saved game.
+    pub fn restore_asked(&mut self, asked: BTreeMap<FormId, (u16, String)>) {
+        self.asked = asked;
     }
 
     /// The group `on` plays, as last told.
@@ -129,6 +151,9 @@ impl Game<'_> {
         }
         if self.anims.driven {
             self.anims.playing.insert(r.on, r.group);
+        }
+        if let Some(name) = &r.name {
+            self.anims.asked.insert(r.on, (r.group, name.clone()));
         }
         let q = &mut self.anims.requests;
         if q.len() >= crate::sound::MAX_PENDING {

@@ -303,6 +303,8 @@ pub struct Bindings {
     pub look_speed: [f32; 2],
     /// The controller rumbles (`crate::rumble`).
     pub rumble: bool,
+    /// The Controls tab's Stick Sensitivity: the right stick's look speeds times this.
+    pub stick_sensitivity: f32,
 }
 
 impl Default for Bindings {
@@ -312,6 +314,15 @@ impl Default for Bindings {
 }
 
 impl Bindings {
+    /// The look sensitivity of the device in use as a multiple of the game's (the Controls
+    /// tab's Mouse Sensitivity or Stick Sensitivity; 1 is the game's).
+    pub fn sensitivity(&self) -> f32 {
+        match self.device {
+            InputDevice::KeyboardMouse => self.mouse_sensitivity / MOUSE_SENSITIVITY,
+            InputDevice::Controller => self.stick_sensitivity,
+        }
+    }
+
     pub fn game_defaults() -> Bindings {
         Bindings {
             map: GAME_CONTROLS.iter().map(|&(c, _, v)| (c, Binding::from_ini(v))).collect(),
@@ -322,6 +333,7 @@ impl Bindings {
             device: InputDevice::KeyboardMouse,
             look_speed: [LOOK_SPEED_HORIZONTAL, LOOK_SPEED_VERTICAL],
             rumble: RUMBLE,
+            stick_sensitivity: 1.0,
         }
     }
 
@@ -585,6 +597,7 @@ const DEVICE_KEY: &str = "Input Device";
 pub const PAD_SECTION: &str = "Controller";
 const LOOK_KEYS: [&str; 2] = ["Look Speed Horizontal", "Look Speed Vertical"];
 pub const RUMBLE_KEY: &str = "Rumble";
+const STICK_SENSITIVITY_KEY: &str = "Stick Sensitivity";
 
 fn bit(on: bool) -> &'static str {
     if on {
@@ -605,6 +618,7 @@ pub fn with_controls(text: &str, b: &Bindings) -> String {
     for (k, v) in LOOK_KEYS.iter().zip(b.look_speed) {
         t = ini_set(&t, PAD_SECTION, k, &format!("{v:.0}"));
     }
+    t = ini_set(&t, PAD_SECTION, STICK_SENSITIVITY_KEY, &format!("{:.2}", b.stick_sensitivity));
     ini_set(&t, PAD_SECTION, RUMBLE_KEY, bit(b.rumble))
 }
 
@@ -697,12 +711,24 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
             _ => bad.push(format!("[{PAD_SECTION}] {k}={v} (not a number above 0)")),
         }
     }
+    if let Some(v) = ini_get(text, PAD_SECTION, STICK_SENSITIVITY_KEY) {
+        found += 1;
+        match v.trim().parse::<f32>() {
+            Ok(m) if m.is_finite() && m > 0.0 => {
+                if (m - b.stick_sensitivity).abs() > 1e-4 {
+                    changed.push(format!("[{PAD_SECTION}] {STICK_SENSITIVITY_KEY} {m}"));
+                    b.stick_sensitivity = m;
+                }
+            }
+            _ => bad.push(format!("[{PAD_SECTION}] {STICK_SENSITIVITY_KEY}={v} (not a number above 0)")),
+        }
+    }
     switch(PAD_SECTION, RUMBLE_KEY, &mut b.rumble, &mut found, &mut changed, bad);
     (found, changed)
 }
 
 /// The number of `[Controls]` lines a full section has.
-const LINES: usize = 2 * GAME_CONTROLS.len() + 4 + LOOK_KEYS.len() + 1;
+const LINES: usize = 2 * GAME_CONTROLS.len() + 4 + LOOK_KEYS.len() + 2;
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
 pub fn apply_stored(world: &mut World) {
@@ -771,6 +797,62 @@ pub fn set_rumble(world: &mut World, on: bool) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
     b.rumble = on;
     info!("controls: controller rumble {}", if on { "on" } else { "off" });
+    store(world);
+}
+
+/// Turn the vertical look's inversion on or off (the Controls tab's Invert Y row).
+pub fn set_invert_y(world: &mut World, on: bool) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    b.invert_y = on;
+    info!("controls: invert Y {}", if on { "on" } else { "off" });
+    store(world);
+}
+
+/// The Controls tab's Mouse Sensitivity and Stick Sensitivity sliders, as multiples of the
+/// game's (`fMouseSensitivity`, the right stick's look speeds): from a quarter to three
+/// times in twentieths [design: owner 2026-11-03, #1451: NVForever's own range, not the
+/// original slider's, to be tuned by playing; the mouse and the stick set apart].
+pub const SENSITIVITY_LEAST: f32 = 0.25;
+pub const SENSITIVITY_MOST: f32 = 3.0;
+pub const SENSITIVITY_STEP: f32 = 0.05;
+
+/// A sensitivity multiple as the Controls tab shows it: a percentage of the game's.
+pub fn sensitivity_text(m: f32) -> String {
+    format!("{:.0}%", m * 100.0)
+}
+
+/// The sensitivity `steps` of [`SENSITIVITY_STEP`] from multiple `m`, on the steps and in
+/// the sliders' range.
+pub fn step_sensitivity(m: f32, steps: i32) -> f32 {
+    let at = (m / SENSITIVITY_STEP).round() as i32 + steps;
+    let (least, most) = ((SENSITIVITY_LEAST / SENSITIVITY_STEP).round() as i32, (SENSITIVITY_MOST / SENSITIVITY_STEP).round() as i32);
+    at.clamp(least, most) as f32 * SENSITIVITY_STEP
+}
+
+/// Multiple `m` as a part of the slider's meter (0 at the least, 1 at the most).
+pub fn sensitivity_part(m: f32) -> f32 {
+    ((m - SENSITIVITY_LEAST) / (SENSITIVITY_MOST - SENSITIVITY_LEAST)).clamp(0.0, 1.0)
+}
+
+/// The multiple at part `p` of the slider's meter, on the steps.
+pub fn sensitivity_at_part(p: f32) -> f32 {
+    step_sensitivity(SENSITIVITY_LEAST + p.clamp(0.0, 1.0) * (SENSITIVITY_MOST - SENSITIVITY_LEAST), 0)
+}
+
+/// Set the look sensitivity of the device in use to multiple `m` of the game's (the
+/// Controls tab's Mouse Sensitivity or Stick Sensitivity); acts at once.
+pub fn set_sensitivity(world: &mut World, m: f32) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    if (b.sensitivity() - m).abs() <= 1e-4 {
+        return;
+    }
+    if b.device == InputDevice::Controller {
+        b.stick_sensitivity = m;
+        info!("controls: stick sensitivity {}", sensitivity_text(m));
+    } else {
+        b.mouse_sensitivity = m * MOUSE_SENSITIVITY;
+        info!("controls: mouse sensitivity {} ({:.4})", sensitivity_text(m), b.mouse_sensitivity);
+    }
     store(world);
 }
 
@@ -939,6 +1021,32 @@ impl ControlInput<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sensitivity_steps_within_its_range() {
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        assert_eq!(sensitivity_text(1.0), "100%");
+        assert!(near(step_sensitivity(1.0, 1), 1.05));
+        assert!(near(step_sensitivity(1.0, -2), 0.9));
+        assert!(near(step_sensitivity(1.0, -100), 0.25), "not under a quarter");
+        assert!(near(step_sensitivity(1.0, 100), 3.0), "not past three times");
+        // A value from the INI off the steps is brought onto them.
+        assert!(near(step_sensitivity(1.063, 0), 1.05));
+        assert!(near(sensitivity_part(0.25), 0.0) && near(sensitivity_part(3.0), 1.0));
+        assert!(near(sensitivity_at_part(sensitivity_part(1.5)), 1.5));
+        assert!(near(sensitivity_at_part(2.0), 3.0), "a drag past the meter's end stops at the most");
+        // The mouse's and the stick's are kept apart.
+        let mut b = Bindings::game_defaults();
+        b.mouse_sensitivity = 0.003;
+        assert!(near(b.sensitivity(), 1.5));
+        b.device = InputDevice::Controller;
+        assert!(near(b.sensitivity(), 1.0));
+        let mut bad = vec![];
+        let mut back = Bindings::game_defaults();
+        let (_, changed) = read_controls(&ini_set(&with_controls("", &b), PAD_SECTION, STICK_SENSITIVITY_KEY, "2.00"), &mut back, &mut bad);
+        assert!(bad.is_empty(), "{bad:?}");
+        assert!(near(back.stick_sensitivity, 2.0) && near(back.mouse_sensitivity, 0.003), "{changed:?}");
+    }
 
     #[test]
     fn ini_values_decode() {

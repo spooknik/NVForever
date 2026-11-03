@@ -6,7 +6,6 @@ use crate::decode::formid_str;
 use crate::plugin::Plugin;
 use crate::raw::{group_type, visit_groups, visit_records, Record};
 use serde_json::{json, Value};
-use fnv_util::cp1252;
 use std::collections::BTreeMap;
 
 pub struct InventoryRow {
@@ -25,8 +24,8 @@ pub fn names(r: &Record) -> Result<(Option<String>, Option<String>), String> {
     let mut full = None;
     for s in &subs {
         match &s.sig {
-            b"EDID" if edid.is_none() => edid = Some(cp1252::decode_z(&s.data)),
-            b"FULL" if full.is_none() => full = Some(cp1252::decode_z(&s.data)),
+            b"EDID" if edid.is_none() => edid = Some(fnv_util::text::decode_z(&s.data)),
+            b"FULL" if full.is_none() => full = Some(fnv_util::text::decode_z(&s.data)),
             _ => {}
         }
     }

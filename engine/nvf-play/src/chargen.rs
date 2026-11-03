@@ -267,7 +267,7 @@ fn input(
                     Key::Backspace => ops.push((Op::Backspace, "key")),
                     Key::Enter => ops.push((Op::Done, "Enter")),
                     _ => {
-                        if let Some(t) = k.text.as_deref().filter(|t| !t.is_empty() && t.chars().all(|c| !c.is_control())) {
+                        if let Some(t) = k.text.as_deref().filter(|t| !t.is_empty() && t.chars().all(|c| !c.is_control()) && fnv_util::text::encodable(t)) {
                             ops.push((Op::Type(t.to_string()), "key"));
                         }
                     }

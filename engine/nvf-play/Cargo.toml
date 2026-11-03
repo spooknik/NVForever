@@ -21,6 +21,7 @@ fnv-ui.workspace = true
 fnv-save.workspace = true
 infinitier_bik_decoder = { workspace = true, optional = true }
 fnv-install.workspace = true
+fnv-util.workspace = true
 fnv-combat.workspace = true
 fnv-actor.workspace = true
 fnv-voice.workspace = true

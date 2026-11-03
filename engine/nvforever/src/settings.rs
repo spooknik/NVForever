@@ -520,8 +520,8 @@ fn register_graphics(app: &mut App) {
         ),
         (
             "fine-shadows",
-            "Finer, longer sun shadows",
-            "On: the sun's shadow maps have twice the detail and reach half as far again as --shadow-distance. Costs frame rate and video memory. (--graphics)",
+            "Longer sun shadows",
+            "On: the sun's shadows reach half as far again as --shadow-distance. Costs a little frame rate. (--graphics)",
             |w| w.resource::<Graphics>().fine_shadows,
             |w, on| w.resource_mut::<Graphics>().fine_shadows = on,
         ),

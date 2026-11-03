@@ -607,13 +607,13 @@ fn cb_string(dec: &Decoded, cb: &Struct, name: &str) -> Option<String> {
     }
     let palette = dec.get(cb.block_ref("string_palette")?)?;
     // Offsets count bytes of the on-disk (Windows-1252) palette.
-    let bytes = fnv_util::cp1252::encode(palette.text("palette")?)?;
+    let bytes = fnv_util::text::encode(palette.text("palette")?)?;
     let start = off as usize;
     if start > bytes.len() {
         return None;
     }
     let end = bytes[start..].iter().position(|&b| b == 0).map_or(bytes.len(), |p| start + p);
-    Some(fnv_util::cp1252::decode(&bytes[start..end]))
+    Some(fnv_util::text::decode(&bytes[start..end]))
 }
 
 /// Static pose parts of an NiQuatTransform: translation, rotation, scale.

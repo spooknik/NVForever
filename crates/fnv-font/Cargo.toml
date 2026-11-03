@@ -6,4 +6,5 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+fnv-util = { path = "../fnv-util" }
 thiserror.workspace = true

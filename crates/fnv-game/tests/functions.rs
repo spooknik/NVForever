@@ -1408,10 +1408,12 @@ fn reset_3d_state_forgets_the_animation() {
     g.anims.driven = true;
     g.ask_anim(fnv_game::anims::AnimRequest { on, group: 1, name: Some("Forward".into()), start: fnv_game::anims::Start::Normal });
     assert_eq!(g.anims.playing(on), Some(1));
+    assert_eq!(g.anims.asked(on), Some((1, "Forward")));
     call(&mut g, 0x1146, Some(ADULT_REF), &[]);
     call(&mut g, 0x1146, Some(ADULT_REF), &[]);
     assert_eq!(g.anims.playing(on), None);
     assert!(g.anims.requests.is_empty());
+    assert_eq!(g.anims.asked(on), None, "nothing to show when drawn again");
     assert_eq!(g.anims.resets, vec![on]);
 }
 
@@ -2051,4 +2053,49 @@ fn an_argument_read_wrong_without_failing_is_traced_once() {
     let ctx = Ctx { unit: "other".into(), opcode: 0x1173, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
     g.call_function(&ctx, &[ArgValue::Str("ten".into())]);
     assert_eq!(unread(&g), 1);
+}
+
+/// Functions only Fallout 3's scripts call (Tale of Two Wastelands; the TTW audit of
+/// 2026-11-02 §1): ModDisposition, GetForceSneak, SetMerchantContainer, GetPCSleepHours
+/// and the player's childhood flags.
+#[test]
+fn fallout_3_functions() {
+    let mut f = fixture();
+    // A merchant container must be persistent: the fixture's container is made so.
+    f.refs.refs.get_mut(&FormId(CONT_REF)).unwrap().in_persistent_group = true;
+    let mut g = game(&f);
+    let (get_disp, set_disp, mod_disp) = (0x104C, 0x1184, 0x1053);
+    // ModDisposition from SetDisposition's value, kept within 0..100.
+    call(&mut g, set_disp, Some(ADULT_REF), &[r(CHILD_REF), n(20.0)]);
+    call(&mut g, mod_disp, Some(ADULT_REF), &[r(CHILD_REF), n(15.0)]);
+    assert_eq!(call(&mut g, get_disp, Some(ADULT_REF), &[r(CHILD_REF)]), 35.0);
+    call(&mut g, mod_disp, Some(ADULT_REF), &[r(CHILD_REF), n(-80.0)]);
+    assert_eq!(call(&mut g, get_disp, Some(ADULT_REF), &[r(CHILD_REF)]), 0.0);
+    // GetForceSneak reads SetForceSneak.
+    assert_eq!(call(&mut g, 0x10D2, Some(ADULT_REF), &[]), 0.0);
+    call(&mut g, 0x10D3, Some(ADULT_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x10D2, Some(ADULT_REF), &[]), 1.0);
+    // SetMerchantContainer: a persistent container stands for the reference's own.
+    assert_eq!(g.merchant_container(FormId(ADULT_REF)), None);
+    call(&mut g, 0x11B7, Some(ADULT_REF), &[r(CONT_REF)]);
+    assert_eq!(g.merchant_container(FormId(ADULT_REF)), Some(FormId(CONT_REF)));
+    let ctx = Ctx { unit: "test".into(), opcode: 0x11B7, on: Some(FormId(CHILD_REF)), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[r(ACTI_REF)]);
+    assert_eq!(g.merchant_container(FormId(CHILD_REF)), None, "a temporary reference is refused");
+    // GetPCSleepHours: the hours of a sleep, none for a wait.
+    assert_eq!(call(&mut g, 0x10BC, None, &[]), 0.0);
+    g.rest.begin(true, 8);
+    assert_eq!(call(&mut g, 0x10BC, None, &[]), 8.0);
+    g.rest.begin(false, 3);
+    assert_eq!(call(&mut g, 0x10BC, None, &[]), 0.0);
+    // The childhood flags.
+    call(&mut g, 0x11E6, None, &[n(1.0)]);
+    call(&mut g, 0x1202, None, &[n(1.0)]);
+    call(&mut g, 0x1200, None, &[n(1.0)]);
+    assert!(g.player.young && g.player.toddler && g.player.location_load_screens_only);
+    call(&mut g, 0x1202, None, &[n(0.0)]);
+    assert!(!g.player.toddler);
+    // SetLastExtDoorActivated is what GetPCLastExteriorDoor reads.
+    call(&mut g, 0x1230, None, &[r(ACTI_REF)]);
+    assert_eq!(g.gaps.jip3.last_exterior_door, Some(FormId(ACTI_REF)));
 }

@@ -388,7 +388,7 @@ pub fn get_parent_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
 pub fn mark_for_delete(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.extra.entry(r).or_default().marked_for_delete = true;
-    g.world.get(r).map_err(|e| e.to_string())?.deleted = true;
+    g.world.set_deleted(r, true).map_err(|e| e.to_string())?;
     none()
 }
 

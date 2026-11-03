@@ -93,6 +93,9 @@ jobs:
       - name: Stress-tool self-tests
         if: steps.changes.outputs.code == 'true'
         run: python -m unittest discover -s tools/stress/tests -v
+      - name: Profile-campaign self-tests
+        if: steps.changes.outputs.code == 'true'
+        run: python -m unittest discover -s tools/profile/tests -v
 
       - name: Engine tests
         if: steps.changes.outputs.code == 'true'

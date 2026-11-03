@@ -112,9 +112,7 @@ impl Game<'_> {
     /// reference 30 frames on]. What the scripts left set on it, for the hit.
     pub fn projectile_gone(&mut self, r: FormId) -> Option<Shot> {
         let s = self.gaps.projs.shots.remove(&r)?;
-        if let Ok(st) = self.world.get(r) {
-            st.deleted = true;
-        }
+        let _ = self.world.set_deleted(r, true);
         self.gaps.projs.gone.insert(r);
         Some(s)
     }

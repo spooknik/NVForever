@@ -376,15 +376,23 @@ pub fn guard_write(path: &Path, game: Option<&GameInstall>) -> Result<(), Instal
 /// ```ini
 /// [Game]
 /// Path=F:\SteamLibrary\steamapps\common\Fallout New Vegas
+///
+/// [Text]
+/// CodePage=1251
 /// ```
 ///
 /// `Path` is the original game's install folder (the one holding `Data`), read-only input.
+/// `CodePage` is the code page of the game's 8-bit text (`fnv_util::text`, #1439): 1252
+/// (the default, English installs), 1251 (Russian) or 1250 (Central European); written
+/// only by hand, never by [`Config::save`].
 /// Saving changes only the keys it owns and keeps every other line, so the file can carry
 /// comments and settings of later builds.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Config {
     /// The original game's install folder (read-only input).
     pub game_dir: Option<PathBuf>,
+    /// `[Text] CodePage`, as written (checked where it is used); None: not set.
+    pub code_page: Option<String>,
 }
 
 /// `nvforever.json` of earlier builds; unknown keys are ignored.
@@ -414,11 +422,14 @@ impl Config {
         };
         let c: LegacyConfig =
             serde_json::from_str(&text).map_err(|e| InstallError::Config(format!("{}: {e}", legacy.display())))?;
-        Ok(Config { game_dir: c.game_dir })
+        Ok(Config { game_dir: c.game_dir, code_page: None })
     }
 
     pub fn from_ini(text: &str) -> Config {
-        Config { game_dir: ini_get(text, "Game", "Path").filter(|s| !s.is_empty()).map(PathBuf::from) }
+        Config {
+            game_dir: ini_get(text, "Game", "Path").filter(|s| !s.is_empty()).map(PathBuf::from),
+            code_page: ini_get(text, "Text", "CodePage").filter(|s| !s.is_empty()),
+        }
     }
 
     /// `text` (an existing INI, or empty) with this config's keys set.
@@ -707,12 +718,22 @@ mod tests {
         let home = EngineHome::new(t.join("home"));
         home.create().unwrap();
         assert_eq!(Config::load(&home).unwrap(), Config::default());
-        let c = Config { game_dir: Some(t.join("FNV")) };
+        let c = Config { game_dir: Some(t.join("FNV")), ..Config::default() };
         c.save(&home, None).unwrap();
         assert_eq!(Config::load(&home).unwrap(), c);
         let text = std::fs::read_to_string(home.config_file()).unwrap();
         assert!(text.starts_with("; NVForever settings") && text.contains("\n[Game]\nPath="), "{text}");
         std::fs::remove_dir_all(&t).ok();
+    }
+
+    #[test]
+    fn code_page_is_read_and_kept() {
+        let c = Config::from_ini("[Game]\nPath=C:\\FNV\n\n[Text]\nCodePage = 1251\n");
+        assert_eq!(c.code_page.as_deref(), Some("1251"));
+        assert_eq!(Config::from_ini("[Text]\nCodePage=\n").code_page, None);
+        // Saving the game folder keeps the hand-written code page.
+        let again = Config { game_dir: Some(PathBuf::from("D:\\FNV")), ..Config::default() }.to_ini("[Text]\nCodePage=1251\n");
+        assert_eq!(Config::from_ini(&again).code_page.as_deref(), Some("1251"));
     }
 
     #[test]

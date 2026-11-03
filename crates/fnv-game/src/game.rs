@@ -434,6 +434,10 @@ pub struct RefExtra {
     /// (`functions::actor::get_disposition`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub dispositions: BTreeMap<FormId, f64>,
+    /// SetMerchantContainer: the container of the actor's goods in place of its
+    /// reference's (`Game::merchant_container`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub merchant_container: Option<FormId>,
     /// The special idle the actor plays (IsIdlePlaying): told by whoever animates the
     /// actor ([`Game::set_idle_playing`]); not part of the saved state.
     #[serde(skip)]
@@ -781,6 +785,18 @@ pub struct PlayerState {
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
+    /// SetPCYoung (Fallout 3's childhood): the race's default hair, no face attachments.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub young: bool,
+    /// SetPCToddler: the toddler's walk animations.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub toddler: bool,
+    /// SetNoActivationSound: the sound of a refused activation in place of the default.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub no_activation_sound: Option<FormId>,
+    /// SetLocationSpecificLoadScreensOnly 1: only load screens tied to the place loaded.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub location_load_screens_only: bool,
     /// Dialogue topics added with AddTopic and lines' Add Topics, newest first
     /// ([`KnownTopics`]).
     #[serde(skip_serializing_if = "KnownTopics::is_empty", default)]
@@ -1728,6 +1744,10 @@ pub struct GameSnapshot {
     /// game"] (`crate::nvse_pp`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub form_instances: Vec<(FormId, crate::nvse_pp::Instance)>,
+    /// The last animation group scripts asked of each reference (code, name;
+    /// `crate::anims::ObjectAnims::asked`): a gate left open shows and collides open.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub object_groups: BTreeMap<FormId, (u16, String)>,
 }
 
 impl GameSnapshot {
@@ -2589,7 +2609,8 @@ impl<'a> Game<'a> {
             }
         }
         let bytes = crate::mod_files::read_data(&format!("nvse\\user_defined_functions\\{key}"))?;
-        let src = String::from_utf8_lossy(&bytes).into_owned();
+        // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
+        let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
         let id = self.compile_source(&format!("CompileScript {path}"), src)?;
         self.compiled_paths.insert(key, id);
         Some(id)
@@ -4021,7 +4042,10 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// Whether a reference is in the world and enabled (enable parents followed).
+    /// Whether a reference is in the world and enabled (enable parents followed). Reads
+    /// the world's reference states alone, so it changes only with
+    /// `fnv_sim::World::presence_serial` (the AI's obstacle poll relies on that,
+    /// `fnv_ai::Ai::obstacles_in_line`): keep it so, or key that poll on the new input.
     pub fn present(&self, r: FormId) -> bool {
         self.world.peek(r).is_none_or(|s| !s.deleted) && self.world.is_enabled(r).unwrap_or(false)
     }
@@ -4646,6 +4670,20 @@ impl<'a> Game<'a> {
     fn update_effects(&mut self, dt: f64) {
         self.refresh_suspended(dt);
         self.recheck_conditions();
+        // An inactive effect's time runs all the same, and it goes when its duration has
+        // passed, with no update or finish of its own: a Hardcore Stimpak's heal over time
+        // used outside Hardcore lasts its 6 s inactive and is gone, rather than waiting to
+        // take hold whenever Hardcore is turned on (#1438) [hypothesis: the original
+        // counts a lasting effect's duration whether or not its conditions pass;
+        // aid-items.md §6].
+        let idle: Vec<u32> = self.effects.iter().filter(|e| e.inactive && !e.permanent).map(|e| e.id).collect();
+        for id in idle {
+            let Some(e) = self.effects.iter_mut().find(|x| x.id == id) else { continue };
+            e.elapsed += dt;
+            if e.elapsed + 1e-9 >= e.duration {
+                self.finish_effect(id, true);
+            }
+        }
         let ids: Vec<u32> = self.effects.iter().filter(|e| !e.inactive).map(|e| e.id).collect();
         // Each effect is looked up once (#1389): the ids are in list order, so the next one
         // is searched from where the last one was; its position then goes to the value
@@ -4968,6 +5006,7 @@ impl<'a> Game<'a> {
             awareness: self.awareness.actors.iter().filter(|(_, a)| a.state.in_combat() || !a.targets.is_empty() || !a.alarms.is_empty() || a.fighting.is_some()).map(|(&r, a)| (r, a.clone())).collect(),
             forced_combat: self.awareness.forced.clone(),
             form_instances: self.pp.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
+            object_groups: self.anims.asked_all().clone(),
         }
     }
 
@@ -5036,6 +5075,7 @@ impl<'a> Game<'a> {
         g.queued_ref_events = s.queued_ref_events.clone();
         g.door_open_seen = s.door_open_seen.clone();
         g.pp_restore_instances(&s.form_instances);
+        g.anims.restore_asked(s.object_groups.clone());
         g.awareness.actors = s.awareness.clone();
         g.awareness.forced = s.forced_combat.clone();
         g.coop =crate::coop::checked(s.coop.clone()).map_err(|e| e.to_string())?;

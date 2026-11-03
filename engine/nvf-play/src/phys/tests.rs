@@ -77,7 +77,7 @@ fn fake_cell(job: &Job) -> Prepared {
         let dynamic_local = dynamic.then_some(Iso::IDENTITY);
         // As `prepare::reference` does: built from its destruction model when it has one.
         let model = job.model_of(pl.form_id).map(str::to_string);
-        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local, door: None, drawn: None, model }) });
+        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local, door: None, animated: None, drawn: None, model }) });
     }
     // A pond: a reference with only a water volume (placed water, physics.md §6.6).
     let pond = Placement {
@@ -95,7 +95,7 @@ fn fake_cell(job: &Job) -> Prepared {
         imposter: false,
     };
     let water = vec![CollisionObject { layer: fnv_phys::layers::WATER, ..object(100.0, Motion::Static) }];
-    refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None, door: None, drawn: None, model: None }) });
+    refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None, door: None, animated: None, drawn: None, model: None }) });
     let terrain = Some(PreparedTerrain::new(&params, (gx, gy), &heights));
     Prepared { cell: job.cell, heights: Some(heights), terrain, refs, times: LoadTimes::default() }
 }
@@ -325,7 +325,7 @@ fn bridge_cell(job: &Job) -> Prepared {
         };
         let obj = CollisionObject { shape: Shape::Box { half_extents: [600.0, 600.0, 20.0] }.into(), ..object(0.0, Motion::Static) };
         let prepared = PreparedRef::new(&PhysParams::default(), &RefPose::from_placement(&pl), &[obj]);
-        p.refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, drawn: None, model: None }) });
+        p.refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, animated: None, drawn: None, model: None }) });
     }
     p
 }
@@ -501,4 +501,108 @@ fn small_actors_get_characters_of_their_size() {
     let dog = super::npc_params(Some(80.0));
     assert!((dog.radius - 13.6).abs() < 1e-3 && dog.height == 80.0, "{dog:?}");
     assert_eq!(super::npc_params(Some(3.0)).height, super::NPC_MIN_HEIGHT);
+}
+
+/// The gate of [`gate_cell`]: placed at x 1000 in square (0, 0); its "Forward" (played
+/// once, 1 s) slides its keyframed panel 300 units along x.
+const GATE: u32 = 0x0200_0002;
+const GATE_X: f32 = 1000.0;
+
+fn gate_anim() -> fnv_collide::anim::ModelAnim {
+    use fnv_collide::nif::Similarity;
+    use fnv_nif::anim::{Channel, Key, KeyKind, Keys, TransformTrack};
+    let mut anim = fnv_collide::anim::ModelAnim::from_nodes([(0, Some("Root".to_string()), None, Similarity::IDENTITY), (1, Some("Panel".to_string()), Some(0), Similarity::IDENTITY)]);
+    let key = |time: f32, x: f32| Key { time, value: [x, 0.0, 0.0], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] };
+    let slide = TransformTrack {
+        translation: Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, 0.0), key(1.0, 300.0)] }),
+        rotation: Channel::Static(None),
+        euler: None,
+        scale: Channel::Static(None),
+    };
+    anim.add_sequence("Forward", 1.0, 2, vec![(1, slide)]);
+    anim
+}
+
+/// [`fake_cell`], with square (0, 0) also holding [`GATE`]: an activator (as
+/// `prepare::reference` finds it) whose one collision object, a keyframed 100-unit wall,
+/// hangs from the node its sequence moves.
+fn gate_cell(job: &Job) -> Prepared {
+    let mut p = fake_cell(job);
+    if job.cell == PhysCell::Exterior(0, 0) {
+        let pl = Placement {
+            form_id: GATE,
+            sig: *b"REFR",
+            flags: 0,
+            base: None,
+            position: [GATE_X, 3000.0, 100.0],
+            rotation: [0.0; 3],
+            scale: 1.0,
+            enable_parent: None,
+            open_by_default: false,
+            teleport: false,
+            emittance: None,
+            imposter: false,
+        };
+        let obj = CollisionObject { node: Some("Panel".into()), node_block: 1, shape: Shape::Box { half_extents: [50.0, 10.0, 100.0] }.into(), ..object(0.0, Motion::Keyframed) };
+        let prepared = PreparedRef::new(&PhysParams::default(), &RefPose::from_placement(&pl), &[obj]);
+        let animated = Some(prepare::AnimatedBodies { anim: Arc::new(gate_anim()), objects: vec![(0, 1, Iso::IDENTITY)] });
+        p.refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, animated, drawn: None, model: None }) });
+    }
+    p
+}
+
+/// Issue #1396: an animated object's collision follows the group its drawn model plays
+/// (the TTW Megaton gate stayed solid where it stood closed), stays at the end of a group
+/// played once, and is posed there from the last group asked when nothing draws it (after
+/// a load).
+#[test]
+fn an_animated_objects_collision_follows_its_group() {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(gate_cell), loader: loader::Loader::manual(), ..Default::default() };
+    p.load(&ctx, PhysCell::Exterior(0, 0));
+    assert!(p.animated.contains_key(&GATE));
+    let x = |p: &PhysState| p.world.ref_bodies(GATE)[0].translation[0];
+    // A ray along y, 20 units off the ground, through where the panel stands closed.
+    let blocks = |p: &mut PhysState, at: f32| p.world.queries().ray([at, 2900.0, 120.0], [0.0, 1.0, 0.0], 200.0, &Filter { no_terrain: true, ..Default::default() }).is_some_and(|h| matches!(h.owner, Owner::Ref { form_id: GATE, .. }));
+    assert!((x(&p) - GATE_X).abs() < 1e-3);
+    assert!(blocks(&mut p, GATE_X));
+    // Nothing plays: the bind pose stays.
+    p.pose_animated(None, |_| None);
+    assert!((x(&p) - GATE_X).abs() < 1e-3);
+    // Halfway through, as drawn.
+    let mut poses = ObjectPoses::default();
+    poses.playing.insert(GATE, ("Forward".into(), 0.5));
+    p.pose_animated(Some(&poses), |_| None);
+    assert!((x(&p) - (GATE_X + 150.0)).abs() < 1e-2, "{}", x(&p));
+    // At its end: out of the way, solid where it is drawn open.
+    poses.playing.insert(GATE, ("Forward".into(), 1.0));
+    p.pose_animated(Some(&poses), |_| None);
+    assert!((x(&p) - (GATE_X + 300.0)).abs() < 1e-2, "{}", x(&p));
+    assert!(!blocks(&mut p, GATE_X), "the way through is open");
+    assert!(blocks(&mut p, GATE_X + 300.0), "the open panel is solid");
+    // Reloaded (the cell and its collision built again, nothing drawn yet): posed at the
+    // end of the last group asked, which the saved game keeps.
+    p.unload(PhysCell::Exterior(0, 0));
+    assert!(!p.animated.contains_key(&GATE));
+    p.load(&ctx, PhysCell::Exterior(0, 0));
+    assert!((x(&p) - GATE_X).abs() < 1e-3, "built closed");
+    p.pose_animated(None, |r| (r == GATE).then_some("forward"));
+    assert!((x(&p) - (GATE_X + 300.0)).abs() < 1e-2, "{}", x(&p));
+    assert!(!blocks(&mut p, GATE_X));
+    // A sequence the model does not have, or none: the bind pose again.
+    p.pose_animated(None, |_| Some("Backward"));
+    assert!((x(&p) - GATE_X).abs() < 1e-3);
+}
+
+#[test]
+fn the_pose_of_a_group_not_drawn_is_its_end_or_its_loops_start() {
+    let mut anim = gate_anim();
+    anim.add_sequence("Idle", 2.0, 0, Vec::new());
+    assert_eq!(super::group_pose(&anim, None, Some("Forward")), (Some(0), 1.0));
+    assert_eq!(super::group_pose(&anim, None, Some("idle")), (Some(1), 0.0));
+    assert_eq!(super::group_pose(&anim, Some(&("Idle".into(), 0.7)), Some("Forward")), (Some(1), 0.7));
+    // What is drawn but not in the collision's model: the last group asked.
+    assert_eq!(super::group_pose(&anim, Some(&("Other".into(), 0.7)), Some("Forward")), (Some(0), 1.0));
+    assert_eq!(super::group_pose(&anim, None, None), (None, 0.0));
 }

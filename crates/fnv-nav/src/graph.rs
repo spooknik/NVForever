@@ -199,6 +199,9 @@ pub struct NavGraph {
     pub door_tris: HashMap<u32, Vec<u32>>,
     /// Obstacles that can come and go, by reference ([`crate::obstacles`]).
     pub obstacles: HashMap<u32, crate::obstacles::ObstacleCut>,
+    /// A number no other obstacle state of this process had, taken anew at every change
+    /// of `obstacles` ([`NavGraph::obstacles_stamp`]); 0 while none was learnt.
+    pub(crate) obstacles_stamp: u64,
     /// How many enabled obstacles cut each triangle; empty when none does. A cut
     /// triangle takes no part in paths ([`NavGraph::usable`]).
     pub cut: Vec<u16>,

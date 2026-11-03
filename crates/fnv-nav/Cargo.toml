@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+fnv-util = { path = "../fnv-util" }
 fnv-esm = { path = "../fnv-esm" }
 fnv-world = { path = "../fnv-world" }
 serde.workspace = true

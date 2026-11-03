@@ -137,6 +137,11 @@ name = "stress runner tests"
 paths = ["tools/stress/", "tools/smoke/smoke/runner.py", "tools/smoke/smoke/stacks.py", "tools/smoke/smoke/expect.py"]
 cmd = ["python", "-m", "unittest", "discover", "-s", "tools/stress/tests"]
 
+[[check]]
+name = "profile campaign tests"
+paths = ["tools/profile/", "tools/stress/"]
+cmd = ["python", "-m", "unittest", "discover", "-s", "tools/profile/tests"]
+
 # ------------------------------------------------------------------ renderer, sky, image space
 
 [[scenario]]
@@ -353,6 +358,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "sun-casters-over-slice"
+source = "docs/design/graphics-enhanced.md §5.7 (#1378, 2026-11-03): each of the sun's cascades draws only the casters over the outline of the view's slice it covers, not its whole square: at Novac 07:00 about 78, 750 and 1,750 casters (154, 1,420 and 3,200 before)"
+areas = ["renderer", "graphics", "sky"]
+paths = ["engine/nvforever/src/sky.rs"]
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Novac", "--play", "--no-voice", "--no-messages", "--hour", "7", "--sun-shadows", "--log-frame-times", "8"]
+run_seconds = 25
+expect = [
+  { re = 'shadow casters per cascade: .*Sun for view: \[\d+, (?P<n>\d+), \d+\]', range = [200, 1100], label = "the middle cascade draws the casters over its slice (about 750; 1,420 with the whole square)" },
+  { re = 'shadow casters per cascade: .*Sun for view: \[\d+, \d+, (?P<n>\d+)\]', range = [500, 2400], label = "the last cascade draws the casters over its slice (about 1,750; 3,200 with the whole square)" },
+]
+
+[[scenario]]
 name = "nif-bindless-batches"
 source = "docs/design/graphics-enhanced.md §5.6 (2026-10-23): NIF materials are bindless, so shapes of different materials share batch sets: at the Goodsprings start with sun shadows about 49 shadow sets (830 before) and 9 opaque sets (169 before) in the profile aid's batch line"
 note = "fails on a device Bevy runs without bindless (the counts go back to hundreds); this machine's RTX 4070 has it"
@@ -450,6 +468,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "profile-slow-frames"
+source = "docs/design/frame-rate-audit.md §5 (#1421, 2026-11-03): NVF_PLAY_TEST_PROFILE_HITCH_MS sets the threshold of the profile's hitch lines, so the profiling campaign sees what its 20 ms frames hold; at 1 ms every frame is listed"
+areas = ["profiling"]
+paths = ["engine/nvforever/src/profile.rs", "tools/profile/campaign.py"]
+env = { NVF_PLAY_TEST_PROFILE = "2", NVF_PLAY_TEST_PROFILE_HITCH_MS = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'profile hitch: \d', min = 100, label = "with a 1 ms threshold every frame is listed (100 ms by default: none in a quiet room)" },
+]
+
+[[scenario]]
 name = "render-diagnostics-profile"
 source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: NVF_PLAY_TEST_PROFILE enables the profile reporting path and its render diagnostics registration"
 note = "Source-reviewed on pinned Bevy 0.20.1; profile-build startup/output verification passes; broader profiling validation remains"
@@ -537,9 +567,9 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--graphics", "enhanced"]
 run_seconds = 24
 order = [[
-  "graphics: ambient occlusion, finer, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
-  { re = 'graphics: finer, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: finer, longer shadows, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  "graphics: ambient occlusion, longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
+  { re = 'graphics: longer shadows, bloom, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: longer shadows, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
   { re = 'graphics: light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
   { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
   { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections$' },
@@ -580,7 +610,7 @@ order = [[
   "settings: volume-master 80%",
   "settings: volume-footstep 25%",
   "settings: volume-voice 50%",
-  { re = 'volumes master 80%, music 100%, footstep 25%, voice 50%, effects 100%, radio 100%$' },
+  { re = 'volumes master 80%, music 60%, footstep 25%, voice 50%, effects 100%, radio 50%$' },
 ]]
 expect = [
   { re = 'audio categories: music (?P<n>[\d.]+) s', range = [3, 1e9], label = "the music plays into the Music category" },
@@ -1778,7 +1808,7 @@ expect = [
   { re = 'radio: RadioNewVegasTA says RNVNews', label = "and reads the news" },
   { re = 'the Pip-Boy tuned to RadioNewVegasTA playing sound\\voice\\', min = 5, label = "the Pip-Boy plays his lines" },
   { re = 'the Pip-Boy tuned to RadioNewVegasTA playing sound\\songs', count = 0, label = "and no song before it is turned off (the programme runs on after): the Radio mixer holds only his speech" },
-  { re = 'volumes master 100%, music 100%, footstep 100%, voice 0%, effects 100%, radio 100%$' },
+  { re = 'volumes master 100%, music 60%, footstep 50%, voice 0%, effects 100%, radio 50%$' },
   { re = 'audio categories after volumes: .*radio (?P<n>[\d.]+) s audible', range = [25, 1e9], label = "his speech is heard with Voice at 0 (#1077)" },
 ]
 
@@ -1794,7 +1824,7 @@ expect = [
   "settings: volume-radio 0%",
   "pipboy radio: on, tuned to RadioNewVegasTA",
   { re = 'radio: RadioNewVegasTA says RNVNews', label = "Mr. New Vegas reads the news" },
-  { re = 'volumes master 100%, music 100%, footstep 100%, voice 100%, effects 100%, radio 0%$' },
+  { re = 'volumes master 100%, music 60%, footstep 50%, voice 60%, effects 100%, radio 0%$' },
   { re = 'audio categories: .*radio (?P<n>[\d.]+) s heard', range = [25, 1e9], label = "his speech plays on the Radio mixer" },
   { re = 'audio categories after volumes: .*radio (?P<n>[\d.]+) s audible', range = [0, 0], label = "and is silent with Radio at 0" },
 ]
@@ -1857,6 +1887,8 @@ run_seconds = 90
 expect = [
   "VCG01 stage 55 set",
   "idle summary: 10 idles asked for (1 by scripts, 4 by packages' begin, end and change, 1 from collections, 4 by dialogue lines); 5 started on actors, 5 on the player; 0 for actors not drawn, 0 without a usable clip",
+  # #1429: an idle's clip is read on a worker thread, not in the frame the idle starts.
+  { re = 'idle clip summary: .*; 0 read in the frame they started after', label = "no idle clip read on the main thread after waiting for the worker (#1429)" },
   { re = 'furniture:.*by clip SpecialIdle_DocSitLeftExit', label = "Doc Mitchell getting off his chair by clip SpecialIdle_DocSitLeftExit" },
   # playtest list 5 item 40: that clip's Bip01 starts 52 units beside the seat; it is played from the seat.
   { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
@@ -6022,6 +6054,35 @@ expect = [
 ]
 
 [[scenario]]
+name = "animated-collision-write"
+source = "#1396 (activators.md §5.3): an activator whose collision sits under a node its sequence moves follows the group a script plays; the first half: PlayGroup Forward on a Goodsprings banana yucca (0x00106B2E, the harvest plant: ACTI with its one collision body under the node Forward moves [observed: survey run 2026-11-03]), then a save; animated-collision-load reads it"
+note = "No vanilla activator gate fits: the gate-like activators whose collision follows a sequence open by Open/Close, which are not PlayGroup groups (ProtectronPod01: 'Open is not an animation group'), and the Vault 3 gear door 0x000EC6EB has no Forward [observed 2026-11-03]; the plant is an activator a script plays a group on, the same path"
+areas = ["object-anims", "physics", "save"]
+paths = ["engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/prepare.rs", "engine/nvforever/src/object_anims.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-collide/src/anim.rs"]
+env = { NVFOREVER_HOME = "animated-collision-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "10:play_group:0x00106B2E:Forward:1", NVF_PLAY_TEST_CONSOLE = "20:save smoke-animated;21:close" }
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'phys: 0x00106B2E: 1 animated collision bodies follow \w+ at', label = "the plant's collision body follows its drawn model" },
+  "playgroup: 0x00106B2E plays Forward (once",
+  { re = 'save: wrote .*smoke-animated\.nvfsave \(manual', label = "the save is written" },
+]
+
+[[scenario]]
+name = "animated-collision-load"
+source = "#1396: the second half: --load the save animated-collision-write made; the plant is drawn again at Forward's end (the last group asked of it, saved with the game) and its collision body follows Forward"
+areas = ["object-anims", "physics", "save"]
+paths = ["engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/prepare.rs", "engine/nvforever/src/object_anims.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-collide/src/anim.rs"]
+env = { NVFOREVER_HOME = "animated-collision-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--load", "smoke-animated", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'load: restored .*smoke-animated\.nvfsave', label = "the save loads" },
+  "playgroup: 0x00106B2E drawn again, shows Forward at its end",
+  { re = 'phys: 0x00106B2E: 1 animated collision bodies follow Forward at 0\.0\d s', label = "its collision body follows Forward, held at the end" },
+]
+
+[[scenario]]
 name = "script-saves-reticle"
 source = "docs/outstanding.md §1 rows 2 and 12 (2026-10-18): SystemSave writes the one system slot, ForceSave a new save by hand, PlaceAtReticle places where the crosshair hits (docs/spec-notes/script-saves-and-reticle.md)"
 areas = ["save", "script"]
@@ -7729,7 +7790,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 65 of 65 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 66 of 66 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -7772,7 +7833,34 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 65 of 65 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+  { re = 'controls: 66 of 66 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+]
+
+[[scenario]]
+name = "look-sensitivity-write"
+source = "owner 2026-11-03 (#1451): Invert Y and a sensitivity slider (as the sound sliders) on the settings page's Controls tab, Mouse Sensitivity with keyboard and mouse and Stick Sensitivity with a controller, kept apart; NVForever's own range (25%-300% of the game's); the first half of a round trip (look-sensitivity-read starts in the same home), run them together"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs"]
+env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "10.5:controls,11:device:Keyboard and Mouse,11.5:invert:0,12:sensitivity:100,12.5:invert:1,13:sensitivity:150,14:device:Controller,14.5:sensitivity:100,15:sensitivity:50" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 19
+expect = [
+  { text = "controls: invert Y on", label = "the Invert Y row turns the vertical look over" },
+  { text = "controls: mouse sensitivity 150% (0.0030)", label = "the Mouse Sensitivity slider sets the mouse's as a percentage of the game's" },
+  { text = "controls: stick sensitivity 50%", label = "with a controller the slider is Stick Sensitivity, set apart from the mouse's" },
+]
+order = [["controls: invert Y off", "controls: invert Y on", "controls: mouse sensitivity 150%", "controls: input device Controller", "controls: stick sensitivity 50%"]]
+
+[[scenario]]
+name = "look-sensitivity-read"
+source = "owner 2026-11-03 (#1451): the second half of the look round trip: a new start in look-sensitivity-write's home takes Invert Y, the mouse's and the stick's sensitivity it stored from NVForever.ini"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs"]
+env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 12
+expect = [
+  { re = 'controls: 66 of 66 line\(s\) read from .*NVForever\.ini, 4 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5; input device Controller', label = "the stored Invert Y and the two sensitivities are taken at the start" },
 ]
 
 [[scenario]]
@@ -10434,6 +10522,21 @@ order = [[
   { re = 'weather roll: NVWastelandClear \(100 of 100 among 1 eligible\) from climate NVDefaultClimate at the start', label = "the start rolls the climate's list" },
   { re = 'test aid: go to \(-20000, 85000, 9000\)', label = "the player is put in NVUrbanRegion" },
   { re = 'weather roll: (NVUrbanClear \(85|NVWastelandClear \(15) of 100 among 2 eligible\) from region NVUrbanRegion \(priority 100\) on entering the region', label = "the region's list replaces the climate's, weighted 85/15" },
+]]
+
+[[scenario]]
+name = "sky-dome-new-worldspace"
+source = "issue #1395 (owner's TTW screenshot 2026-11-02: the Capital Wasteland sky a flat green-to-red gradient): on a worldspace change the sky is spawned again with the dome's vertex colours still the atmosphere's raw weights, and the dome was coloured again only when the sky colours moved, which they had already done against the old dome; at midday they then hold still and the raw weights stay on screen"
+note = "Goodsprings at noon, then cow into FreesideWorld (another worldspace, its own climate) at 12 s: the new dome must be coloured from the weather like the first. The clock runs, but at noon the colours hold still between the day keys"
+areas = ["sky"]
+paths = ["engine/nvforever/src/sky.rs", "engine/nvforever/src/worldspace.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:cow FreesideWorld -2 -3;12.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+order = [[
+  { re = 'sky: a new dome coloured from ', label = "the start's dome is coloured" },
+  { re = 'render: worldspace 000DA726 -> [0-9A-F]{8} \(FreesideWorld\)', label = "into Freeside's worldspace" },
+  { re = 'sky: a new dome coloured from ', label = "the new worldspace's dome is coloured too, not left with its raw weights" },
 ]]
 
 [[scenario]]
@@ -18134,4 +18237,18 @@ expect = [
   { re = 'collision of 0xFF000000 built again where a script moved it', label = "the move rebuilds its collision at the new place" },
   { re = 'console: GetPos on 0xFF000000 >> -683\d\d\.', count = 1, label = "before the move it lies at the player" },
   { re = 'console: GetPos on 0xFF000000 >> -6815\d\.', min = 2, label = "the move sticks: x reads the new value half a second and two seconds later (it read the old x again before #1311)" },
+]
+
+[[scenario]]
+name = "hair-solid-chet"
+source = "issue #1454: Chet's hair (hairwavy.nif) drew as a see-through shell around his head against the general store's window; its outer layer is mapped onto the soft edge of the texture's alpha. Hair models are now cut-outs (nif_spawn::hair_model_cut_out, nif.md §6 'Hair models are cut-outs'); beards stay blended. The owner's frame of the original (2026-11-03) shows a solid cap and a thin beard"
+note = "Chet is moved in front of the south window (0x001057F3), the player stands facing him and talks to him; frame hair_solid_chet.png in target/smoke shows his head against the window: the hair must be solid to its edge, with no see-through band, and his beard thin"
+areas = ["actors", "render"]
+paths = ["engine/nvf-assets/src/nif_spawn.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "5:moveto:GSChetRef:0x001057F3:0:75:-38", NVF_PLAY_TEST_GOTO = "6:-575:560:545", NVF_PLAY_TEST_TALK = "8:GSChetRef=leave", NVF_PLAY_TEST_TALK_DELAY = "6", NVF_PLAY_TEST_SHOTS = "11:hair_solid_chet.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-sound", "--no-music", "--hour", "8.5"]
+run_seconds = 16
+expect = [
+  { re = 'ai \[\d\d:\d\d\] GSChetRef: put at \(-575, 434, 544\) in GSGeneralStore by a script \(MoveTo\)', label = "Chet stands in front of the window" },
+  { re = 'dialogue: conversation with GSChetRef started', label = "the dialogue camera frames his head" },
 ]

@@ -170,20 +170,10 @@ pub fn reputation_line(name: &str, title: Option<&str>) -> String {
     }
 }
 
-/// Text from the plugins' Windows-1252 bytes, up to the first NUL.
-pub fn cp1252(bytes: &[u8]) -> String {
-    const HIGH: [char; 32] = [
-        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž', '\u{8f}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ',
-        '\u{9d}', 'ž', 'Ÿ',
-    ];
-    bytes
-        .iter()
-        .take_while(|&&b| b != 0)
-        .map(|&b| match b {
-            0x80..=0x9F => HIGH[(b - 0x80) as usize],
-            _ => b as char,
-        })
-        .collect()
+/// Text from the plugins' bytes, up to the first NUL, in this run's code page
+/// (`fnv_util::text`, Windows-1252 unless set otherwise).
+pub fn game_text(bytes: &[u8]) -> String {
+    fnv_util::text::decode_z(bytes)
 }
 
 #[cfg(test)]
@@ -264,7 +254,7 @@ mod tests {
 
     #[test]
     fn plugin_text_reads_windows_1252() {
-        assert_eq!(cp1252(b"Ain\x92t That\0junk"), "Ain’t That");
-        assert_eq!(cp1252(b"caf\xe9"), "café");
+        assert_eq!(game_text(b"Ain\x92t That\0junk"), "Ain’t That");
+        assert_eq!(game_text(b"caf\xe9"), "café");
     }
 }

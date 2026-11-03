@@ -587,7 +587,7 @@ impl<'a> Gen<'a> {
                 b.push(c as u8);
             }
             ParamEnc::String => {
-                let s = fnv_util::cp1252::encode(&t.text).unwrap_or_else(|| t.text.bytes().collect());
+                let s = fnv_util::text::encode(&t.text).unwrap_or_else(|| t.text.bytes().collect());
                 put16(b, s.len() as u16);
                 b.extend_from_slice(&s);
             }

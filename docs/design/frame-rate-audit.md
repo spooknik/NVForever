@@ -310,3 +310,80 @@ does not remove most of the render thread's work here; what does scale is not se
   small corpses dropped on one spot: 61 touching pairs at the peak and 0.38 ms a physics
   step before, 0 and 0.09 ms after (fnv-phys test, release). A heap of big corpses still
   costs the solver for its 3 s before rest.
+
+## 5. The profiling campaign (#1421, 2026-11-03)
+
+The owner asked for every kind of scene to be profiled: standing in places, combat, crowds,
+interiors and the player moving. `tools/profile/campaign.py` runs the scenarios of
+`tools/profile/campaign.toml` in one go:
+
+- 12 exterior towns at several hours
+- 7 crowd scenes
+- 18 interiors
+- stress battles of 10, 25 and 50 a side, plus 25 a side with creatures
+- 7 player-movement runs: running, walking, third person, turning in place, walking interiors
+- 3 streaming runs: a 2-minute run east across the desert and two free-camera fly-throughs
+
+Each scenario is one launch of a `profile` build through tools/stress's launcher. That gives:
+
+- the game locks
+- a fresh home without stored settings
+- god mode, unseen, script boxes closed
+- crash and hang handling
+- memory samples
+
+Each launch runs at 1920 × 1080 with `--graphics enhanced` and vsync off, and logs the span
+profile and stress samples every 5 s. The first 15 s after the first frame-time line are
+left out. `NVF_PLAY_TEST_PROFILE_HITCH_MS` (new, `profile.rs`) lists every frame over the
+scenario's `slow_ms` (16 ms; battles 40 or 100) with its spans. The report subtracts each
+span's mean over every frame from its mean in the slow frames, which names what makes the
+slow frames slow.
+
+```
+cd engine; cargo build --release -p nvforever --features nvforever/profile --target-dir F:/nvf-target/profile
+python tools/profile/campaign.py run --exe F:/nvf-target/profile/release/nvforever.exe --data <Data> [--only …] [--group …]
+python tools/profile/campaign.py report --reparse target/profile-campaign/<run>   # after a parser change
+```
+
+[observed 2026-11-03, main abd2c02f, i9-14900K, RTX 4070 (Vulkan), two full runs of 51
+scenarios, about 1 h 45 min each, nothing else running (others' CPU share 1–2 %)]
+
+| Scenario kind | Frame (ms) | Slowest frame (ms) |
+|---|---|---|
+| Interiors | 4.2-7.4 | 11-20 |
+| Crowds (Strip, Freeside, McCarran) | 6.1-7.2 | 21-23 |
+| Exterior towns | 6.9-11.5 (Novac 11.5 at 07:00, Jacobstown 10.2, Primm 9.3) | 19-28 |
+| Player moving | 5.3-9.2 | 13-28 |
+| Battles: 10 / 25 / 50 a side, 25 with creatures | 9.6 / 13.7 / 46.0 / 16.8 | 28 / 55 / 398 / 221 |
+| Fly-throughs (free camera) | 4.4-5.2 | 6.5-8.8 |
+
+What it found, each with its issue:
+
+- **The 20 ms stutters in every exterior are first plays of sounds** (#1428). In 26 of 29
+  exterior and crowd scenarios, `sfx::play` is what grows most in the slow frames, by
+  9–15 ms: a new sound's file is read and decoded whole on the main thread.
+- **The 50-a-side battle collapses** (#1426). It runs at 46 ms frames with 98 frames over
+  100 ms. `detection::measure` is +81 ms in those frames: every pair within reach gets a
+  ray, about 6,900 pairs for 118 actors. The fixed-step physics of the character
+  controller adds +31 ms (#1383, #1404 are spooknik's).
+- **Submitting the frame costs 1.5–3.5 ms of the render thread** almost everywhere
+  (`submit_pending_command_buffers`, `queue_submit`; 23 command buffers a frame) (#1427).
+- **Single 8–16 ms stalls** (#1429):
+  - a light probe upload on the Lucky 38 floor
+  - an instance-buffer write when walking into REPCONN's rooms
+  - an idle choice in Gomorrah
+  - a late placement in the Sierra Madre lobby
+- **Bugs found on the way:**
+  - The Sierra Madre lobby stops on GPU validation errors: the hologram effect shader on
+    skinned meshes (#1424).
+  - One start-up crash in 53 launches: an access violation after 1 s with an empty log,
+    not repeated (#1425).
+- **Not new:** the towns that wait on the GPU (Novac, Jacobstown, Primm: 3–4 ms in
+  `prepare_windows`) are mostly sun shadows. PRs #1418 (casters over the slice) and #1419
+  (2048² maps) cut Novac by 2–2.4 ms each. Measure them again after those merge. Actor
+  placement at start-up, 100–450 ms, is #1322.
+- **Memory:** private bytes peak at 2.2–2.7 GB in interiors and fly-throughs and
+  3.9–4.2 GB in towns and battles. No growth was seen within a run.
+
+The scenario logs are game-derived and stay private, under `target/profile-campaign/` (not
+committed).

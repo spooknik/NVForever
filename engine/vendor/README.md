@@ -20,6 +20,13 @@ is done and was destroyed at once. An Nsight Systems capture of the owner's game
 about 285 blocks of 128 MiB made and freed a second, each zeroed and paged in by Windows,
 and the render thread stalling 100-800 ms in the driver meanwhile.
 
+Second change (#1429), in `src/vulkan/mod.rs` `MemoryBlock::new` and `src/lib.rs`: a
+`vkAllocateMemory` that takes 1 ms or more logs `gpu memory: vkAllocateMemory of <n> MiB
+(memory type <t>, host-visible|device-local, a general block|dedicated) took <ms> ms`, so a
+single slow frame charged to a render system that only writes a buffer
+(`upload_light_probes`, `write_binned_instance_buffers`) can be matched to a new memory
+block. `std` is linked for the clock (wgpu-hal turns the crate's `std` feature off).
+
 ## Dropped
 
 - bevy_pbr 0.19.1 (#903, PR #905): the bindless index-table comparator in

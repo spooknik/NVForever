@@ -535,12 +535,57 @@ class PerfTest(unittest.TestCase):
 
     def test_machine_load(self):
         self.assertIsNone(lib.machine_load([]))
-        load = lib.machine_load([(1, 0.1, 0.5), (2, 0.1, 0.1), (3, 0.2, 0.0), (4, 0.2, 0.3)])
-        self.assertEqual(load, {"game_mean": 0.15, "others_mean": 0.225, "busy_fraction": 0.5, "busy_over": 0.25})
-        self.assertIn("The machine was busy", "\n".join(lib.load_report(load)))
-        quiet = lib.load_report(lib.machine_load([(1, 0.2, 0.01)]))
+        # Equal intervals: the plain means.
+        load = lib.machine_load([(2, 0.1, 0.5, 2.0), (4, 0.1, 0.1, 2.0), (6, 0.2, 0.0, 2.0), (8, 0.2, 0.3, 2.0)])
+        self.assertEqual(load, {"game_mean": 0.15, "others_mean": 0.225, "busy_fraction": 0.5, "busy_over": 0.25,
+                                "scope": "launch intervals", "seconds": 8.0, "intervals": 4, "skipped": 0})
+        report = "\n".join(lib.load_report(load))
+        self.assertIn("The machine was busy", report)
+        self.assertIn("over 8 s of the launch's sampled intervals, 4 kept; not a trace's steady-state window", report)
+        quiet = lib.load_report(lib.machine_load([(2, 0.2, 0.01, 2.0)]))
         self.assertEqual(len(quiet), 2)
         self.assertEqual(lib.load_report(None), [])
+        self.assertIsNone(lib.machine_load([(0.0, 0.5, 0.5, 0.0)]))
+
+    def test_machine_load_weights_intervals_by_their_time(self):
+        # One second at 10 % and three at 50 %: the mean is 40 %, not 30 %; others over the
+        # bar for 3 of the 4 seconds.
+        load = lib.machine_load([(1, 0.1, 0.1, 1.0), (4, 0.5, 0.5, 3.0)], skipped=2)
+        self.assertEqual((load["game_mean"], load["others_mean"], load["busy_fraction"]), (0.4, 0.4, 0.75))
+        self.assertEqual((load["seconds"], load["intervals"], load["skipped"]), (4.0, 2, 2))
+        self.assertIn("2 kept, 2 left out", "\n".join(lib.load_report(load)))
+
+    def test_cpu_load_first_read_is_a_baseline(self):
+        """Issue #1412: the counters' first read gave 195 % and 390 % of the machine over the
+        moment since their creation. The first read starts the first interval only."""
+        cpu = lib.CpuLoad(cores=4, started=100.0)
+        # Baseline right at the launch: no sample, whatever the counters say.
+        self.assertIsNone(cpu.read(100.0, 1000.0, 50.0))
+        # 2 s on 4 cores = 8 core-seconds: the game 2 (25 %), the machine 4 (others 25 %).
+        self.assertEqual(cpu.read(102.0, 1004.0, 52.0), (2.0, 0.25, 0.25, 2.0))
+        # 0.5 s: the game 0.5 (25 %), the machine 1.8 (others 65 %).
+        self.assertEqual(cpu.read(102.5, 1005.8, 52.5), (2.5, 0.25, 0.65, 0.5))
+        self.assertEqual(len(cpu.samples), 2)
+        self.assertEqual(cpu.skipped, 0)
+        # No sample at the launch's second 0; the summary weights the two by their time.
+        self.assertTrue(all(s[0] > 0 for s in cpu.samples))
+        load = lib.machine_load(cpu.samples, cpu.skipped)
+        self.assertEqual((load["game_mean"], load["others_mean"], load["busy_fraction"], load["seconds"]),
+                         (0.25, 0.33, 0.2, 2.5))
+
+    def test_cpu_load_failed_reads_and_impossible_intervals(self):
+        cpu = lib.CpuLoad(cores=2, started=0.0)
+        self.assertIsNone(cpu.read(0.0, None, 1.0))  # a failed read is no baseline
+        self.assertIsNone(cpu.read(0.1, 10.0, 1.0))  # the first good one is
+        self.assertIsNone(cpu.read(1.0, None, 1.5))  # a failed read keeps the baseline
+        # 1.9 s since the baseline, 3.8 core-seconds: the game 0.95 (25 %), the machine 1.9.
+        self.assertEqual(cpu.read(2.0, 11.9, 1.95), (2.0, 0.25, 0.25, 1.9))
+        # No time passed: left out, the baseline kept.
+        self.assertIsNone(cpu.read(2.0, 12.0, 2.0))
+        # More processor time than the cores have (an impossible share): left out, not zero.
+        self.assertIsNone(cpu.read(3.0, 20.0, 2.0))
+        self.assertEqual(cpu.skipped, 2)
+        self.assertEqual(len(cpu.samples), 1)
 
     def test_budget(self):
         frames = {"mean_ms": 17.0, "low1_ms": 53.0, "worst_ms": 988.0}

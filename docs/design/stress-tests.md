@@ -240,7 +240,12 @@ behind the screen [observed 2026-10-27].
 
 **The machine's load.** Every tour, battle and soak report says how much of the machine's
 cores the game and other programs used, sampled with the memory; when others held over a
-quarter for a tenth of the run it says the hitches may be theirs. The first full soak
+quarter for a tenth of the run it says the hitches may be theirs. The first counter read is
+a baseline only, each later read ends an interval, and the means weight each interval by
+its elapsed time (`lib.CpuLoad`, `<name>.cpu.csv`); an interval with no elapsed time or a
+share over 105 % is left out and counted. The figures cover the launch's sampled intervals,
+not a steady-state window a trace was cut from [issue #1412: the old first sample covered
+the moment after the counters were made and came out at 195 % and 390 % of the machine]. The first full soak
 (2026-10-27) ran beside about thirty compilers of other sessions: systems that take well
 under a millisecond (`fog::prepare_fog`, `view::prepare_view_uniforms`) took 75–150 ms in
 its slow frames [observed]. Run the soak, and every budget check, on an idle machine.

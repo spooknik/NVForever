@@ -57,13 +57,14 @@ pub struct Doc {
     pub warnings: Vec<String>,
 }
 
-/// Bytes of a menu file as text: UTF-8 when it is, else each byte one Latin-1
-/// character [hypothesis: the files are 8-bit Windows text; every vanilla one is ASCII].
+/// Bytes of a menu file as text: UTF-8 when it is, else 8-bit text in this run's code
+/// page (`fnv_util::text`, #1439) [hypothesis: the files are 8-bit Windows text in the
+/// install's code page; every vanilla English one is ASCII].
 pub fn decode(bytes: &[u8]) -> String {
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     match std::str::from_utf8(bytes) {
         Ok(s) => s.to_string(),
-        Err(_) => bytes.iter().map(|&b| b as char).collect(),
+        Err(_) => fnv_util::text::decode(bytes),
     }
 }
 

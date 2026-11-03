@@ -200,7 +200,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             })
         }
         // [documented: GetMerchantContainer] the actor's merchant container reference.
-        "getmerchantcontainer" => XVal::Ref(subject.and_then(|a| g.world.placed.get(a)).and_then(|p| p.merchant_container).map_or(0, |c| c.0)),
+        "getmerchantcontainer" => XVal::Ref(subject.and_then(|a| g.merchant_container(a)).map_or(0, |c| c.0)),
         // [documented: IsFleeing] fleeing from combat [hypothesis: the combat AI's flight;
         // flee packages not counted].
         "isfleeing" => yes(subject.is_some_and(|a| g.awareness.tactics.flights.contains_key(&a))),

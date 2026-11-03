@@ -4,7 +4,7 @@
 //! both with a Bethesda stream header. Every byte read is kept so that `write` can
 //! reproduce the original header exactly.
 
-use fnv_util::{cp1252, Cursor, OutOfBounds};
+use fnv_util::{Cursor, OutOfBounds};
 
 /// Packed file version, e.g. `0x14020007` for 20.2.0.7.
 pub type Version = u32;
@@ -51,7 +51,7 @@ pub struct RawString(pub Vec<u8>);
 
 impl RawString {
     pub fn text(&self) -> String {
-        cp1252::decode(&self.0)
+        fnv_util::text::decode(&self.0)
     }
 }
 
@@ -76,7 +76,7 @@ impl BsHeader {
 
 /// Text of a raw export string (skips the length byte, stops at the NUL).
 pub fn export_text(raw: &[u8]) -> String {
-    cp1252::decode_z(raw.get(1..).unwrap_or_default())
+    fnv_util::text::decode_z(raw.get(1..).unwrap_or_default())
 }
 
 #[derive(Debug, Clone, PartialEq)]

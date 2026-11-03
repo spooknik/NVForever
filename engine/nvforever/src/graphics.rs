@@ -4,8 +4,9 @@
 //!
 //! - **Ambient occlusion**: a screen-space pass on the depth prepass darkens creases,
 //!   corners and the ground under things (`ssao.rs`; works with the multisampled view).
-//! - **Finer, longer shadows**: the sun's shadow maps at 4096 instead of 2048 texels and
-//!   reaching half as far again (`SkyState::shadow_reach`), the first cascade as near.
+//! - **Longer shadows** (`fine-shadows`): the sun's shadows reach half as far again
+//!   (`SkyState::shadow_reach`), the first cascade as near. Their maps stay 2048² like
+//!   everyone's: 4096² cost about 2 ms at Novac (#1367; the owner chose the frame rate).
 //! - **Bloom**: bright light (the sun and its glare, lamps, lit windows) glows into what
 //!   lies around it, thresholded on the tonemapped picture (`post.rs`).
 //!
@@ -186,7 +187,7 @@ impl Graphics {
     pub fn describe(&self) -> String {
         let names = [
             (self.ambient_occlusion, "ambient occlusion"),
-            (self.fine_shadows, "finer, longer shadows"),
+            (self.fine_shadows, "longer shadows"),
             (self.bloom, "bloom"),
             (self.glow, "light glow"),
             (self.glow && !self.eye_adaptation, "no eye adaptation"),
@@ -211,10 +212,12 @@ impl Graphics {
     }
 }
 
-/// Shadow map side with finer shadows, and without (Bevy's default).
-const FINE_SHADOW_MAP: usize = 4096;
+/// Shadow map side of every directional light, with longer shadows or without (Bevy's
+/// default). 4096² with longer shadows cost about 2.1 ms a frame at Novac and 0.65 ms at
+/// Goodsprings for edges hardly sharper near the player [observed 2026-11-03, RTX 4070,
+/// 1920x1080; owner's choice 2026-11-03, #1367: the smaller maps, for the frame rate].
 const SHADOW_MAP: usize = 2048;
-/// With finer shadows they reach this many times `--shadow-distance`.
+/// With longer shadows they reach this many times `--shadow-distance`.
 pub const FINE_SHADOW_REACH: f32 = 1.5;
 
 /// The multisampling of the main view: `--msaa`, then the settings page's anti-aliasing
@@ -337,7 +340,7 @@ impl Plugin for GraphicsPlugin {
         nvf_assets::texture::set_anisotropy(if g.anisotropic { 16 } else { 8 });
         app.insert_resource(g)
             .insert_resource(MsaaSetting(self.1))
-            .insert_resource(DirectionalLightShadowMap { size: if g.fine_shadows { FINE_SHADOW_MAP } else { SHADOW_MAP } })
+            .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
             .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
             .add_systems(Update, (apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain());
@@ -464,7 +467,7 @@ fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32,
 }
 
 /// The moon's shadows (the sun's light below the horizon) reach this far, in one cascade
-/// of [`SHADOW_MAP`] size whatever the finer shadows say [engineering choice, owner
+/// [engineering choice, owner
 /// 2026-11-02 (#1369): by night the light is dimmer and softer and the dark hides the far
 /// shadows; by day's settings they cost about 2.5 ms on the Strip at 22:00, RTX 4070].
 pub const MOON_SHADOW_DISTANCE: f32 = 3_000.0;
@@ -503,20 +506,18 @@ impl SunShadows {
 struct SunShadowKey {
     phase: SunShadows,
     shadows: bool,
-    fine: bool,
     distance: f32,
     reach: f32,
     cascades: usize,
 }
 
 /// The phase for the sun's height now (the day's indoors) and the shadow settings.
-fn sun_shadow_key(g: Res<Graphics>, sky: Res<SkyState>) -> SunShadowKey {
+fn sun_shadow_key(sky: Res<SkyState>) -> SunShadowKey {
     let indoors = sky.interior.is_some();
     let (height, fade) = if indoors { (1.0, 1.0) } else { crate::sky::sun_height_and_fade(&sky) };
     SunShadowKey {
         phase: SunShadows::at(indoors, height, fade),
         shadows: sky.shadows,
-        fine: g.fine_shadows,
         distance: sky.shadow_distance,
         reach: sky.shadow_reach,
         cascades: sky.shadow_cascades,
@@ -533,7 +534,6 @@ fn sun_shadow_key(g: Res<Graphics>, sky: Res<SkyState>) -> SunShadowKey {
 fn sun_shadow_quality(
     In(key): In<SunShadowKey>,
     mut commands: Commands,
-    mut shadow_map: ResMut<DirectionalLightShadowMap>,
     new_suns: Query<(), Added<Sun>>,
     mut suns: Query<(Entity, &mut DirectionalLight, Option<&mut CascadeShadowConfig>), With<Sun>>,
     mut done: Local<Option<SunShadowKey>>,
@@ -550,10 +550,6 @@ fn sun_shadow_quality(
         info!("sun shadows: {phase:?}");
     }
     *done = Some(key);
-    let size = if key.fine && phase == SunShadows::Day { FINE_SHADOW_MAP } else { SHADOW_MAP };
-    if shadow_map.size != size {
-        shadow_map.size = size;
-    }
     let on = key.shadows && phase != SunShadows::Faded;
     for (e, mut light, cascades) in &mut suns {
         if light.shadow_maps_enabled != on {
@@ -703,8 +699,7 @@ mod tests {
 
     fn shadow_app(phase: SunShadows) -> App {
         let mut app = App::new();
-        app.insert_resource(DirectionalLightShadowMap { size: FINE_SHADOW_MAP })
-            .insert_resource(TestKey(SunShadowKey { phase, shadows: true, fine: true, distance: 8000.0, reach: 1.0, cascades: 3 }))
+        app.insert_resource(TestKey(SunShadowKey { phase, shadows: true, distance: 8000.0, reach: 1.0, cascades: 3 }))
             .add_systems(Update, (|k: Res<TestKey>| k.0).pipe(sun_shadow_quality));
         app
     }
@@ -726,7 +721,6 @@ mod tests {
         let first = spawn_day_sun(&mut app);
         app.update();
         assert_eq!(bounds(&app, first), moon);
-        assert_eq!(app.world().resource::<DirectionalLightShadowMap>().size, SHADOW_MAP);
 
         // A worldspace switch: the old sun goes, a new one with the day's cascades comes in
         // the same frame, under the same phase.
@@ -765,20 +759,17 @@ mod tests {
         app.world_mut().resource_mut::<TestKey>().0.phase = SunShadows::at(true, -0.5, 1.0);
         app.update();
         assert_eq!(bounds(&app, sun), crate::sky::shadow_cascades(8000.0, 1.0, 3).bounds);
-        assert_eq!(app.world().resource::<DirectionalLightShadowMap>().size, FINE_SHADOW_MAP);
         // And back out into the night.
         app.world_mut().resource_mut::<TestKey>().0.phase = SunShadows::at(false, -0.5, 1.0);
         app.update();
         assert_eq!(bounds(&app, sun).len(), 1);
-        assert_eq!(app.world().resource::<DirectionalLightShadowMap>().size, SHADOW_MAP);
     }
 
     #[test]
     fn every_key_is_a_switch_and_enhanced_leaves_taa_off() {
         let all = Graphics::only(&KEYS.map(String::from)).expect("keys");
-        // "finer, longer shadows" has a comma of its own; of the three anti-aliasings and
-        // the two shadow filters the last named is on.
-        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 2 - 3);
+        // Of the three anti-aliasings and the two shadow filters the last named is on.
+        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1 - 3);
         assert_eq!((all.screen_aa, all.shadow_filter), (ScreenAa::Taa, ShadowFilteringMethod::Temporal));
         let enhanced = Graphics::preset(Preset::Enhanced);
         assert!(enhanced.screen_aa == ScreenAa::Off && enhanced.light_shafts && enhanced.water_reflections);

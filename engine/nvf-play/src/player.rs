@@ -755,7 +755,8 @@ fn mouse_look(
     let (delta, s) = if bindings.device == crate::bindings::InputDevice::Controller {
         let v = crate::pad::stick(&pads, false);
         let curve = |x: f32| x * x.abs();
-        let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale);
+        // The Controls tab's Stick Sensitivity scales the stick's look speeds.
+        let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale) * bindings.stick_sensitivity;
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
     } else {
         (motion.delta, bindings.mouse_sensitivity)

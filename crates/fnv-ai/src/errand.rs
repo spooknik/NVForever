@@ -575,7 +575,7 @@ impl Ai {
         if !Self::alive(game, vendor) {
             return None;
         }
-        let stock = game.world.placed.get(vendor).and_then(|p| p.merchant_container)?;
+        let stock = game.merchant_container(vendor)?;
         let caps = game.world.item_count(buyer, CAPS).unwrap_or(0).max(0) as u32;
         let items: Vec<FormId> = carried(game, stock).into_iter().filter(|i| *i != CAPS && game.sells(vendor, *i) && item_wanted(game, stock, *i, wanted)).collect();
         let mut best: Option<(u32, FormId)> = None;

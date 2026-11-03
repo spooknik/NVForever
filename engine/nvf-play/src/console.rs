@@ -470,7 +470,7 @@ fn typing(
             Key::PageUp => c.scroll = (c.scroll + SHOWN / 2).min(c.lines.len().saturating_sub(SHOWN)),
             Key::PageDown => c.scroll = c.scroll.saturating_sub(SHOWN / 2),
             _ => {
-                if let Some(t) = k.text.as_deref().filter(|t| !t.is_empty() && t.chars().all(|ch| !ch.is_control() && ch != '`')) {
+                if let Some(t) = k.text.as_deref().filter(|t| !t.is_empty() && t.chars().all(|ch| !ch.is_control() && ch != '`') && fnv_util::text::encodable(t)) {
                     c.input.push_str(t);
                 }
             }
@@ -829,7 +829,7 @@ fn select(c: &mut Console, id: u32, d: &PlayData, sim: &SimState, rt: Option<&mu
 fn record_names(d: &PlayData, id: FormId) -> (String, Option<String>, Option<String>) {
     let Some((_, rec)) = d.lo.winner(id.0) else { return (String::new(), None, None) };
     let sig = String::from_utf8_lossy(&rec.header.sig).to_string();
-    let text = |b: &[u8]| String::from_utf8_lossy(b.split(|&c| c == 0).next().unwrap_or_default()).to_string();
+    let text = fnv_util::text::decode_z;
     let subs = rec.subrecords().unwrap_or_default();
     let get = |want: &[u8; 4]| subs.iter().find(|s| &s.sig == want).map(|s| text(&s.data)).filter(|t| !t.is_empty());
     (sig, get(b"EDID"), get(b"FULL"))
@@ -1233,7 +1233,7 @@ impl SearchIndex {
 }
 
 fn read_records(lo: &fnv_esm::LoadOrder<'_>, refs: &fnv_sim::RefTable) -> Vec<Found> {
-    let text = |b: &[u8]| String::from_utf8_lossy(b.split(|&c| c == 0).next().unwrap_or_default()).trim().to_string();
+    let text = |b: &[u8]| fnv_util::text::decode_z(b).trim().to_string();
     let mut out: Vec<Found> = lo
         .index
         .keys()

@@ -165,7 +165,7 @@ def run(ctx: lib.Ctx, per_side: int, third: int, seconds: float, every: float, c
         "peak": {k: peak(k) for k in ("working set", "private bytes", "projectiles", "ragdolls", "actors", "nan actors", "entities")},
         "combat": analyse(r.lines),
         "profile_hitches": lib.profile_hitches(r.lines),
-        "machine": lib.machine_load(r.cpu),
+        "machine": lib.machine_load(r.cpu, r.cpu_skipped),
         "crash_groups": lib.group_crashes([("battle", c) for c in r.crashes]),
         "stray_commands": lib.stray_commands(r.lines),
         "log": str(r.log),

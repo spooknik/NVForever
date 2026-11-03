@@ -76,7 +76,10 @@ size field is then 0 [documented][observed: one such subrecord per large master,
 WRLD offset table]. 
 
 **Text** is Windows-1252, usually NUL-terminated (`zstring`) [observed]. FNV has no
-localized-string tables [observed: no TES4 localized flag, strings are inline].
+localized-string tables [observed: no TES4 localized flag, strings are inline]. A
+localized install is assumed to carry its text inline the same way in its own code page
+(Windows-1251 for Russian) [hypothesis: not looked at]; NVForever reads text in the
+code page set for the run (`fonts.md` §2.1).
 
 ## TES4 header record
 

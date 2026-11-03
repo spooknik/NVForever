@@ -138,7 +138,7 @@ or the engine's own words `console::ENGINE_WORDS`: `coc`, `cow`, `coe`, `help`,
 `AdvLevel`, `bat`) and that no
 master script calls are counted by `console::unhandled_unused`. The test
 `registered_names_are_catalogue_console_commands` pins the two numbers: **33** in the
-wiki's "Console Functions" category, **123** others. Implementing one lowers a number
+wiki's "Console Functions" category, **110** others. Implementing one lowers a number
 there; a catalogue update that adds one raises it. Sorted (2026-10-31):
 
 **Console functions players use**: all built (`cow`, `coe`, `saq`, `rdf`, `rat`, `zap`,
@@ -159,9 +159,10 @@ menu words `delete`, `depth`, `front`, `iso`, `reload`, `stack`,
 `use`, `usz`, `visible` [hypothesis for each: from its catalogue summary; revisit one
 when a player or a capture campaign asks for it].
 
-**The other 123** are script functions no master calls, many listed by the wiki as
-unused in New Vegas (`ModPCSkill`, `SetPCYoung`, …) or as conditions with an opcode
-(`GetGold`, `SameFaction`, `IsSnowing`, …). They matter for mods: a mod that calls one
+**The other 110** are script functions no master calls, many listed by the wiki as
+unused in New Vegas (`ModPCSkill`, `MatchFaceGeometry`, …) or as conditions with an opcode
+(`GetGold`, `SameFaction`, `IsSnowing`, …). Thirteen that Fallout 3's scripts call came
+off the list on 2026-11-03 (`functions::fo3`, Tale of Two Wastelands). They matter for mods: a mod that calls one
 brings it into the stub audit's count, which then has to handle or stub it. The full
 list is what the test prints (`cargo test -p fnv-game --lib registered_names --
 --nocapture`).

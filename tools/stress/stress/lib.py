@@ -124,23 +124,82 @@ def process_busy_secs(pid: int) -> float | None:
 
 # Other programs over this share of the machine's cores: the game's timings are not its own.
 BUSY = 0.25
+# An interval whose game or whole-machine share is over this is impossible and left out
+# ([`CpuLoad`]): the system and process counters are read one after the other, not as
+# one snapshot, so a share can overshoot 1 by a little [engineering choice: 5 %].
+SHARE_LIMIT = 1.05
 
 
-def machine_load(cpu: list[tuple[float, float, float]]) -> dict | None:
-    """From the samples (seconds, game's share, others' share of all cores): the mean
-    shares and the fraction of the run other programs held over [`BUSY`]."""
-    if not cpu:
+class CpuLoad:
+    """The machine's load between counter reads: the game's share of all cores and the
+    other programs' share, each interval's processor time over its elapsed time and the
+    core count (issue #1412).
+
+    The first successful read is only a baseline: it starts the first interval and gives
+    no share (a share over the moment between the counters' creation and their first read
+    came out at 195 % and 390 % of the machine [observed, #1412]). A read that fails keeps
+    the last baseline, so the next interval is longer, not lost. An interval with no
+    elapsed time or an impossible share is left out and counted in `skipped`, not turned
+    into a zero load. Each kept sample is (seconds since the launch at its end, game's
+    share, others' share, its elapsed seconds), so the summary can weight it by its time."""
+
+    def __init__(self, cores: int, started: float):
+        self.cores = max(cores, 1)
+        self.started = started
+        self.base: tuple[float, float, float] | None = None
+        self.samples: list[tuple[float, float, float, float]] = []
+        self.skipped = 0
+
+    def read(self, now: float, system: float | None, process: float | None) -> tuple[float, float, float, float] | None:
+        """One read of (monotonic seconds, system busy seconds, the game's busy seconds);
+        the interval's sample when it ends a valid one."""
+        if system is None or process is None:
+            return None
+        if self.base is None:
+            self.base = (now, system, process)
+            return None
+        t0, s0, p0 = self.base
+        elapsed = now - t0
+        if elapsed <= 0:
+            # No time has passed: keep the baseline, the next read ends a longer interval.
+            self.skipped += 1
+            return None
+        self.base = (now, system, process)
+        wall = elapsed * self.cores
+        game = max(process - p0, 0.0) / wall
+        total = max(system - s0, 0.0) / wall
+        if game > SHARE_LIMIT or total > SHARE_LIMIT:
+            self.skipped += 1
+            return None
+        sample = (round(now - self.started, 1), round(game, 3), round(max(total - game, 0.0), 3), round(elapsed, 3))
+        self.samples.append(sample)
+        return sample
+
+
+def machine_load(cpu: list[tuple[float, float, float, float]], skipped: int = 0) -> dict | None:
+    """From the [`CpuLoad`] samples (seconds, game's share, others' share, elapsed
+    seconds): the mean shares and the fraction of the time other programs held over
+    [`BUSY`], each interval weighted by its elapsed time. The figures cover the launch's
+    kept intervals (`seconds` of them, `intervals` in number; `skipped` left out), not a
+    steady-state window a trace may have been cut from."""
+    weights = [max(c[3], 0.0) for c in cpu]
+    total = sum(weights)
+    if not cpu or total <= 0:
         return None
-    n = len(cpu)
-    return {"game_mean": round(sum(c[1] for c in cpu) / n, 3), "others_mean": round(sum(c[2] for c in cpu) / n, 3),
-            "busy_fraction": round(sum(1 for c in cpu if c[2] > BUSY) / n, 3), "busy_over": BUSY}
+    mean = lambda k: round(sum(w * c[k] for w, c in zip(weights, cpu)) / total, 3)  # noqa: E731
+    busy = sum(w for w, c in zip(weights, cpu) if c[2] > BUSY)
+    return {"game_mean": mean(1), "others_mean": mean(2), "busy_fraction": round(busy / total, 3), "busy_over": BUSY,
+            "scope": "launch intervals", "seconds": round(total, 1), "intervals": len(cpu), "skipped": skipped}
 
 
 def load_report(load: dict | None) -> list[str]:
     if not load:
         return []
-    out = ["", f"Machine: the game used {load['game_mean']:.0%} of the cores on average, other programs "
-           f"{load['others_mean']:.0%}; others held over {load['busy_over']:.0%} for {load['busy_fraction']:.0%} of the run."]
+    over = (f" (over {load['seconds']:g} s of the launch's sampled intervals, {load['intervals']} kept"
+            + (f", {load['skipped']} left out" if load.get("skipped") else "") + "; not a trace's steady-state window)"
+            if "seconds" in load else "")
+    out = ["", f"Machine{over}: the game used {load['game_mean']:.0%} of the cores on average, other programs "
+           f"{load['others_mean']:.0%}; others held over {load['busy_over']:.0%} for {load['busy_fraction']:.0%} of the time."]
     if load["busy_fraction"] > 0.1:
         out.append("**The machine was busy (builds, other games): hitches here may be other programs', not the "
                    "engine's. Run it again on an idle machine before acting on them.**")
@@ -234,7 +293,9 @@ class Result:
     crashes: list[Crash]
     memory: list[tuple[float, int, int]]  # (seconds, working set, private bytes)
     stacks: Path | None = None
-    cpu: list[tuple[float, float, float]] = field(default_factory=list)  # (seconds, game's share, others' share)
+    # (seconds at its end, game's share, others' share, elapsed seconds) per kept interval (CpuLoad)
+    cpu: list[tuple[float, float, float, float]] = field(default_factory=list)
+    cpu_skipped: int = 0  # intervals left out (no elapsed time, impossible share)
 
     def tail(self, n: int = 40) -> list[str]:
         return self.lines[-n:]
@@ -264,10 +325,9 @@ def run(ctx: Ctx, launch: Launch) -> Result:
     if ctx.locks:
         ctx.locks.acquire()
     memory: list[tuple[float, int, int]] = []
-    cpu: list[tuple[float, float, float]] = []
-    cores = os.cpu_count() or 1
     status, stacks = "ok", None
     started = time.monotonic()
+    load = CpuLoad(os.cpu_count() or 1, started)
     try:
         with open(log, "w", encoding="utf-8", errors="replace") as f:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=ctx.out,
@@ -284,7 +344,6 @@ def run(ctx: Ctx, launch: Launch) -> Result:
             t = threading.Thread(target=pump, daemon=True)
             t.start()
             next_mem = 0.0
-            busy_at = (time.monotonic(), system_busy_secs(), process_busy_secs(p.pid))
             limit = launch.run_seconds * 2 + 300
             while p.poll() is None:
                 now = time.monotonic()
@@ -292,14 +351,9 @@ def run(ctx: Ctx, launch: Launch) -> Result:
                     m = process_memory(p.pid)
                     if m:
                         memory.append((round(now - started, 1), *m))
-                    # The machine's load since the last sample: the game's and the rest's.
-                    at = (now, system_busy_secs(), process_busy_secs(p.pid))
-                    if None not in at and None not in busy_at and at[0] > busy_at[0]:
-                        wall = (at[0] - busy_at[0]) * cores
-                        game = max(at[2] - busy_at[2], 0.0) / wall
-                        others = max(at[1] - busy_at[1], 0.0) / wall - game
-                        cpu.append((round(now - started, 1), round(game, 3), round(max(others, 0.0), 3)))
-                    busy_at = at
+                    # The machine's load since the last read: the game's and the rest's (the
+                    # first read is the baseline only).
+                    load.read(now, system_busy_secs(), process_busy_secs(p.pid))
                     next_mem = now - started + launch.memory_every
                 if now - last[0] > launch.hang_seconds or now - started > limit:
                     stacks = ctx.out / f"{launch.name}.stacks.txt"
@@ -327,7 +381,11 @@ def run(ctx: Ctx, launch: Launch) -> Result:
         with open(ctx.out / f"{launch.name}.memory.csv", "w", encoding="utf-8") as m:
             m.write("seconds,working_set,private_bytes\n")
             m.writelines(f"{s},{w},{pb}\n" for s, w, pb in memory)
-    r = Result(launch.name, code, round(secs, 1), status, log, lines, crashes, memory, stacks, cpu)
+    if load.samples:
+        with open(ctx.out / f"{launch.name}.cpu.csv", "w", encoding="utf-8") as c:
+            c.write("seconds,game_share,others_share,elapsed\n")
+            c.writelines(f"{s},{g},{o},{e}\n" for s, g, o, e in load.samples)
+    r = Result(launch.name, code, round(secs, 1), status, log, lines, crashes, memory, stacks, load.samples, load.skipped)
     (ctx.out / f"{launch.name}.exit.json").write_text(json.dumps(
         {"exit": code, "status": status, "seconds": r.seconds, "crashes": [c.path for c in crashes]}), encoding="utf-8")
     return r
