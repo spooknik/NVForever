@@ -52,17 +52,20 @@ pub const CONDITION_INTERVAL: f64 = 1.0;
 pub const ENGINE_ABILITIES: [&str; 1] = ["HeadCrippleEffect"];
 
 /// The wanted abilities that have no effect on `r` yet (permanent, not a worn
-/// enchantment's), in the order given, a repeated one each time it is given. One walk over
-/// the effects, crossing off what it finds, in place of a search per ability (#1389); it
-/// stops once none is left to find and does not start with none wanted, so it never
-/// visits more effects than those searches, each of which stopped at its first match
-/// [design].
+/// enchantment's), in the order given, a repeated one each time it is given. None wanted
+/// walks nothing; one wanted entry is a plain search, with no set. Two or more take one
+/// walk over the effects, crossing off what it finds, in place of a search per entry
+/// (#1389); it stops once none is left to find, so it never visits more effects than
+/// those searches, each of which stopped at its first match [design].
 fn missing_abilities<'e>(r: FormId, wanted: impl Iterator<Item = FormId> + Clone, effects: impl IntoIterator<Item = &'e crate::game::ActiveEffect>) -> Vec<FormId> {
+    let mut first_two = wanted.clone();
+    let Some(first) = first_two.next() else { return Vec::new() };
+    if first_two.next().is_none() {
+        let on = effects.into_iter().any(|e| e.target == r && e.source == first && e.permanent && e.worn.is_none());
+        return if on { Vec::new() } else { vec![first] };
+    }
     let mut unseen = std::collections::BTreeSet::new();
     unseen.extend(wanted.clone());
-    if unseen.is_empty() {
-        return Vec::new();
-    }
     for e in effects {
         if e.target == r && e.permanent && e.worn.is_none() && unseen.remove(&e.source) && unseen.is_empty() {
             return Vec::new();
@@ -362,11 +365,14 @@ mod missing_abilities_tests {
         let (new, new_visits) = crossed_off(wanted, effects);
         assert_eq!(new, old, "wanted {wanted:?} effects {effects:?}");
         assert!(new_visits <= old_visits, "visits {new_visits} above {old_visits}: wanted {wanted:?} effects {effects:?}");
+        if wanted.len() < 2 {
+            assert_eq!(new_visits, old_visits, "the plain search: wanted {wanted:?} effects {effects:?}");
+        }
     }
 
     /// Every wanted list of up to three (repeats, every order) against every list of up to
     /// two effects of every kind: the same abilities in the same order as the searches,
-    /// with no more effects visited.
+    /// with no more effects visited, and the same number with fewer than two wanted.
     #[test]
     fn matches_the_searches_on_every_short_list() {
         let mut kinds = Vec::new();
@@ -374,7 +380,9 @@ mod missing_abilities_tests {
             for source in &SPELLS[..3] {
                 for permanent in [true, false] {
                     for worn in [None, Some(FormId(0x890))] {
-                        kinds.push(fx(target, *source, permanent, worn));
+                        for inactive in [false, true] {
+                            kinds.push(ActiveEffect { inactive, ..fx(target, *source, permanent, worn) });
+                        }
                     }
                 }
             }
@@ -413,7 +421,21 @@ mod missing_abilities_tests {
         };
         for _ in 0..5000 {
             let wanted: Vec<FormId> = (0..next(9)).map(|_| SPELLS[next(4)]).collect();
-            let effects: Vec<ActiveEffect> = (0..next(17)).map(|_| fx([R, R, OTHER][next(3)], SPELLS[next(4)], next(4) > 0, (next(4) == 0).then_some(FormId(0x890)))).collect();
+            let effects: Vec<ActiveEffect> = (0..next(17))
+                .map(|_| ActiveEffect {
+                    id: next(1000) as u32,
+                    effect: FormId(0x850 + next(3) as u32),
+                    index: next(3),
+                    magnitude: next(100) as u32,
+                    duration: next(60) as f64,
+                    elapsed: next(60) as f64,
+                    caster: (next(2) == 0).then_some(OTHER),
+                    script: (next(2) == 0).then_some(FormId(0x8B0)),
+                    usage: next(5) as f64,
+                    inactive: next(2) == 0,
+                    ..fx([R, R, OTHER][next(3)], SPELLS[next(4)], next(4) > 0, (next(4) == 0).then_some(FormId(0x890)))
+                })
+                .collect();
             assert_same(&wanted, &effects);
         }
     }
@@ -441,14 +463,40 @@ mod missing_abilities_tests {
         assert_eq!(crossed_off(&wanted, &effects), (Vec::new(), 100));
     }
 
-    /// One ability on early in the list and none wanted: as cheap as the search, no walk
-    /// over the rest.
+    /// One entry wanted: the same effects visited as the search, wherever its effect stands
+    /// and when it has none. None wanted: none visited.
     #[test]
     fn stops_early_and_does_not_start_with_nothing_wanted() {
         let [a, ..] = SPELLS;
         let mut effects = vec![ability(a)];
         effects.extend((0..50).map(|_| fx(OTHER, a, true, None)));
         assert_eq!(crossed_off(&[a], &effects), (Vec::new(), 1));
+        assert_eq!(searched(&[a], &effects), (Vec::new(), 1));
         assert_eq!(crossed_off(&[], &effects), (Vec::new(), 0));
+        effects.rotate_left(1);
+        assert_eq!(crossed_off(&[a], &effects), (Vec::new(), 51));
+        assert_eq!(searched(&[a], &effects), (Vec::new(), 51));
+        effects.pop();
+        assert_eq!(crossed_off(&[a], &effects), (vec![a], 50));
+        assert_eq!(searched(&[a], &effects), (vec![a], 50));
+    }
+
+    /// An entry named twice is two entries: the set's walk, with both kept while missing.
+    #[test]
+    fn a_repeated_entry_takes_the_walk() {
+        let [a, ..] = SPELLS;
+        let others: Vec<ActiveEffect> = (0..50).map(|_| fx(OTHER, a, true, None)).collect();
+        assert_eq!(crossed_off(&[a, a], &others), (vec![a, a], 50));
+        assert_eq!(searched(&[a, a], &others), (vec![a, a], 100));
+    }
+
+    /// An effect whose conditions fail is listed, so its ability is on, with one wanted
+    /// entry and with two.
+    #[test]
+    fn an_inactive_effect_counts_as_on() {
+        let [a, b, ..] = SPELLS;
+        let inactive = ActiveEffect { inactive: true, ..ability(a) };
+        assert_eq!(missing_abilities(R, [a].into_iter(), std::slice::from_ref(&inactive)), Vec::<FormId>::new());
+        assert_eq!(missing_abilities(R, [b, a].into_iter(), std::slice::from_ref(&inactive)), vec![b]);
     }
 }

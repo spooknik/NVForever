@@ -28,6 +28,12 @@ const RAD_IMMUNITY: u32 = 0x871;
 const AURA: u32 = 0x872;
 const GHOUL_RAD: u32 = 0x873;
 const REDUCE_PER: u32 = 0x854;
+const FX_DROPS_LATER: u32 = 0x855;
+const FX_READDS_LATER: u32 = 0x856;
+const S_DROPS_LATER: u32 = 0x8B0;
+const S_READDS_LATER: u32 = 0x8B1;
+const DROPS_LATER: u32 = 0x878;
+const READDS_LATER: u32 = 0x879;
 const HEAD_CRIPPLED: u32 = 0x874;
 const ENCH_HAT: u32 = 0x880;
 const ENCH_GLASSES: u32 = 0x881;
@@ -74,6 +80,24 @@ fn f32b(v: f32) -> Vec<u8> {
 fn mgef(fid: u32, edid: &str, flags: u32, av: i32) -> Vec<u8> {
     let data = [u32s(&[flags]), f32b(0.0), u32s(&[0]), vec![0xFF; 8], vec![0; 4], vec![0; 4], f32b(1.0), vec![0; 24], vec![0; 8], u32s(&[0]), av.to_le_bytes().to_vec()].concat();
     record(b"MGEF", 0, fid, &[sub(b"EDID", z(edid)), sub(b"DATA", data)])
+}
+
+/// A Script effect (MGEF DATA as [`mgef`]: archetype 1, the script as its associated item).
+fn script_mgef(fid: u32, edid: &str, script: u32) -> Vec<u8> {
+    let data = [u32s(&[0]), f32b(0.0), u32s(&[script]), vec![0xFF; 8], vec![0; 4], vec![0; 4], f32b(1.0), vec![0; 24], vec![0; 8], u32s(&[1]), (-1i32).to_le_bytes().to_vec()].concat();
+    record(b"MGEF", 0, fid, &[sub(b"EDID", z(edid)), sub(b"DATA", data)])
+}
+
+/// An effect script (SCHR type 0x100) with the body as its ScriptEffectStart block; its one
+/// reference is the spell the body's calls name.
+fn start_script(fid: u32, edid: &str, body: Vec<u8>, spell: u32) -> Vec<u8> {
+    let blocks = [(fnv_game::game::event::SCRIPT_EFFECT_START, None, body)];
+    record(b"SCPT", 0, fid, &[vec![sub(b"EDID", z(edid))], unit(0x100, &script(&blocks), &[], &[spell])].concat())
+}
+
+/// A call with one form parameter: the script's reference 1.
+fn call_on_spell(op: u16) -> Vec<u8> {
+    st(op, &[le16(1), vec![b'r'], le16(1)].concat())
 }
 
 /// EFID + EFIT (magnitude, area, duration, type Self, actor value), with conditions.
@@ -159,7 +183,21 @@ fn placed(fid: u32, base: u32) -> Vec<u8> {
 
 fn plugin_bytes() -> Vec<u8> {
     // MGEF flag 2 Recover, 4 Detrimental.
-    let mgefs = [mgef(MOD_DT, "IncDT", 2, 76), mgef(MOD_RAD, "IncRad", 2, 20), mgef(MOD_PER, "IncPer", 2, 6), mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10), mgef(REDUCE_PER, "ReducePerception", 2 | 4, 6)].concat();
+    let mgefs = [
+        mgef(MOD_DT, "IncDT", 2, 76),
+        mgef(MOD_RAD, "IncRad", 2, 20),
+        mgef(MOD_PER, "IncPer", 2, 6),
+        mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10),
+        mgef(REDUCE_PER, "ReducePerception", 2 | 4, 6),
+        script_mgef(FX_DROPS_LATER, "DropsLater", S_DROPS_LATER),
+        script_mgef(FX_READDS_LATER, "ReaddsLater", S_READDS_LATER),
+    ]
+    .concat();
+    let scripts = [
+        start_script(S_DROPS_LATER, "DropsLaterScript", call_on_spell(REMOVE_SPELL), RAD_IMMUNITY),
+        start_script(S_READDS_LATER, "ReaddsLaterScript", [call_on_spell(REMOVE_SPELL), call_on_spell(ADD_SPELL)].concat(), DT_ABILITY),
+    ]
+    .concat();
     let spels = [
         spel(DT_ABILITY, "RobotDT", 4, vec![effect(MOD_DT, 15, 76, vec![])]),
         spel(RAD_IMMUNITY, "RadImmunity", 4, vec![effect(MOD_RAD, 100, 20, vec![])]),
@@ -171,6 +209,9 @@ fn plugin_bytes() -> Vec<u8> {
         // As the masters' PlayerConcussed: an Actor Effect lasting ten years, its Reduced
         // Perception only while the head is crippled.
         spel(CONCUSSED, "PlayerConcussed", 0, vec![effect_for(REDUCE_PER, 4, 315_360_000, 6, vec![head_crippled()])]),
+        // Abilities whose Start scripts change the actor's list and effects mid-sync.
+        spel(DROPS_LATER, "DropsLater", 4, vec![effect(FX_DROPS_LATER, 0, -1, vec![])]),
+        spel(READDS_LATER, "ReaddsLater", 4, vec![effect(FX_READDS_LATER, 0, -1, vec![])]),
     ]
     .concat();
     // A perk of two ranks, an ability each holding the whole bonus (as Action Boy's).
@@ -211,6 +252,7 @@ fn plugin_bytes() -> Vec<u8> {
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
+        top(b"SCPT", &scripts),
         top(b"MGEF", &mgefs),
         top(b"RACE", &races),
         top(b"NPC_", &npcs),
@@ -723,4 +765,62 @@ fn only_the_actors_own_ability_effect_counts() {
     g.sync_abilities(P);
     let own = g.effects.iter().filter(|e| e.target == P && e.permanent && e.worn.is_none() && e.source == FormId(DT_ABILITY)).count();
     assert_eq!(own, 1);
+}
+
+/// An effect whose conditions fail stays listed and counts as its ability being on: it is
+/// kept, same id, still inactive, and no second one starts, with one ability in the list
+/// and with two.
+#[test]
+fn an_inactive_ability_effect_is_kept_with_its_id() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_spells(&mut g, P, &[HEAD_CRIPPLED]);
+    g.sync_actor_effects(P);
+    let of_head = |g: &Game| g.effects.iter().find(|e| e.target == P && e.source == FormId(HEAD_CRIPPLED)).map(|e| (e.id, e.inactive));
+    let (id, inactive) = of_head(&g).unwrap();
+    assert!(inactive, "the head is whole");
+    g.sync_actor_effects(P);
+    assert_eq!(effect_sources(&g, P), vec![HEAD_CRIPPLED]);
+    assert_eq!(of_head(&g), Some((id, true)));
+    set_spells(&mut g, P, &[DT_ABILITY, HEAD_CRIPPLED]);
+    g.sync_actor_effects(P);
+    assert_eq!(effect_sources(&g, P), vec![HEAD_CRIPPLED, DT_ABILITY]);
+    assert_eq!(of_head(&g), Some((id, true)));
+    let before: Vec<u32> = g.effects.iter().map(|e| e.id).collect();
+    g.sync_actor_effects(P);
+    assert_eq!(g.effects.iter().map(|e| e.id).collect::<Vec<_>>(), before);
+    assert_eq!(of_head(&g), Some((id, true)));
+}
+
+/// What is missing is read before any ability starts. A Start script that takes a later
+/// ability out of the list does not stop it starting in this sync, and it stays on after;
+/// the sync keeps to the list it read, not the list as the script left it.
+#[test]
+fn a_start_script_removing_a_later_ability_does_not_stop_it() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_spells(&mut g, P, &[DROPS_LATER, RAD_IMMUNITY]);
+    g.sync_actor_effects(P);
+    assert_eq!(g.extra[&P].spells, vec![FormId(DROPS_LATER)]);
+    assert_eq!(effect_sources(&g, P), vec![DROPS_LATER, RAD_IMMUNITY]);
+    let before: Vec<u32> = g.effects.iter().map(|e| e.id).collect();
+    g.sync_actor_effects(P);
+    assert_eq!(g.effects.iter().map(|e| e.id).collect::<Vec<_>>(), before);
+}
+
+/// The same boundary the other way: a Start script that puts a later ability's effect on
+/// does not stop the sync starting the one it read as missing, so there are two; the next
+/// sync starts no more.
+#[test]
+fn a_start_script_starting_a_later_ability_leaves_it_missing_for_this_sync() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_spells(&mut g, P, &[READDS_LATER, DT_ABILITY]);
+    g.sync_actor_effects(P);
+    assert_eq!(g.extra[&P].spells, vec![FormId(READDS_LATER), FormId(DT_ABILITY)]);
+    assert_eq!(effect_sources(&g, P), vec![READDS_LATER, DT_ABILITY, DT_ABILITY]);
+    let before: Vec<u32> = g.effects.iter().map(|e| e.id).collect();
+    assert!(before.windows(2).all(|w| w[0] != w[1]), "each its own id: {before:?}");
+    g.sync_actor_effects(P);
+    assert_eq!(g.effects.iter().map(|e| e.id).collect::<Vec<_>>(), before);
 }
