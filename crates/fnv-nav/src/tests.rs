@@ -3,7 +3,8 @@
 use crate::graph::{EdgeKind, NavGraph, Space, NONE};
 use crate::path::{PathError, PathParams, Place};
 use crate::record::{link_kind, tri_flags, DoorLink, EdgeLink, NavMeshRecord, Triangle};
-use crate::{WalkEvent, Walker};
+use crate::follow::{PathRecovery, HEIGHT_TOLERANCE, RECOVERY_RESET_DISTANCE, RECOVERY_RESET_SECONDS, RECOVERY_TRIES};
+use crate::{Follower, Steer, WalkEvent, Walker};
 use std::collections::HashSet;
 
 const W: Space = Space::World(0x3C);
@@ -1056,5 +1057,441 @@ fn obstacles_and_doors_with_broken_placement_do_not_hang() {
     };
     for (s, p) in [(f32::INFINITY, [200.0, 200.0, 0.0]), (1.0e30, [200.0, 200.0, 0.0]), (f32::NAN, [200.0, 200.0, 0.0]), (1.0, [f32::NAN, 0.0, 0.0]), (1.0, [1.0e30, 1.0e30, 0.0])] {
         g.set_obstacles(vec![o(s, p)], |o| o.initially_enabled);
+    }
+}
+
+// ---- the feet's height against the path (#1500; docs/design/navmesh.md §4) --------------
+
+fn straight_path(points: Vec<[f32; 3]>, hops: Vec<crate::LedgeHop>) -> crate::Path {
+    crate::Path {
+        legs: vec![crate::Leg { space: W, points, corridor: vec![], door: None, door_stops: vec![], hops }],
+        length: 0.0,
+        expanded: 0,
+        start_snap: 0.0,
+        goal_snap: 0.0,
+    }
+}
+
+#[test]
+fn feet_straight_below_or_above_the_end_of_a_path_have_not_arrived() {
+    let path = straight_path(vec![[0.0, 0.0, 100.0], [100.0, 0.0, 100.0]], vec![]);
+    assert_eq!(Follower::new(path.clone()).steer([100.0, 0.0, 100.0]), Steer::Arrived);
+    assert_eq!(Follower::new(path.clone()).steer([100.0, 0.0, 0.0]), Steer::OffPath);
+    assert_eq!(Follower::new(path.clone()).steer([100.0, 0.0, 200.0]), Steer::OffPath);
+    // A swimmer's height is not judged.
+    assert_eq!(Follower::new(path).steer_any_height([100.0, 0.0, 0.0]), Steer::Arrived);
+}
+
+#[test]
+fn the_tolerance_ends_at_its_number() {
+    let path = straight_path(vec![[0.0, 0.0, 100.0], [100.0, 0.0, 100.0]], vec![]);
+    for (dz, arrived) in [(HEIGHT_TOLERANCE, true), (-HEIGHT_TOLERANCE, true), (HEIGHT_TOLERANCE + 0.5, false), (-HEIGHT_TOLERANCE - 0.5, false)] {
+        let s = Follower::new(path.clone()).steer([100.0, 0.0, 100.0 + dz]);
+        assert_eq!(s == Steer::Arrived, arrived, "{dz}: {s:?}");
+        assert_eq!(s == Steer::OffPath, !arrived, "{dz}: {s:?}");
+    }
+}
+
+/// The real way from the floor up to the deck over it, and a follower that has walked it
+/// up to its last point but one (feet at each corner).
+fn up_to_the_deck(g: &NavGraph, to: [f32; 3]) -> Follower {
+    let path = g.find_path(Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: W, pos: to }, &PathParams::default()).unwrap();
+    assert!(path.legs[0].points.len() >= 3, "{:?}", path.legs[0].points);
+    let mut f = Follower::new(path);
+    let last = f.path.legs[0].points.len() - 1;
+    while f.next < last {
+        let at = f.path.legs[0].points[f.next];
+        assert!(matches!(f.steer(at), Steer::Walk { .. }));
+    }
+    f
+}
+
+#[test]
+fn a_real_path_is_not_finished_from_the_floor_under_its_end() {
+    let g = floor_with_deck_above();
+    let to = [150.0, 350.0, 200.0];
+    let mut f = up_to_the_deck(&g, to);
+    let next = f.next;
+    // Physically on the floor, right under the end: not arrived, and nothing consumed.
+    assert_eq!(f.steer([150.0, 350.0, 0.0]), Steer::OffPath);
+    assert_eq!(f.next, next);
+    // A way that fits from there: back to the ramp, and up, not straight up.
+    let n = f.replanned(&g, Place { space: W, pos: [150.0, 350.0, 0.0] }, &PathParams::default()).unwrap();
+    assert!(n.path.legs[0].points.iter().any(|q| q[0] > 700.0), "{:?}", n.path.legs[0].points);
+    assert_eq!(n.path.legs[0].points[0], [150.0, 350.0, 0.0]);
+    // On the deck it has arrived.
+    assert_eq!(f.steer([150.0, 350.0, 200.0]), Steer::Arrived);
+}
+
+#[test]
+fn a_corner_is_not_reached_from_another_floor() {
+    let g = floor_with_deck_above();
+    let mut f = up_to_the_deck(&g, [150.0, 350.0, 200.0]);
+    // Back at a corner high up on the way (the path's first point over 150 up).
+    let pts = f.path.legs[0].points.clone();
+    let i = (1..pts.len() - 1).find(|&i| pts[i][2] > 150.0).expect("a corner up there");
+    let q = pts[i];
+    f.next = i;
+    let next = f.next;
+    // Within the corner's radius, 100 off on either side.
+    for dz in [-100.0, 100.0] {
+        assert_eq!(f.steer([q[0] + 5.0, q[1], q[2] + dz]), Steer::OffPath, "{dz}");
+        assert_eq!(f.next, next);
+    }
+    // Beyond it along its segment, seen from above, where the actor on the way counts as
+    // past it: 100 off it is not past it, and heads back to the corner.
+    let p = pts[i - 1];
+    let (dx, dy) = (q[0] - p[0], q[1] - p[1]);
+    let len = dx.hypot(dy);
+    let beyond = [q[0] + dx / len * 30.0, q[1] + dy / len * 30.0, q[2]];
+    match f.steer([beyond[0], beyond[1], beyond[2] - 100.0]) {
+        Steer::Walk { target, .. } => assert_eq!(target, q),
+        s => panic!("{s:?}"),
+    }
+    assert_eq!(f.next, next);
+    // On its height it counts as past it, as ever.
+    assert!(matches!(f.steer(beyond), Steer::Walk { target, .. } if target != q));
+    assert!(f.next > next);
+}
+
+#[test]
+fn a_door_is_not_used_from_another_floor() {
+    let g = corridor_with_door(None);
+    let from = Place { space: W, pos: [50.0, 50.0, 0.0] };
+    let to = Place { space: W, pos: [950.0, 50.0, 0.0] };
+    let p = g.find_path(from, to, &PathParams::default()).unwrap();
+    let stop = p.legs[0].door_stops[0];
+    let at = p.legs[0].points[stop.point];
+    let mut f = Follower::new(p);
+    let below = [at[0] - 10.0, at[1], at[2] - 100.0];
+    let beside = [at[0] - 10.0, at[1], at[2]];
+    // First use: the script is not asked and nothing starts from below it.
+    assert_eq!(f.door_ahead(below, 48.0), None);
+    assert_eq!(f.door_ahead(beside, 48.0), Some(0xD00));
+    assert_eq!(f.steer(below), Steer::OffPath);
+    assert!(!f.holding);
+    // Behind the corner walked to, with no hold yet: from below it holds nothing.
+    let mut past = f.clone();
+    past.next = stop.point + 1;
+    assert_eq!(past.steer(below), Steer::OffPath);
+    assert!(!past.holding);
+    // Held, it stays held wherever the opening door pushes the actor.
+    assert_eq!(f.steer(beside), Steer::OpenDoor { door: 0xD00, at });
+    assert!(f.holding);
+    assert_eq!(f.steer(below), Steer::OpenDoor { door: 0xD00, at });
+    assert_eq!(f.door_ahead(below, 48.0), Some(0xD00));
+}
+
+/// A way that ends at a load door in the far corner of a flat mesh, into another space.
+fn to_a_load_door() -> (NavGraph, crate::Path) {
+    let inside = Space::Interior(0x77);
+    let mut a = grid(1, [0.0, 0.0], 4, 4, 100.0, &[], flat);
+    let b = grid(2, [5000.0, 5000.0], 3, 3, 100.0, &[], |_, _| 50.0);
+    let ta = (0..a.triangles.len()).find(|&t| a.triangles[t].v.map(|i| a.vertices[i as usize]).iter().all(|p| p[0] >= 300.0 && p[1] >= 300.0)).unwrap();
+    a.door_links.push(DoorLink { door: 0xD1, triangle: ta as u16 });
+    a.triangles[ta].flags |= tri_flags::DOOR;
+    let meshes = [(a, W), (b, inside)];
+    let input: Vec<_> = meshes.iter().map(|(m, s)| (m, Some(0), Some(*s))).collect();
+    let mut g = NavGraph::assemble(&input);
+    g.join_doors(&input, |door| (door == 0xD1).then_some((0xD2, [5050.0, 5030.0, 50.0], 0.5, inside)));
+    g.place_doors(|d| (d == 0xD1).then_some([360.0, 700.0, 0.0]));
+    let p = g.find_path(Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: inside, pos: [5250.0, 5250.0, 50.0] }, &PathParams::default()).unwrap();
+    (g, p)
+}
+
+#[test]
+fn a_load_door_needs_the_feet_at_its_height_on_every_frame_of_facing_it() {
+    let (_, p) = to_a_load_door();
+    let end = *p.legs[0].points.last().unwrap();
+    let mut f = Follower::new(p);
+    let last = f.path.legs[0].points.len() - 1;
+    f.next = last;
+    let (near, below) = ([end[0] - 10.0, end[1], end[2]], [end[0] - 10.0, end[1], end[2] - 100.0]);
+    // From below nothing is asked and nothing used.
+    assert_eq!(f.door_ahead(below, 48.0), None);
+    assert_eq!(f.steer(below), Steer::OffPath);
+    assert_eq!(f.next, last);
+    // At the door: the end is consumed, and it stands there frame after frame facing it.
+    assert_eq!(f.door_ahead(near, 48.0), Some(0xD1));
+    assert!(matches!(f.steer(near), Steer::Door(_)));
+    assert!(matches!(f.steer(near), Steer::Door(_)));
+    assert!(f.next > last);
+    // Moved off its height while it turned: it does not go through.
+    assert_eq!(f.steer(below), Steer::OffPath);
+    assert!(matches!(f.steer(near), Steer::Door(_)));
+}
+
+const TAN_60: f32 = 1.732_050_8;
+
+#[test]
+fn the_last_steps_on_a_60_degree_slope_are_on_the_path() {
+    // A wide radius (a door's is 48), so the feet are far below the end on the slope: 83
+    // units, past the tolerance from the point itself.
+    let end = [100.0, 0.0, 100.0 * TAN_60];
+    let path = straight_path(vec![[0.0, 0.0, 0.0], end], vec![]);
+    let mut f = Follower::new(path);
+    f.goal_radius = 48.0;
+    let on_slope = [52.0, 0.0, 52.0 * TAN_60];
+    assert!(end[2] - on_slope[2] > HEIGHT_TOLERANCE);
+    assert_eq!(f.clone().steer(on_slope), Steer::Arrived);
+    // The slope is no allowance: 100 off it is off the path.
+    assert_eq!(f.clone().steer([52.0, 0.0, 52.0 * TAN_60 - 100.0]), Steer::OffPath);
+    assert_eq!(f.steer([52.0, 0.0, 52.0 * TAN_60 + 100.0]), Steer::OffPath);
+}
+
+#[test]
+fn walking_down_beyond_a_corner_is_on_the_path() {
+    // Flat, then 60 degrees down: 50 past the corner it is 87 below it.
+    let corner = [100.0, 0.0, 0.0];
+    let path = straight_path(vec![[0.0, 0.0, 0.0], corner, [300.0, 0.0, -200.0 * TAN_60]], vec![]);
+    let mut f = Follower::new(path.clone());
+    assert!(matches!(f.steer([150.0, 0.0, -50.0 * TAN_60]), Steer::Walk { target, .. } if target[0] == 300.0));
+    assert_eq!(f.next, 2);
+    // 100 below that slope it is on no segment here: it heads back to the corner.
+    let mut f = Follower::new(path);
+    assert!(matches!(f.steer([150.0, 0.0, -50.0 * TAN_60 - 100.0]), Steer::Walk { target, .. } if target == corner));
+    assert_eq!(f.next, 1);
+}
+
+#[test]
+fn slope_reversals_at_a_corner_are_on_the_path() {
+    // Up 60 degrees to a ridge and down again: past it on the far side.
+    let top = [100.0, 0.0, 100.0 * TAN_60];
+    let path = straight_path(vec![[0.0, 0.0, 0.0], top, [200.0, 0.0, 0.0]], vec![]);
+    let mut f = Follower::new(path);
+    assert!(matches!(f.steer([140.0, 0.0, 60.0 * TAN_60]), Steer::Walk { target, .. } if target[0] == 200.0));
+    // Down into a valley and up again: within the radius on the near side, and past it.
+    let bottom = [100.0, 0.0, 0.0];
+    let path = straight_path(vec![[0.0, 0.0, 100.0 * TAN_60], bottom, [200.0, 0.0, 100.0 * TAN_60]], vec![]);
+    let mut f = Follower::new(path.clone());
+    assert!(matches!(f.steer([90.0, 0.0, 10.0 * TAN_60]), Steer::Walk { target, .. } if target[0] == 200.0));
+    let mut f = Follower::new(path);
+    assert!(matches!(f.steer([140.0, 0.0, 40.0 * TAN_60]), Steer::Walk { target, .. } if target[0] == 200.0));
+}
+
+#[test]
+fn a_segment_with_no_length_seen_from_above_says_nothing_of_a_slope() {
+    // The point itself is what counts: nothing interpolated between two heights.
+    let path = straight_path(vec![[100.0, 0.0, 300.0], [100.0, 0.0, 100.0]], vec![]);
+    assert_eq!(Follower::new(path.clone()).steer([100.0, 0.0, 100.0]), Steer::Arrived);
+    assert_eq!(Follower::new(path).steer([100.0, 0.0, 200.0]), Steer::OffPath);
+}
+
+#[test]
+fn hop_endpoints_close_seen_from_above_do_not_skip_the_flight() {
+    use crate::LedgeHop;
+    // Off a ledge 100 high whose landing is 2 away seen from above.
+    let down = straight_path(vec![[0.0, 0.0, 100.0], [50.0, 0.0, 100.0], [52.0, 0.0, 0.0], [150.0, 0.0, 0.0]], vec![LedgeHop { point: 1, up: false }]);
+    let mut f = Follower::new(down.clone());
+    // At the take-off: consumed, and the landing is still to come, whatever its distance.
+    assert!(matches!(f.steer([50.0, 0.0, 100.0]), Steer::Walk { target, .. } if target[2] == 0.0));
+    assert_eq!(f.next, 2);
+    assert!(f.hop().is_some());
+    // In the air above it: not judged a fall, and it lands first.
+    assert!(f.fits([52.0, 0.0, 60.0]));
+    assert!(matches!(f.steer([52.0, 0.0, 60.0]), Steer::Walk { target, .. } if target[2] == 0.0));
+    // Landed: on.
+    assert!(matches!(f.steer([52.0, 0.0, 0.0]), Steer::Walk { target, .. } if target[0] == 150.0));
+    assert!(f.hop().is_none());
+    // Below the landing it fell past it.
+    let mut f = Follower::new(down.clone());
+    f.next = 2;
+    assert_eq!(f.steer([52.0, 0.0, -100.0]), Steer::OffPath);
+    // Under the take-off, the ledge is not taken off from: no flight on another floor.
+    let mut f = Follower::new(down);
+    assert_eq!(f.steer([50.0, 0.0, 0.0]), Steer::OffPath);
+    assert_eq!(f.next, 1);
+    assert!(f.hop().is_none());
+    // Up onto one: from below the landing it jumps first; above it, it is not on the way.
+    let up = straight_path(vec![[0.0, 0.0, 0.0], [50.0, 0.0, 0.0], [52.0, 0.0, 60.0], [150.0, 0.0, 60.0]], vec![LedgeHop { point: 1, up: true }]);
+    let mut f = Follower::new(up);
+    assert!(matches!(f.steer([50.0, 0.0, 0.0]), Steer::Walk { target, .. } if target[2] == 60.0));
+    assert_eq!(f.next, 2);
+    assert_eq!(f.steer([52.0, 0.0, 160.0]), Steer::OffPath);
+}
+
+#[test]
+fn a_walker_flies_a_ledge_whose_ends_are_close_seen_from_above() {
+    use crate::LedgeHop;
+    let top = grid(1, [0.0, 0.0], 1, 1, 51.0, &[], |_, _| 100.0);
+    let low = grid(2, [52.0, 0.0], 2, 1, 100.0, &[], flat);
+    let g = graph(&[(top, W), (low, W)]);
+    let path = straight_path(vec![[5.0, 25.0, 100.0], [50.0, 25.0, 100.0], [52.0, 25.0, 0.0], [150.0, 25.0, 0.0]], vec![LedgeHop { point: 1, up: false }]);
+    let mut w = Walker::new(W, [5.0, 25.0, 100.0], std::f32::consts::FRAC_PI_2, 100.0);
+    w.follower = Some(Follower::new(path));
+    let mut from = None;
+    for _ in 0..1000 {
+        let ev = w.update(&g, 1.0 / 60.0);
+        assert_ne!(ev, WalkEvent::PathLost, "at {:?}", w.feet);
+        from = from.or(w.air.map(|a| a.flight.from));
+        if w.follower.is_none() {
+            break;
+        }
+    }
+    assert!(w.follower.is_none());
+    assert_eq!((w.flights, w.landings), (1, 1));
+    assert_eq!(from, Some([50.0, 25.0, 100.0]));
+    assert!((w.feet[2]).abs() < 1.0, "{:?}", w.feet);
+}
+
+#[test]
+fn a_goal_above_the_navmesh_is_arrived_at_where_it_was_snapped() {
+    let g = graph(&[(grid(1, [0.0, 0.0], 4, 4, 100.0, &[], flat), W)]);
+    let to = Place { space: W, pos: [350.0, 350.0, 300.0] };
+    let mut w = Walker::new(W, [50.0, 50.0, 0.0], 0.0, 100.0);
+    assert!(w.go_to(&g, to, &PathParams::default()).unwrap().goal_snap >= 300.0);
+    assert_eq!(w.follower.as_ref().unwrap().destination().unwrap().pos[2], 0.0);
+    let mut last = WalkEvent::Idle;
+    for _ in 0..1000 {
+        last = w.update(&g, 0.05);
+        if w.follower.is_none() {
+            break;
+        }
+    }
+    assert_eq!(last, WalkEvent::Arrived);
+}
+
+#[test]
+fn a_walker_put_on_the_floor_under_its_goal_stands_there_and_takes_the_ramp() {
+    let g = floor_with_deck_above();
+    let to = Place { space: W, pos: [150.0, 350.0, 200.0] };
+    let params = PathParams::default();
+    let mut w = Walker::new(W, [650.0, 350.0, 200.0], 0.0, 100.0);
+    w.go_to(&g, to, &params).unwrap();
+    // Physics left it on the floor under its goal (`residents.rs` hands over `tri` unset).
+    let under = [150.0, 350.0, 0.0];
+    (w.feet, w.tri) = (under, NONE);
+    assert_eq!(w.update(&g, 0.05), WalkEvent::PathLost);
+    assert_eq!(w.feet, under, "no teleport");
+    assert!(w.follower.is_some(), "the walk is not over");
+    let length = w.replan(&g, &params).unwrap();
+    assert!(length > 1000.0, "{length}");
+    let (mut high_x, mut before) = (0.0f32, under);
+    for _ in 0..5000 {
+        let ev = w.update(&g, 0.05);
+        assert_ne!(ev, WalkEvent::PathLost, "at {:?}", w.feet);
+        high_x = high_x.max(w.feet[0]);
+        // Up the ramp, no faster than a slope of 1 in 2 lifts it in a step.
+        assert!((w.feet[2] - before[2]).abs() <= 0.5 * (w.feet[0] - before[0]).hypot(w.feet[1] - before[1]) + 1.0, "{before:?} to {:?}", w.feet);
+        before = w.feet;
+        if w.follower.is_none() {
+            break;
+        }
+    }
+    assert!(w.follower.is_none());
+    assert!(high_x > 700.0, "not by the ramp: {high_x}");
+    assert_eq!(w.feet, to.pos);
+}
+
+#[test]
+fn a_walker_off_the_navmesh_goes_onto_it_and_walks_on() {
+    let g = floor_with_deck_above();
+    // Placed 60 above the deck, right at a corner: its first update puts it on the deck.
+    let to = Place { space: W, pos: [150.0, 350.0, 200.0] };
+    let mut w = Walker::new(W, [650.0, 350.0, 200.0], 0.0, 100.0);
+    w.go_to(&g, to, &PathParams::default()).unwrap();
+    w.feet = [150.0, 350.0, 260.0];
+    w.tri = NONE;
+    assert_ne!(w.update(&g, 0.05), WalkEvent::PathLost);
+    assert_eq!(w.feet[2], 200.0);
+    assert!(w.follower.is_none(), "it stands at its goal");
+}
+
+#[test]
+fn a_walker_with_no_navmesh_under_it_keeps_to_its_path() {
+    // Nothing near within the walker's search: its step takes the path's height, as ever.
+    let g = graph(&[(grid(1, [0.0, 0.0], 4, 4, 100.0, &[], flat), W)]);
+    let to = Place { space: W, pos: [350.0, 50.0, 0.0] };
+    let mut w = Walker::new(W, [50.0, 50.0, 0.0], 0.0, 100.0);
+    w.go_to(&g, to, &PathParams::default()).unwrap();
+    (w.feet, w.tri) = ([350.0, 50.0, -500.0], NONE);
+    assert_ne!(w.update(&g, 0.05), WalkEvent::PathLost);
+    assert_eq!(w.feet[2], 0.0);
+}
+
+#[test]
+fn a_new_way_cannot_start_on_a_floor_over_the_feet() {
+    // The deck alone: nothing under it to walk on, feet 100 below it.
+    let g = graph(&[(grid(1, [0.0, 0.0], 4, 4, 100.0, &[], |_, _| 200.0), W)]);
+    let params = PathParams::default();
+    let f = Follower::new(g.find_path(Place { space: W, pos: [50.0, 50.0, 200.0] }, Place { space: W, pos: [350.0, 50.0, 200.0] }, &params).unwrap());
+    assert!(f.replanned(&g, Place { space: W, pos: [350.0, 50.0, 100.0] }, &params).is_err());
+    // Within the tolerance below it: the feet are on it.
+    let n = f.replanned(&g, Place { space: W, pos: [250.0, 50.0, 170.0] }, &params).unwrap();
+    assert_eq!(n.height_offset, 0.0);
+    // Too near over them for a floor they stand under: a navmesh above its collision.
+    let mut n = f.replanned(&g, Place { space: W, pos: [340.0, 50.0, 150.0] }, &params).unwrap();
+    assert_eq!(n.height_offset, -50.0);
+    assert_eq!(n.clone().steer([350.0, 50.0, 150.0]), Steer::Arrived);
+    assert_eq!(n.clone().steer([350.0, 50.0, 200.0]), Steer::Arrived);
+    assert_eq!(n.steer([350.0, 50.0, 100.0]), Steer::OffPath);
+}
+
+#[test]
+fn feet_on_something_the_navmesh_does_not_know_may_walk_off_it() {
+    let g = graph(&[(grid(1, [0.0, 0.0], 4, 4, 100.0, &[], flat), W)]);
+    let params = PathParams::default();
+    let mut old = Follower::new(g.find_path(Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: W, pos: [350.0, 50.0, 0.0] }, &params).unwrap());
+    old.goal_radius = 8.0;
+    // 60 above the only surface, no other floor anywhere: the path allows for that, on that side.
+    let on_a_rock = Place { space: W, pos: [340.0, 50.0, 60.0] };
+    let mut n = old.replanned(&g, on_a_rock, &params).unwrap();
+    assert_eq!(n.height_offset, 60.0);
+    assert_eq!(n.goal_radius, 8.0);
+    assert!(matches!(n.steer(on_a_rock.pos), Steer::Walk { .. }));
+    assert_eq!(n.clone().steer([350.0, 50.0, 60.0]), Steer::Arrived);
+    assert_eq!(n.clone().steer([350.0, 50.0, -60.0]), Steer::OffPath);
+    assert_eq!(n.steer([350.0, 50.0, 0.0]), Steer::Arrived);
+}
+
+#[test]
+fn plans_made_again_are_bounded_until_the_actor_has_got_on() {
+    let mut r = PathRecovery::default();
+    let here = [100.0, 100.0, 0.0];
+    for _ in 0..RECOVERY_TRIES {
+        assert!(r.allow(here, 0.0));
+    }
+    assert!(!r.allow(here, 1.0));
+    assert!(!r.allow([150.0, 100.0, 0.0], 2.0), "moved about the same spot");
+    // Further on, it starts over; so it does a good while later.
+    assert!(r.allow([100.0 + RECOVERY_RESET_DISTANCE, 100.0, 0.0], 3.0));
+    let mut r = PathRecovery::default();
+    for _ in 0..RECOVERY_TRIES {
+        assert!(r.allow(here, 0.0));
+    }
+    assert!(r.allow(here, RECOVERY_RESET_SECONDS));
+}
+
+// ---- controls: feet on the mesh are as before -------------------------------------------
+
+/// A walker of `from` to `to` on `g`, with no path lost on the way, to its goal.
+fn walks_to(g: &NavGraph, from: [f32; 3], to: [f32; 3], speed: f32, dt: f32, params: &PathParams) -> Walker {
+    let mut w = Walker::new(W, from, 0.0, speed);
+    w.go_to(g, Place { space: W, pos: to }, params).unwrap();
+    for _ in 0..20_000 {
+        let ev = w.update(g, dt);
+        assert_ne!(ev, WalkEvent::PathLost, "at {:?}", w.feet);
+        if w.follower.is_none() {
+            return w;
+        }
+    }
+    panic!("did not arrive: {:?}", w.feet);
+}
+
+#[test]
+fn walks_on_the_navmesh_do_not_lose_their_paths() {
+    // Up and down a 60 degree valley, at any step.
+    let valley = |x: f32, _y: f32| (x - 300.0).abs() * TAN_60;
+    let g = graph(&[(grid(1, [0.0, 0.0], 12, 4, 50.0, &[], valley), W)]);
+    let (from, to) = ([25.0, 100.0, valley(25.0, 0.0)], [575.0, 100.0, valley(575.0, 0.0)]);
+    for (speed, dt) in [(85.3, 1.0 / 60.0), (344.0, 1.0 / 30.0), (100.0, 0.25)] {
+        let w = walks_to(&g, from, to, speed, dt, &PathParams::default());
+        assert!((w.feet[2] - valley(w.feet[0], 0.0)).abs() < 1.0, "{:?}", w.feet);
+    }
+    // Up the ramp to the deck over the floor.
+    let g = floor_with_deck_above();
+    for dt in [1.0 / 60.0, 0.25] {
+        let w = walks_to(&g, [150.0, 350.0, 0.0], [150.0, 350.0, 200.0], 100.0, dt, &PathParams::default());
+        assert_eq!(w.feet, [150.0, 350.0, 200.0]);
     }
 }

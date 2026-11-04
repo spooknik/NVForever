@@ -252,6 +252,16 @@ fn stop_body(phys: Option<&mut PhysState>, id: u32) -> f32 {
     })
 }
 
+/// An actor moved by physics that its path no longer fits ([`Steer::OffPath`]): what its
+/// update reports, and its velocity (it stands where it is, not stuck).
+fn off_path(id: u32, feet: [f32; 3], unstuck: &mut HashMap<u32, Unstuck>) -> (WalkEvent, [f32; 2]) {
+    info!("actor {id:08X} at ({:.0}, {:.0}, {:.0}) is off its path's height: it plans again from there", feet[0], feet[1], feet[2]);
+    if let Some(u) = unstuck.get_mut(&id) {
+        u.reset();
+    }
+    (WalkEvent::PathLost, [0.0, 0.0])
+}
+
 impl Mover for PhysMover<'_> {
     fn open(&mut self, _actor: FormId, door: u32) -> bool {
         open_door(self.doors, door)
@@ -305,7 +315,21 @@ impl Mover for PhysMover<'_> {
             give_up(phys, walker, f);
             return None;
         }
-        let (event, velocity) = match f.steer(feet) {
+        // A swimmer's feet are at the water's surface and the navmesh on the bed: its height
+        // is not judged. Nor is it in the air: a fall is called one once it has landed, and
+        // a flight over a ledge goes on (`Follower::fits`); not rising or falling, an actor
+        // that is not on the ground counts as standing where it is.
+        let (swimming, falling) = phys.npcs.get(&id).map_or((false, false), |b| (b.ch.swimming, !b.ch.grounded && (feet[2] - b.prev_feet[2]).abs() > 0.01));
+        let last_stretch = |f: &fnv_nav::Follower, remaining: f32| remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() && !self.fighting.contains_key(&actor);
+        let steer = if swimming { f.steer_any_height(feet) } else { f.steer(feet) };
+        let (event, velocity) = match steer {
+            // In the air: its way on is seen to when it lands.
+            Steer::OffPath if falling => (WalkEvent::Moved, phys.npcs.get(&id).map_or([0.0, 0.0], |b| b.velocity)),
+            // On a surface the path does not fit (another floor, or where it fell): it
+            // stands on it, and the AI plans again from there (`Ai::walk`). Nothing moves it
+            // back onto the path: no last stretch, no turn, no moving on along it.
+            Steer::OffPath => off_path(id, feet, self.unstuck),
+            Steer::Walk { remaining, .. } if last_stretch(&f, remaining) && !swimming && !falling && !f.fits(feet) => off_path(id, feet, self.unstuck),
             Steer::Arrived => {
                 phys.remove_npc(id);
                 walker.travelled += (feet[0] - walker.feet[0]).hypot(feet[1] - walker.feet[1]);
@@ -349,7 +373,7 @@ impl Mover for PhysMover<'_> {
             // fighter's: its posts (cover, a peek point, a flank) are places to stand, and
             // the walker, which keeps to the navmesh and not the collision, left it half
             // inside walls by its cover (owner's screenshot 2026-10-23) [design].
-            Steer::Walk { remaining, .. } if remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() && !self.fighting.contains_key(&actor) => {
+            Steer::Walk { remaining, .. } if last_stretch(&f, remaining) && (swimming || f.fits(feet)) => {
                 self.skip_until.insert(id, self.now + 4.0);
                 walker.feet = feet;
                 give_up(phys, walker, f);

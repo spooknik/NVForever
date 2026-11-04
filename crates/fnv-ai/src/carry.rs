@@ -192,6 +192,11 @@ pub enum AiEvent {
     Arrived { package: FormId, seconds: f64, travelled: f32, patrol_point: Option<FormId> },
     /// No way to the package's location: the package is set aside.
     Unreachable { package: FormId, why: String },
+    /// Its path no longer fitted its feet (`fnv_nav::WalkEvent::PathLost`: on another
+    /// floor, or fallen): a new way from where it stands, `length` long.
+    PathReplanned { at: [f32; 3], length: f32 },
+    /// Its path no longer fitted its feet and no new way was found: the walk ends there.
+    PathLost { at: [f32; 3], why: String },
     NotCarriedOut { package: FormId, why: &'static str },
     /// The actor uses this furniture now (`None`: it leaves the furniture it used).
     Furniture { furniture: Option<FormId> },
@@ -546,6 +551,8 @@ pub struct Agent {
     /// Told to back up on the companion wheel: on its way back until then (`Game::time`)
     /// ([`Ai::back_up`]).
     pub(crate) backing: Option<f64>,
+    /// The new ways planned for it when its path stopped fitting its feet ([`Ai::walk`]).
+    pub(crate) path_recovery: fnv_nav::follow::PathRecovery,
 }
 
 #[derive(Default)]
@@ -804,7 +811,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, path_recovery: Default::default() });
         Ok(())
     }
 
@@ -2248,6 +2255,65 @@ impl Ai {
         };
         if reached {
             self.arrived(game, nav, actor);
+        } else if ev == WalkEvent::PathLost {
+            self.path_lost(game, nav, actor);
+        }
+    }
+
+    /// `actor`'s path no longer fits its feet: on another floor, or fallen. A new way from
+    /// where it stands to where the path led, a limited number of times
+    /// ([`fnv_nav::follow::PathRecovery`]); without one the walk fails as a walk with no way
+    /// there does.
+    fn path_lost(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+        let params = self.path_params(game, actor);
+        let now = game.time;
+        let a = self.agents.get_mut(&actor).expect("listed");
+        let at = a.walker.feet;
+        let why = if a.path_recovery.allow(at, now) {
+            match a.walker.replan(nav, &params) {
+                Ok(length) => {
+                    self.log(game, actor, AiEvent::PathReplanned { at, length });
+                    return;
+                }
+                Err(e) => e.to_string(),
+            }
+        } else {
+            "planned again too often from here".to_string()
+        };
+        self.log(game, actor, AiEvent::PathLost { at, why: why.clone() });
+        self.walk_failed(game, actor, why);
+    }
+
+    /// A walk under way has no way on. What it was for decides what follows, as when the
+    /// walk could not be planned in the first place: a sandbox's own walk chooses again, a
+    /// package's is set aside; the walks of a fight, a search, a flight, a conversation, a
+    /// fetch, a weapon use or a back-up see the actor no longer on its way at their next
+    /// step and go on from there.
+    fn walk_failed(&mut self, game: &mut Game, actor: FormId, why: String) {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        a.walker.follower = None;
+        a.walker.moving = false;
+        a.walker.turning = false;
+        if let Some(choice) = a.sandbox.as_mut().and_then(|s| s.pending.take()) {
+            a.activity = Activity::There;
+            a.sandbox.as_mut().expect("just read").failed(game, &choice);
+            self.taken.retain(|_, user| *user != actor);
+            return;
+        }
+        if a.chat.is_some() || a.search.is_some() || a.weapon_order.is_some() || a.backing.is_some() {
+            a.activity = Activity::There;
+            if a.weapon_order.is_some() && game.weapon_use(actor).is_some_and(|w| w.source == Source::Script) {
+                game.weapon_use_in_place(actor);
+            }
+            return;
+        }
+        a.following = None;
+        match a.package {
+            Some(package) => {
+                a.talk = None;
+                self.unreachable(game, actor, package, why);
+            }
+            None => a.activity = Activity::There,
         }
     }
 

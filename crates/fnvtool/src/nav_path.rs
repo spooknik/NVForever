@@ -498,6 +498,9 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
     let mut leg_world: Option<LegWorld> = None;
     let mut c: Option<fnv_phys::Character> = None;
     let mut feet = from.pos;
+    // Whether the character stands on something (after the first step).
+    let mut on_ground = false;
+    let mut recovery = fnv_nav::follow::PathRecovery::default();
     let mut build_ms = 0.0;
     let (mut builds, mut doors_used) = (0usize, Vec::new());
     let (mut steps, mut walked, mut max_dev, mut off_mesh, mut mesh_checks) = (0usize, 0.0f32, 0.0f32, 0usize, 0usize);
@@ -632,10 +635,32 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
         }
         let lw = leg_world.as_mut().expect("built");
         let ch = c.as_mut().expect("placed");
-        match follower.steer(feet) {
+        // In the air, or swimming, the height is not judged: where it lands it is.
+        let steer = if on_ground { follower.steer(feet) } else { follower.steer_any_height(feet) };
+        match steer {
             Steer::Arrived => {
                 outcome = "arrived";
                 break;
+            }
+            Steer::OffPath => {
+                let replanned = if recovery.allow(feet, steps as f64 * dt as f64) {
+                    follower.replanned(&nav.graph, Place { space, pos: feet }, &params).map_err(|e| e.to_string())
+                } else {
+                    Err("planned again too often from here".to_string())
+                };
+                match replanned {
+                    Ok(f) => {
+                        events.push(json!({"step": steps, "event": "replanned_off_path", "feet": feet, "length": f.path.length}));
+                        follower = f;
+                        unstuck.reset();
+                        continue;
+                    }
+                    Err(e) => {
+                        events.push(json!({"step": steps, "event": "off_path_replan_failed", "feet": feet, "error": e}));
+                        outcome = "stuck";
+                        break;
+                    }
+                }
             }
             Steer::OpenDoor { door, at } => {
                 if !walk_doors.contains_key(&door) {
@@ -663,6 +688,7 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
                 lw.built.world.step();
                 steps += 1;
                 feet = s.feet;
+                on_ground = s.grounded;
                 unstuck.reset();
             }
             Steer::Door(d) => {
@@ -712,6 +738,7 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
                 lw.built.world.step();
                 steps += 1;
                 feet = s.feet;
+                on_ground = s.grounded;
                 walked += hdist(before, feet);
                 for o in &s.touched {
                     *touched.entry(*o).or_default() += 1;

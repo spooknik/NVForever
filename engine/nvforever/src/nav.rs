@@ -53,6 +53,8 @@ pub struct Traveller {
     pub doors_opened: Vec<(u32, f32)>,
     /// Landings over ledges logged so far.
     landed: u32,
+    /// New ways planned when its path stopped fitting its feet.
+    recovery: fnv_nav::follow::PathRecovery,
 }
 
 /// The actor `--follow-npc` follows: the first traveller, else the first resident
@@ -67,6 +69,8 @@ pub struct Lead {
 #[derive(Resource)]
 pub struct NavState {
     pub graph: NavGraph,
+    /// What the travellers' paths were planned with.
+    params: PathParams,
     pub travellers: Vec<Traveller>,
     pub show: bool,
     pub follow: bool,
@@ -213,11 +217,11 @@ impl NavState {
                     started: None,
                     arrived: None,
                     failed,
-                    next_report: 5.0, waiting: None, doors_opened: Vec::new(), landed: 0,
+                    next_report: 5.0, waiting: None, doors_opened: Vec::new(), landed: 0, recovery: Default::default(),
                 });
             }
         }
-        Ok(NavState { graph, travellers, show, follow, lead: None, cam: None, travel_asked: false, startup })
+        Ok(NavState { graph, params, travellers, show, follow, lead: None, cam: None, travel_asked: false, startup })
     }
 }
 
@@ -348,6 +352,18 @@ pub fn drive(
         if tr.walker.landings > tr.landed {
             tr.landed = tr.walker.landings;
             info!("nav: {} lands at ({:.0}, {:.0}, {:.0})", tr.label, tr.walker.feet[0], tr.walker.feet[1], tr.walker.feet[2]);
+        }
+        // Its path no longer fits its feet: a new way from where it stands, or it has none.
+        if ev == WalkEvent::PathLost {
+            let f = tr.walker.feet;
+            let way = if tr.recovery.allow(f, now as f64) { tr.walker.replan(&nav.graph, &nav.params).map_err(|e| e.to_string()) } else { Err("planned again too often from here".to_string()) };
+            match way {
+                Ok(length) => info!("nav: {} at ({:.0}, {:.0}, {:.0}) is off its path's height: a new way, {length:.0} units", tr.label, f[0], f[1], f[2]),
+                Err(e) => {
+                    warn!("nav: {} at ({:.0}, {:.0}, {:.0}) is off its path's height: {e}", tr.label, f[0], f[1], f[2]);
+                    tr.failed = Some(e);
+                }
+            }
         }
         match (ev, tr.waiting) {
             (WalkEvent::WaitingForDoor(d), w) if w.is_none_or(|w| w.0 != d) => {

@@ -7,7 +7,7 @@
 
 use crate::graph::{DoorEdge, NavGraph, Space, NONE};
 use crate::jump::Flight;
-use crate::path::{LedgeHop, Path, PathError, PathParams, Place};
+use crate::path::{Leg, LedgeHop, Path, PathError, PathParams, Place};
 use serde::Serialize;
 
 /// What to do next.
@@ -28,6 +28,11 @@ pub enum Steer {
     OpenDoor { door: u32, at: [f32; 3] },
     /// At the end of the path.
     Arrived,
+    /// The feet are within horizontal reach of what comes next on the path (a corner, the
+    /// end, a door) but not at its height ([`HEIGHT_TOLERANCE`]): they are on another
+    /// floor, or have fallen, and the path no longer fits them. Nothing was consumed. Not
+    /// an arrival: the caller stops and plans again from the feet ([`Walker::replan`]).
+    OffPath,
 }
 
 /// Where along a path an actor is.
@@ -49,19 +54,80 @@ pub struct Follower {
     /// Held at that stop ([`Steer::OpenDoor`] given) until [`Follower::door_opened`]:
     /// a door pushing the actor about while it opens does not send it walking again.
     pub holding: bool,
+    /// How far the feet stood from the path's surface when it was planned again, when
+    /// that was past [`HEIGHT_TOLERANCE`] (above: positive): on something the navmesh does
+    /// not know, or a navmesh that lies above its collision. The tolerance reaches that
+    /// much further on that side, and the surface itself still fits, so such feet can walk
+    /// on where the navmesh shows no other floor ([`Follower::replanned`]). 0 otherwise.
+    pub height_offset: f32,
 }
 
 /// A ledge's take-off counts as reached within this horizontal distance: the actor goes
 /// to the edge before it jumps [design].
 pub const TAKE_OFF_RADIUS: f32 = 2.0;
 
+/// How far the feet may be from the path's height where they stand and still be on its
+/// surface, game units [design: an engineering number, not measured safe]. Its reasoning:
+/// the character's step height (24, `fnv_phys::CharacterParams`) and the terrain's collision
+/// shell (3.5) leave about 12 units for the capsule's shape and for the navmesh not
+/// matching the collision, and it equals [`crate::path::LEVEL_GAP`], the height at which
+/// path planning already calls a surface another level. Nothing bounds how far an authored
+/// navmesh is from its collision, and floors can be stacked closer than this
+/// (docs/design/navmesh.md §4).
+pub const HEIGHT_TOLERANCE: f32 = 40.0;
+
+/// A new path may start at most this far above the feet ([`Follower::replanned`]), game
+/// units [design: as far as `NavGraph::nearest` takes a surface for the one under a point;
+/// less than a person's height, so what lies this near over the feet is not a floor they
+/// stood under but a navmesh above its collision]. Further up, it is taken as another
+/// floor they cannot get back onto from there.
+pub const REPLAN_BELOW_LIMIT: f32 = 64.0;
+
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
 
+/// The height of segment `a`-`b` where it passes closest to `feet` seen from above (the
+/// projection clamped to the segment). `None` for a segment with no horizontal length,
+/// which says nothing about a slope.
+fn segment_height(a: [f32; 3], b: [f32; 3], feet: [f32; 3]) -> Option<f32> {
+    let (sx, sy) = (b[0] - a[0], b[1] - a[1]);
+    let len2 = sx * sx + sy * sy;
+    if len2 < 1e-6 {
+        return None;
+    }
+    let t = (((feet[0] - a[0]) * sx + (feet[1] - a[1]) * sy) / len2).clamp(0.0, 1.0);
+    Some(a[2] + (b[2] - a[2]) * t)
+}
+
+/// Whether feet at height `z` count as on a surface at height `surface`, for a path with
+/// [`Follower::height_offset`] `offset`.
+fn height_fits(z: f32, surface: f32, offset: f32) -> bool {
+    let above = z - surface;
+    above >= offset.min(0.0) - HEIGHT_TOLERANCE && above <= offset.max(0.0) + HEIGHT_TOLERANCE
+}
+
+/// Whether `feet` count as on the surface around point `i` of `leg`: the walking segment
+/// that ends there, at the feet's place seen from above, so a slope walked is not a height
+/// error (a fixed difference from the point would reject the last steps up any steep
+/// slope, and adding radius times slope could admit another floor); the point itself when
+/// that segment is a ledge link's flight (never interpolated) or has no horizontal length.
+/// An ordinary corner also fits by its outgoing segment: an actor walking down the slope
+/// beyond a corner is far below the corner and still where the path goes.
+fn point_fits(leg: &Leg, i: usize, feet: [f32; 3], offset: f32) -> bool {
+    let q = leg.points[i];
+    let flown_to = leg.hops.iter().any(|h| h.point + 1 == i);
+    let incoming = i.checked_sub(1).filter(|_| !flown_to).and_then(|p| segment_height(leg.points[p], q, feet));
+    if height_fits(feet[2], incoming.unwrap_or(q[2]), offset) {
+        return true;
+    }
+    let ordinary = !leg.hops.iter().any(|h| h.point == i) && !leg.door_stops.iter().any(|s| s.point == i);
+    ordinary && leg.points.get(i + 1).and_then(|&n| segment_height(q, n, feet)).is_some_and(|h| height_fits(feet[2], h, offset))
+}
+
 impl Follower {
     pub fn new(path: Path) -> Follower {
-        Follower { path, leg: 0, next: 1, arrive_radius: 16.0, goal_radius: 1.0, door_radius: 48.0, stop: 0, holding: false }
+        Follower { path, leg: 0, next: 1, arrive_radius: 16.0, goal_radius: 1.0, door_radius: 48.0, stop: 0, holding: false, height_offset: 0.0 }
     }
 
     /// The space of the leg being walked.
@@ -69,14 +135,40 @@ impl Follower {
         self.path.legs.get(self.leg).map(|l| l.space)
     }
 
-    /// Advance past reached corners and say where to head from `feet`.
+    /// Advance past reached corners and say where to head from `feet`. Distances and
+    /// directions are horizontal; a corner, a door or the end only counts as reached with
+    /// the feet at its height, else [`Steer::OffPath`].
     pub fn steer(&mut self, feet: [f32; 3]) -> Steer {
+        self.steer_judged(feet, true)
+    }
+
+    /// [`Follower::steer`] with the height left out, for feet that are not on the ground
+    /// by the path's rules: a swimmer's are at the water's surface, the navmesh on the bed.
+    pub fn steer_any_height(&mut self, feet: [f32; 3]) -> Steer {
+        self.steer_judged(feet, false)
+    }
+
+    /// Whether `feet` count as on the surface of the part of the path being walked. Not
+    /// judged while crossing a ledge link: an actor in the air is not on any surface yet.
+    pub fn fits(&self, feet: [f32; 3]) -> bool {
+        let Some(leg) = self.path.legs.get(self.leg) else { return true };
+        let Some(last) = leg.points.len().checked_sub(1) else { return true };
+        let i = self.next.min(last);
+        (self.next <= last && leg.hops.iter().any(|h| h.point + 1 == i)) || point_fits(leg, i, feet, self.height_offset)
+    }
+
+    fn steer_judged(&mut self, feet: [f32; 3], judged: bool) -> Steer {
         let Some(leg) = self.path.legs.get(self.leg) else { return Steer::Arrived };
         let pts = &leg.points;
         let pending = leg.door_stops.get(self.stop).copied();
         // A door stop reached, or at or behind the corner being walked to, holds the
         // follower there.
         if let Some(s) = pending.filter(|s| self.holding || s.point < self.next) {
+            // Once held it stays held, wherever the door pushes the actor; holding starts
+            // only from the door's own floor.
+            if judged && !self.holding && !point_fits(leg, s.point, feet, self.height_offset) {
+                return Steer::OffPath;
+            }
             self.holding = true;
             return Steer::OpenDoor { door: s.door, at: pts[s.point] };
         }
@@ -104,6 +196,18 @@ impl Follower {
                 (feet[0] - q[0]) * sx + (feet[1] - q[1]) * sy >= 0.0
             };
             if d <= radius || passed {
+                if judged && !point_fits(leg, self.next, feet, self.height_offset) {
+                    // The flight over a ledge link is still to come: the landing is reached
+                    // from the air, whatever its distance seen from above.
+                    let above = feet[2] > q[2];
+                    let flight_to_come = leg.hops.iter().any(|h| h.point + 1 == self.next && h.up != above);
+                    // Beyond a corner it does not fit: not passed after all, it heads back
+                    // to it and is judged there.
+                    if d <= radius && !flight_to_come {
+                        return Steer::OffPath;
+                    }
+                    break;
+                }
                 if let Some(s) = stop {
                     self.holding = true;
                     return Steer::OpenDoor { door: s.door, at: q };
@@ -114,6 +218,11 @@ impl Follower {
             break;
         }
         if self.next >= pts.len() {
+            // Not only when the end is first reached: a caller may stand here for frames,
+            // turning to a load door, and be moved meanwhile.
+            if judged && pts.len().checked_sub(1).is_some_and(|last| !point_fits(leg, last, feet, self.height_offset)) {
+                return Steer::OffPath;
+            }
             return match leg.door {
                 Some(d) => Steer::Door(d),
                 None => Steer::Arrived,
@@ -128,15 +237,17 @@ impl Follower {
 
     /// The next door on the way, when the actor at `feet` is within `reach` (horizontal
     /// units) of it: the current leg's next door that opens in place (its stop), else the
-    /// door that ends the leg. Held at a stop, that stop's door whatever the distance.
+    /// door that ends the leg. Held at a stop, that stop's door whatever the distance. A
+    /// door on another floor than the feet is not ahead, however near seen from above.
     /// For whoever has to ask the door first (`fnv_game::npc_doors`).
     pub fn door_ahead(&self, feet: [f32; 3], reach: f32) -> Option<u32> {
         let leg = self.path.legs.get(self.leg)?;
         if let Some(s) = leg.door_stops.get(self.stop) {
-            return (self.holding || hdist(feet, leg.points[s.point]) <= reach).then_some(s.door);
+            return (self.holding || (hdist(feet, leg.points[s.point]) <= reach && point_fits(leg, s.point, feet, self.height_offset))).then_some(s.door);
         }
         let d = leg.door?;
-        (hdist(feet, *leg.points.last()?) <= reach).then_some(d.door)
+        let last = leg.points.len().checked_sub(1)?;
+        (hdist(feet, leg.points[last]) <= reach && point_fits(leg, last, feet, self.height_offset)).then_some(d.door)
     }
 
     /// The door that ended the current leg was used: go on with the next leg.
@@ -220,6 +331,61 @@ impl Follower {
     pub fn destination(&self) -> Option<Place> {
         let l = self.path.legs.last()?;
         Some(Place { space: l.space, pos: *l.points.last()? })
+    }
+
+    /// A new follower for this path's destination, from feet at `from` this path no longer
+    /// fits ([`Steer::OffPath`]), with the same radii. Its first segment starts where the
+    /// navmesh is under the feet, so it fits them. A path that could only start well above
+    /// the feet ([`REPLAN_BELOW_LIMIT`]: they are below every surface near, nothing leads
+    /// from them up to it) is no way from here: `Unreachable`. Feet further than the
+    /// tolerance from the only surface near show no other floor: the new path allows for
+    /// that ([`Follower::height_offset`]).
+    pub fn replanned(&self, nav: &NavGraph, from: Place, params: &PathParams) -> Result<Follower, PathError> {
+        let to = self.destination().ok_or(PathError::Unreachable { expanded: 0 })?;
+        let path = nav.find_path(from, to, params)?;
+        let start = path.legs.first().and_then(|l| l.points.first()).map_or(from.pos[2], |p| p[2]);
+        let above = from.pos[2] - start;
+        if above < -REPLAN_BELOW_LIMIT {
+            return Err(PathError::Unreachable { expanded: path.expanded });
+        }
+        let mut f = Follower::new(path);
+        (f.arrive_radius, f.goal_radius, f.door_radius) = (self.arrive_radius, self.goal_radius, self.door_radius);
+        f.height_offset = if above.abs() > HEIGHT_TOLERANCE { above } else { 0.0 };
+        Ok(f)
+    }
+}
+
+/// How many times an actor is planned a new way from where it stands before it is taken as
+/// having none ([`PathRecovery`]) [design].
+pub const RECOVERY_TRIES: u32 = 3;
+/// Moved this far (game units, in any direction) since the last try, the tries count from
+/// the start again: the way it was given led somewhere [design].
+pub const RECOVERY_RESET_DISTANCE: f32 = 256.0;
+/// So do they this long after the last try, seconds [design].
+pub const RECOVERY_RESET_SECONDS: f64 = 30.0;
+
+/// Bounds plans made again for [`Steer::OffPath`], so an actor no plan helps does not plan
+/// on every frame: it fails as a walk with no way there does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+pub struct PathRecovery {
+    tries: u32,
+    at: [f32; 3],
+    when: f64,
+}
+
+impl PathRecovery {
+    /// One more try now, from `feet`, at time `now` (seconds): whether it may be made.
+    pub fn allow(&mut self, feet: [f32; 3], now: f64) -> bool {
+        let moved = hdist(feet, self.at).hypot(feet[2] - self.at[2]) >= RECOVERY_RESET_DISTANCE;
+        if self.tries > 0 && (moved || now - self.when >= RECOVERY_RESET_SECONDS) {
+            self.tries = 0;
+        }
+        if self.tries >= RECOVERY_TRIES {
+            return false;
+        }
+        self.tries += 1;
+        (self.at, self.when) = (feet, now);
+        true
     }
 }
 
@@ -394,6 +560,9 @@ pub enum WalkEvent {
     Arrived,
     /// Standing in front of a door that opens in place, waiting for it to open.
     WaitingForDoor(u32),
+    /// The path no longer fits the feet ([`Steer::OffPath`]): standing where it is, the
+    /// path kept, for the caller to plan again ([`Walker::replan`]). Not an arrival.
+    PathLost,
 }
 
 /// An actor moved along a path on the navmesh surface, without physics (the actor's
@@ -576,6 +745,17 @@ impl Walker {
         Ok(&self.follower.as_ref().expect("just set").path)
     }
 
+    /// The way from the feet to where the path led ([`WalkEvent::PathLost`], `params` as
+    /// for a walk): the walker keeps its path when there is none. Returns its length.
+    pub fn replan(&mut self, nav: &NavGraph, params: &PathParams) -> Result<f32, PathError> {
+        let old = self.follower.as_ref().ok_or(PathError::Unreachable { expanded: 0 })?;
+        let f = old.replanned(nav, Place { space: self.space, pos: self.feet }, params)?;
+        let length = f.path.length;
+        self.follower = Some(f);
+        self.turning = false;
+        Ok(length)
+    }
+
     /// Move for `dt` seconds, passing doors that open in place as if they were open.
     pub fn update(&mut self, nav: &NavGraph, dt: f32) -> WalkEvent {
         self.update_with(nav, dt, &mut |_| true)
@@ -593,7 +773,7 @@ impl Walker {
         let keep = match ev {
             WalkEvent::Arrived => false,
             WalkEvent::Idle => f.steer(self.feet) != Steer::Arrived,
-            WalkEvent::Moved | WalkEvent::Turned | WalkEvent::UsedDoor(_) | WalkEvent::WaitingForDoor(_) => true,
+            WalkEvent::Moved | WalkEvent::Turned | WalkEvent::UsedDoor(_) | WalkEvent::WaitingForDoor(_) | WalkEvent::PathLost => true,
         };
         if !keep {
             self.turning = false;
@@ -628,10 +808,36 @@ impl Walker {
         }
         let mut budget = self.moving_speed() * dt;
         let mut moved = false;
+        let mut settled = false;
         // A step may pass several close corners.
         for _ in 0..8 {
             match f.steer(self.feet) {
                 Steer::Arrived => return if moved { WalkEvent::Arrived } else { WalkEvent::Idle },
+                Steer::OffPath => {
+                    if moved {
+                        return WalkEvent::Moved;
+                    }
+                    // This mover keeps to the navmesh: feet it did not put there (placed
+                    // off it, left by physics) go onto the surface under them first, as its
+                    // next step would put them; where the navmesh has nothing under them,
+                    // the path's height, as its step does there. If that fits, it walks on;
+                    // if they are on another floor of the navmesh they stay on it.
+                    if !settled {
+                        settled = true;
+                        let z = match self.tri_near(nav, self.feet) {
+                            Some(t) => {
+                                self.tri = t;
+                                Some(nav.height_on(t, self.feet[0], self.feet[1]))
+                            }
+                            None => f.path.legs.get(f.leg).and_then(|l| l.points.get(f.next.min(l.points.len().saturating_sub(1)))).map(|p| p[2]),
+                        };
+                        if let Some(z) = z.filter(|z| *z != self.feet[2]) {
+                            self.feet[2] = z;
+                            continue;
+                        }
+                    }
+                    return WalkEvent::PathLost;
+                }
                 Steer::OpenDoor { door, .. } => {
                     if open(door) {
                         f.door_opened();
@@ -670,7 +876,7 @@ impl Walker {
                         // From the link's own take-off point when the feet are at it, so
                         // where the actor leaves does not hang on its speed and the frame's
                         // step (the feet stand within a step past it) [design].
-                        if let Some(t) = f.take_off().filter(|t| (t[0] - self.feet[0]).hypot(t[1] - self.feet[1]) <= TAKE_OFF_SNAP) {
+                        if let Some(t) = f.take_off().filter(|t| hdist(*t, self.feet) <= TAKE_OFF_SNAP && height_fits(self.feet[2], t[2], f.height_offset)) {
                             self.feet = t;
                         }
                         self.air = Some(Air { flight: Flight::over_ledge(self.feet, landing, hop.up), t: 0.0 });

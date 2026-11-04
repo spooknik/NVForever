@@ -860,6 +860,7 @@ expect = [
   "nav summary: 2 of 2 travellers arrived",
   { re = 'nav: \w+ used door \w+ into \w+ after [\d.]+s, facing it \(0 degrees off\)', min = 3, label = "travellers stop and face a load door before going through it (#1472)" },
   { re = 'used door \w+ into \w+ after [\d.]+s, facing it \([1-9]\d* degrees off\)', count = 0, label = "none goes through a load door facing away from it" },
+  { re = "is off its path's height", count = 0, label = "walkers on the navmesh keep their paths: the height check does not catch them (#1500)" },
 ]
 
 [[scenario]]
