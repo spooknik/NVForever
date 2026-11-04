@@ -2015,6 +2015,8 @@ impl Core {
                 _ if r.named || game.is_teammate(e.actor) => info!("{line}"),
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
+                | AiEvent::PathReplanned { .. }
+                | AiEvent::PathLost { .. }
                 | AiEvent::DoorRefused { .. }
                 | AiEvent::Resumed { .. }
                 | AiEvent::Approach { .. }
@@ -2179,6 +2181,8 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Resumed { package, .. } => format!("goes on with {}, its sandbox day as saved", n(package)),
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
+        AiEvent::PathReplanned { at, length } => format!("its path no longer fits its feet at ({:.0}, {:.0}, {:.0}): a new way, {length:.0} units", at[0], at[1], at[2]),
+        AiEvent::PathLost { at, why } => format!("its path no longer fits its feet at ({:.0}, {:.0}, {:.0}): {why}", at[0], at[1], at[2]),
         AiEvent::NotCarriedOut { package, why } => format!("stays: {} is {why}, not carried out yet", n(package)),
         AiEvent::Furniture { furniture: Some(f) } => format!("is to use furniture {f}"),
         AiEvent::Furniture { furniture: None } => "leaves its furniture".into(),
