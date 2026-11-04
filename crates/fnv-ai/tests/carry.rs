@@ -2976,7 +2976,7 @@ fn sandbox_interrupt_preserves_a_valid_chat_approach_and_wait_until_combat() {
     }
 }
 
-// ---- a path that no longer fits the feet (#1500; docs/design/navmesh.md §4) --------------
+// ---- a path that does not fit the feet (#1500; docs/design/navmesh.md §4) -----------------
 
 /// A strip of quads through `sections` (a left and a right point each, walking along it):
 /// one navmesh whatever lies under what.
@@ -3025,42 +3025,50 @@ impl fnv_ai::Mover for Falls {
     }
 }
 
-/// A caller's character movement that says, on every walk, that the path does not fit.
+/// A caller's character movement that says the path does not fit for as long as its height
+/// is judged, then leaves the actor to the walker.
 struct NeverFits(usize);
 
 impl fnv_ai::Mover for NeverFits {
-    fn walk(&mut self, _actor: FormId, _walker: &mut fnv_nav::Walker, _nav: &NavGraph, _dt: f32) -> Option<fnv_nav::WalkEvent> {
+    fn walk(&mut self, _actor: FormId, walker: &mut fnv_nav::Walker, _nav: &NavGraph, _dt: f32) -> Option<fnv_nav::WalkEvent> {
+        if walker.follower.as_ref().is_none_or(|f| f.height_waived) {
+            return None;
+        }
         self.0 += 1;
         Some(fnv_nav::WalkEvent::PathLost)
     }
 }
 
-/// `R_RUN` on its way along the deck to MarkA, over the floor.
-fn on_the_deck<'a>(f: &'a Fixture, joined: bool) -> Sim<'a> {
+/// `R_RUN` on its way along the deck to MarkA, over the floor; its package a script's if
+/// `script`.
+fn on_the_deck<'a>(f: &'a Fixture, joined: bool, script: bool) -> Sim<'a> {
     let mut s = sim(f, &[R_RUN]);
     s.nav = deck_over_a_floor(joined);
+    if script {
+        s.game.extra.entry(FormId(R_RUN)).or_default().script_package = Some(FormId(P_RUN));
+    }
     s.ai.agents.get_mut(&FormId(R_RUN)).unwrap().walker.feet = [650.0, 350.0, 0.0];
     s.run(0.5);
     assert_eq!(s.ai.agents[&FormId(R_RUN)].activity, Activity::Travelling);
     s
 }
 
+const UNDER_MARK_A: [f32; 3] = [350.0, 350.0, -200.0];
+
 #[test]
 fn an_actor_fallen_to_the_floor_under_its_goal_walks_back_by_the_ramp() {
     let f = fixture();
-    let mut s = on_the_deck(&f, true);
+    let mut s = on_the_deck(&f, true, false);
     let actor = FormId(R_RUN);
-    let under = [350.0, 350.0, -200.0];
-    let mut fall = Falls(Some(under));
     s.game.tick();
-    s.ai.update_moved(&mut s.game, &s.nav, 0.5, &mut fall);
+    s.ai.update_moved(&mut s.game, &s.nav, 0.5, &mut Falls(Some(UNDER_MARK_A)));
     // It has not arrived; it has a way from where it stands, and it stands there.
-    assert_eq!(s.feet(R_RUN), under);
+    assert_eq!(s.feet(R_RUN), UNDER_MARK_A);
     assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
     let ev = s.events(R_RUN);
     assert!(!ev.iter().any(|e| matches!(e, AiEvent::Arrived { .. })), "{ev:?}");
-    assert!(matches!(ev.last().unwrap(), AiEvent::PathReplanned { at, length } if *at == under && *length > 1000.0), "{ev:?}");
-    let (mut furthest, mut before) = (0.0f32, under);
+    assert!(matches!(ev.last().unwrap(), AiEvent::PathReplanned { at, length } if *at == UNDER_MARK_A && *length > 1000.0), "{ev:?}");
+    let (mut furthest, mut before) = (0.0f32, UNDER_MARK_A);
     for _ in 0..200 {
         s.run(0.5);
         let now = s.feet(R_RUN);
@@ -3080,46 +3088,57 @@ fn an_actor_fallen_to_the_floor_under_its_goal_walks_back_by_the_ramp() {
     assert!((s.feet(R_RUN)[2]).abs() < 1.0, "{:?}", s.feet(R_RUN));
 }
 
-#[test]
-fn an_actor_fallen_where_no_way_leads_on_sets_its_package_aside_and_stays_there() {
-    let f = fixture();
-    let mut s = on_the_deck(&f, false);
+/// Fallen where no way leads on: the walk ends as on main, with the waiver in the log.
+fn arrives_as_on_main_after_a_fall(s: &mut Sim) {
     let actor = FormId(R_RUN);
-    let under = [350.0, 350.0, -200.0];
     s.game.tick();
-    s.ai.update_moved(&mut s.game, &s.nav, 0.5, &mut Falls(Some(under)));
+    s.ai.update_moved(&mut s.game, &s.nav, 0.5, &mut Falls(Some(UNDER_MARK_A)));
+    assert!(s.events(R_RUN).iter().any(|e| matches!(e, AiEvent::PathHeightWaived { at, .. } if *at == UNDER_MARK_A)), "{:?}", s.events(R_RUN));
+    s.run(0.5);
     let ev = s.events(R_RUN);
-    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Arrived { .. })), "{ev:?}");
-    assert!(ev.iter().any(|e| matches!(e, AiEvent::PathLost { at, .. } if *at == under)), "{ev:?}");
-    assert!(ev.iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_RUN)), "{ev:?}");
-    assert_eq!(s.game.check_package(actor, FormId(P_RUN)), PackageCheck::Unreachable);
+    assert!(matches!(ev.last().unwrap(), AiEvent::Arrived { package, .. } if package.0 == P_RUN), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].activity, Activity::There);
     assert!(s.ai.agents[&actor].walker.follower.is_none());
-    assert_ne!(s.ai.agents[&actor].activity, Activity::Travelling);
-    assert_eq!(s.feet(R_RUN), under);
+    assert_eq!(s.feet(R_RUN), UNDER_MARK_A, "no teleport");
+    assert!(s.game.extra[&actor].package_goal_met);
 }
 
 #[test]
-fn an_actor_no_new_way_helps_gives_up_after_a_few() {
+fn a_package_whose_new_way_fails_arrives_as_on_main() {
     let f = fixture();
-    let mut s = on_the_deck(&f, true);
-    let actor = FormId(R_RUN);
+    let mut s = on_the_deck(&f, false, false);
+    arrives_as_on_main_after_a_fall(&mut s);
+}
+
+#[test]
+fn a_script_travel_package_whose_new_way_fails_arrives_as_on_main() {
+    let f = fixture();
+    let mut s = on_the_deck(&f, false, true);
+    assert_eq!(s.game.extra[&FormId(R_RUN)].script_package, Some(FormId(P_RUN)));
+    arrives_as_on_main_after_a_fall(&mut s);
+}
+
+#[test]
+fn an_actor_no_new_way_helps_goes_on_as_on_main_after_a_few() {
+    let f = fixture();
+    let mut s = on_the_deck(&f, true, false);
     let mut never = NeverFits(0);
-    for _ in 0..20 {
+    for _ in 0..60 {
         s.game.tick();
         s.ai.update_moved(&mut s.game, &s.nav, 0.5, &mut never);
     }
     let ev = s.events(R_RUN);
-    let replans = ev.iter().filter(|e| matches!(e, AiEvent::PathReplanned { .. })).count();
-    assert_eq!(replans, fnv_nav::follow::RECOVERY_TRIES as usize, "{ev:?}");
-    assert_eq!(ev.iter().filter(|e| matches!(e, AiEvent::PathLost { .. })).count(), 1, "{ev:?}");
-    assert!(ev.iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_RUN)), "{ev:?}");
-    assert_ne!(s.ai.agents[&actor].activity, Activity::Travelling);
-    // Asked one more time than it planned, and no more.
-    assert_eq!(never.0, fnv_nav::follow::RECOVERY_TRIES as usize + 1);
+    assert_eq!(ev.iter().filter(|e| matches!(e, AiEvent::PathReplanned { .. })).count(), fnv_nav::follow::RECOVERY_TRIES as usize, "{ev:?}");
+    assert_eq!(ev.iter().filter(|e| matches!(e, AiEvent::PathHeightWaived { .. })).count(), 1, "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{ev:?}");
+    // It walked on to its place.
+    assert!(matches!(ev.last().unwrap(), AiEvent::Arrived { .. }), "{ev:?}");
+    assert!(dist(s.feet(R_RUN), [350.0, 350.0, 0.0]) < 5.0);
 }
 
 #[test]
-fn a_sandboxs_walk_with_no_way_on_chooses_again() {
+fn a_sandboxs_walk_no_new_way_helps_ends_where_it_was_going() {
     let f = fixture();
     let mut s = sim(&f, &[R_SB_OBJECTS]);
     let actor = FormId(R_SB_OBJECTS);
@@ -3131,24 +3150,29 @@ fn a_sandboxs_walk_with_no_way_on_chooses_again() {
     }
     assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling, "on a sandbox's walk");
     let mut never = NeverFits(0);
-    for _ in 0..=fnv_nav::follow::RECOVERY_TRIES {
+    for _ in 0..60 {
         s.game.tick();
         s.ai.update_moved(&mut s.game, &s.nav, 0.5, &mut never);
+        if s.ai.agents[&actor].activity != Activity::Travelling {
+            break;
+        }
     }
     let a = &s.ai.agents[&actor];
     assert_eq!(a.activity, Activity::There);
-    assert!(a.walker.follower.is_none());
     assert!(a.sandbox.is_some(), "still in its sandbox");
     let ev = s.events(R_SB_OBJECTS);
-    assert!(ev.iter().any(|e| matches!(e, AiEvent::PathLost { .. })), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::PathHeightWaived { .. })), "{ev:?}");
     assert!(!ev.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{ev:?}");
+    // What it chose has begun; had the walk failed it would stand and choose again.
+    assert_ne!(a.sandbox.as_ref().unwrap().phase(), SandboxPhase::Standing);
 }
 
 #[test]
-fn the_walks_of_every_package_here_lose_no_path() {
-    // A control: feet on the navmesh, no new way planned for anyone.
+fn the_walks_of_the_packages_here_keep_their_paths() {
+    // A control: feet on the navmesh, no new way planned and no height waived.
     let f = fixture();
     let mut s = sim(&f, &[R_TRAVEL, R_RUN, R_PATROL, R_LOOP, R_RADIUS, R_SB_ALL, R_SB_OBJECTS, R_TO_CHAIR, R_SEEKER]);
     s.run(120.0);
-    assert!(!s.ai.events.iter().any(|e| matches!(e.event, AiEvent::PathReplanned { .. } | AiEvent::PathLost { .. })), "{:?}", s.ai.events.iter().filter(|e| matches!(e.event, AiEvent::PathReplanned { .. } | AiEvent::PathLost { .. })).map(|e| &e.event).collect::<Vec<_>>());
+    let lost: Vec<_> = s.ai.events.iter().filter(|e| matches!(e.event, AiEvent::PathReplanned { .. } | AiEvent::PathHeightWaived { .. })).map(|e| &e.event).collect();
+    assert!(lost.is_empty(), "{lost:?}");
 }

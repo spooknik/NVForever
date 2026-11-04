@@ -8,6 +8,7 @@ use anyhow::{anyhow, bail};
 use clap::Args;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_nav::graph::{EdgeKind, NONE};
+use fnv_nav::follow::Recovery;
 use fnv_nav::{Follower, NavGraph, NavRecords, Path, PathParams, Place, Space, Steer};
 use fnv_collide::anim::{DoorMotion, ModelAnim};
 use fnv_phys::{layers, CharacterInput, CharacterParams, Filter, Owner, PhysParams, PhysWorld, RefCollisionOptions, RefPose};
@@ -498,7 +499,7 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
     let mut leg_world: Option<LegWorld> = None;
     let mut c: Option<fnv_phys::Character> = None;
     let mut feet = from.pos;
-    // Whether the character stands on something (after the first step).
+    // Whether the character stands on something (not yet: until its first step).
     let mut on_ground = false;
     let mut recovery = fnv_nav::follow::PathRecovery::default();
     let mut build_ms = 0.0;
@@ -635,30 +636,33 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
         }
         let lw = leg_world.as_mut().expect("built");
         let ch = c.as_mut().expect("placed");
-        // In the air, or swimming, the height is not judged: where it lands it is.
-        let steer = if on_ground { follower.steer(feet) } else { follower.steer_any_height(feet) };
-        match steer {
+        follower.swimming = ch.swimming;
+        // In the air nothing is called a fall until it lands, as for the game's residents.
+        let airborne = recovery.settling(!on_ground && !follower.swimming, dt);
+        match follower.steer(feet) {
             Steer::Arrived => {
                 outcome = "arrived";
                 break;
             }
             Steer::OffPath => {
-                let replanned = if recovery.allow(feet, steps as f64 * dt as f64) {
-                    follower.replanned(&nav.graph, Place { space, pos: feet }, &params).map_err(|e| e.to_string())
-                } else {
-                    Err("planned again too often from here".to_string())
-                };
-                match replanned {
-                    Ok(f) => {
-                        events.push(json!({"step": steps, "event": "replanned_off_path", "feet": feet, "length": f.path.length}));
-                        follower = f;
-                        unstuck.reset();
-                        continue;
+                let way = if airborne { Recovery::Waiting } else { follower.recover(&mut recovery, &nav.graph, Place { space, pos: feet }, walked, &params, dt) };
+                match way {
+                    // Stand (or fall) a step.
+                    Recovery::Waiting => {
+                        advance_doors(&mut lw.built.world, &mut walk_doors, &mut door_motion, dt);
+                        let s = lw.built.world.move_character(ch, CharacterInput::default());
+                        lw.built.world.step();
+                        steps += 1;
+                        feet = s.feet;
+                        on_ground = s.grounded;
                     }
-                    Err(e) => {
-                        events.push(json!({"step": steps, "event": "off_path_replan_failed", "feet": feet, "error": e}));
-                        outcome = "stuck";
-                        break;
+                    Recovery::Replanned(length) => {
+                        events.push(json!({"step": steps, "event": "replanned_off_path", "feet": feet, "length": length}));
+                        unstuck.reset();
+                    }
+                    Recovery::Waived(why) => {
+                        events.push(json!({"step": steps, "event": "off_path_height_waived", "feet": feet, "why": why}));
+                        unstuck.reset();
                     }
                 }
             }

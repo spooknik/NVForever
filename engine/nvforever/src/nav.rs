@@ -20,6 +20,7 @@ use crate::locomotion::Locomotion;
 use crate::world::{Streamer, WorldData, WorldRoot};
 use bevy::prelude::*;
 use fnv_nav::graph::{EdgeKind, NONE};
+use fnv_nav::follow::Recovery;
 use fnv_nav::{NavGraph, NavRecords, PathParams, Place, Space, Steer, WalkEvent, Walker};
 use fnv_sim::RefTable;
 use nvf_assets::actor::{ActorCtx, ActorParts};
@@ -53,8 +54,6 @@ pub struct Traveller {
     pub doors_opened: Vec<(u32, f32)>,
     /// Landings over ledges logged so far.
     landed: u32,
-    /// New ways planned when its path stopped fitting its feet.
-    recovery: fnv_nav::follow::PathRecovery,
 }
 
 /// The actor `--follow-npc` follows: the first traveller, else the first resident
@@ -217,7 +216,7 @@ impl NavState {
                     started: None,
                     arrived: None,
                     failed,
-                    next_report: 5.0, waiting: None, doors_opened: Vec::new(), landed: 0, recovery: Default::default(),
+                    next_report: 5.0, waiting: None, doors_opened: Vec::new(), landed: 0,
                 });
             }
         }
@@ -353,16 +352,14 @@ pub fn drive(
             tr.landed = tr.walker.landings;
             info!("nav: {} lands at ({:.0}, {:.0}, {:.0})", tr.label, tr.walker.feet[0], tr.walker.feet[1], tr.walker.feet[2]);
         }
-        // Its path no longer fits its feet: a new way from where it stands, or it has none.
+        // Its path does not fit its feet: a new way from where it stands, or it goes on as if
+        // it fitted.
         if ev == WalkEvent::PathLost {
             let f = tr.walker.feet;
-            let way = if tr.recovery.allow(f, now as f64) { tr.walker.replan(&nav.graph, &nav.params).map_err(|e| e.to_string()) } else { Err("planned again too often from here".to_string()) };
-            match way {
-                Ok(length) => info!("nav: {} at ({:.0}, {:.0}, {:.0}) is off its path's height: a new way, {length:.0} units", tr.label, f[0], f[1], f[2]),
-                Err(e) => {
-                    warn!("nav: {} at ({:.0}, {:.0}, {:.0}) is off its path's height: {e}", tr.label, f[0], f[1], f[2]);
-                    tr.failed = Some(e);
-                }
+            match tr.walker.recover(&nav.graph, &nav.params, dt) {
+                Recovery::Waiting => {}
+                Recovery::Replanned(length) => info!("nav: {} at ({:.0}, {:.0}, {:.0}) is off its path's height: a new way, {length:.0} units", tr.label, f[0], f[1], f[2]),
+                Recovery::Waived(why) => warn!("nav: {} at ({:.0}, {:.0}, {:.0}) is off its path's height, no new way ({why}): goes on by horizontal distance alone", tr.label, f[0], f[1], f[2]),
             }
         }
         match (ev, tr.waiting) {

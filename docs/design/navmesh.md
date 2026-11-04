@@ -116,58 +116,63 @@ triangles, its door stops and the door that ends it.
   Standing with its way more than 20° off its heading it first turns on the spot at
   120°/s (`WalkEvent::Turned`; docs/spec-notes/actors.md §8.9); `Walker::face` turns a
   standing walker to a heading the same way.
-- **Feet on another floor** (#1500) [design]. Distances, directions, the path's remaining
-  length, skipping, progress, facing, speed and the distance travelled are horizontal; but a
-  corner (by its radius or once passed), a door stop, a ledge's take-off or landing, the door
-  that ends a leg and the end of the path count as reached only with the feet at the path's
-  height (`Follower::steer`; also the first asking of a door, `door_ahead`, and the snap
-  to a take-off). A door stop already held stays held, however far the door pushes the
-  actor. Within reach seen from above but not at that height, the follower consumes
-  nothing and says `Steer::OffPath`; beyond a corner it does not fit, it heads back to it.
-  - *The tolerance* is 40 units (`HEIGHT_TOLERANCE`), against the walking segment at the
-    feet's place seen from above (projection clamped; a segment with no horizontal length
-    says nothing of a slope, and the point itself counts), never against the corner alone,
-    and with no radius-times-slope allowance, which could admit another floor. An ordinary
-    corner also fits by its outgoing segment, so walking down a slope past it is not
-    rejected. A ledge's flight is never interpolated. 40 is an engineering number, not
-    measured safe: step height 24, terrain shell 3.5 and a margin for the capsule's shape
-    and for mesh against collision, and the same as `LEVEL_GAP`. **Its limits:** nothing
-    bounds how far an authored navmesh is from its collision; floors stacked closer than 40
-    are not told apart; on a long straight segment the line's height is not the surface's
-    (shortcuts keep only the end's height, §3), so judging happens only near what is being
-    reached, where they meet; past a corner with a turning outgoing segment on a steep
-    slope, an actor is sent back to the corner.
-  - *Recovery.* `Walker` first puts feet it did not put there onto the navmesh under them
-    (its next step would); if they then fit it walks on, so an actor placed off the mesh
-    is as before. Otherwise `WalkEvent::PathLost`, standing where it is, the path kept. It
-    is not an arrival. `fnv_ai::Ai::walk` plans from the feet to the path's destination
-    with `path_params` (`Walker::replan`, `AiEvent::PathReplanned`). A failed plan goes the
-    way a walk with no way there goes (`AiEvent::PathLost`, then the package set aside; a
-    sandbox's own walk chooses again; a fight's, search's, flight's, conversation's,
-    fetch's or weapon use's walk sees the actor no longer on its way). `PathRecovery`
-    allows 3 plans until the actor has moved 256 units or 30 s have passed, so an actor no
-    plan helps fails rather than plan on every frame. A new path's first segment starts
-    at the surface under the feet, so it fits them. Its start more than 64 units over the
-    feet (`REPLAN_BELOW_LIMIT`) is a floor they cannot get back onto: no way. Feet further
-    than the tolerance from the only surface near show no other floor (on something the
-    navmesh does not know, a navmesh above its collision): the new path allows for that
-    (`height_offset`), and arrival there is what it was before.
-  - *Physics* (`residents.rs`, `PhysMover`): the outcome comes before the last stretch,
-    turning and skipping; the body stops on its surface and the AI plans. The last
-    stretch to the walker (furniture's final approach) needs the feet to fit too. In the
-    air nothing is called a fall until it lands, and a swimmer's height is not judged
-    (`steer_any_height`: its feet are at the water's surface).
-    `fnvtool nav walk` does the same, logging `replanned_off_path` events.
-  - *Left out, as separate policy:* a package's own idea of being there is not this
-    tolerance: `Ai::within` accepts a package's place within 256 units of height
-    (`carry.rs`) and can end a walk through it; Follow packages stop within 256 and set off
-    again by horizontal distance; combat spacing and formation order stay horizontal.
-    The walker's rule that a step takes the height of the navmesh near it (128 units) is
-    unchanged, so an actor left to the walker with no floor under it but one over it still
-    goes up to that one, as before. None of this was measured against the original.
-    A headless walk on the navmesh has its feet at the surface, so nothing changes; the one
-    exception is a ledge whose ends are within a corner's radius seen from above and more
-    than 40 apart in height: its flight, skipped before, is flown.
+- **Feet on another floor** (#1500) [design]. The rule: never worse off than without this
+  check. Distances, directions, the path's remaining length, skipping, progress, facing,
+  speed and distance travelled stay horizontal. The end of the path, a door (the first
+  asking, `door_ahead`, the first hold and its use), a ledge's take-off, and a corner reached
+  by its radius count only with the feet at that point's own height (`at_height`).
+  Within reach but off it, the follower consumes nothing and says `Steer::OffPath`. A door
+  stop already held stays held. A landing whose flight is still to come is walked on to
+  (flown), not skipped.
+  - *The tolerance:* 40 (`HEIGHT_TOLERANCE`) plus the horizontal distance to the point
+    times tan 60 degrees, the steepest slope an actor's character walks. Only points on the
+    navmesh are judged: heights between two path points are never interpolated, because a
+    shortcut's straight line over changing ground can be far from the surface. 40 is an
+    engineering number, not measured safe (step height 24, terrain shell 3.5, a margin for
+    the capsule's shape and mesh against collision; the same as `LEVEL_GAP`). **Its limits:**
+    it is tight next to a point (41.7 at the goal's radius of 1, 67.7 at a corner's 16) and
+    loose further off: at a door's 48 units it allows 123, so it cannot separate floors
+    closer than about 120 there, and at the last stretch's 64 it allows 151. Floors closer
+    than 40 are never told apart. Nothing bounds how far an authored navmesh is from
+    its collision.
+  - *A corner passed stays horizontal:* past a corner an actor may legitimately be far below
+    it on the outgoing slope, and only the corner's own height is available to judge by.
+  - *Recovery:* `Walker` first puts feet it did not put there onto the navmesh under them
+    (its next step would). If they still do not fit: `WalkEvent::PathLost`, standing where it
+    is, with the path kept. `Ai::walk` asks `Walker::recover`, which plans from the feet to
+    the path's destination with `path_params` (`AiEvent::PathReplanned`).
+  - *When recovery cannot help, the actor does what it did before this check:* a plan
+    that fails or starts more than 64 from the feet, up or down (`REPLAN_START_LIMIT`,
+    provisional), or the bound running out, waives the height on that path
+    (`Follower::height_waived`, `AiEvent::PathHeightWaived`, its own log line). It then
+    arrives or uses its door by horizontal distance alone, possibly on the wrong floor. No
+    package is set aside and no sandbox chooses again for this.
+  - *The bound* (`PathRecovery`): 3 new ways with less than 256 units walked between them, 8
+    in all, at least 0.5 s apart. `Walker::go_to` starts the count over for another
+    place; for about the same place (within 256, as Follow packages replan) it keeps it.
+  - *Physics* (`residents.rs`, `PhysMover`): the outcome comes before turning and skipping;
+    the body stops on its surface. In the air (the controller's `grounded`, a new body too
+    until its first step) no recovery starts and no last stretch is handed over, for at most
+    5 s (`SETTLE_SECONDS`). The last stretch to the walker needs the end to pass the same
+    check at its distance; else recovery, then as before. A swimmer's height is judged
+    neither for asking a door nor for using it (`Follower::swimming`).
+  - `fnvtool nav walk` follows the same rules (events `replanned_off_path`,
+    `off_path_height_waived`), but has no ledge hops, last stretch, stagger or furniture: it
+    does not validate the residents' lifecycle.
+  - *What can change against a build without this check* (not measured against the
+    original): an actor off a point's height stands up to about 1.5 s, or takes another way;
+    a walker's feet can go onto the navmesh before a step, even at the end of its path; a
+    path from the feet may differ from the rest of the old one; a ledge whose ends are
+    within a corner's radius seen from above and past the tolerance apart is now flown
+    instead of skipped, which takes longer; an actor in the air finishes its last steps
+    under physics. Recovery has only been exercised headless, with synthetic movers.
+  - *Left out, as separate policy:* a package's own idea of being there: `Ai::within`
+    accepts a package's place within 256 units of height (`carry.rs`) and can end a walk
+    through it; Follow packages stop within 256 and set off again by horizontal distance; a
+    weapon use's stand point is judged by horizontal distance; combat spacing and formation
+    stay horizontal. The walker's rule that a step takes the height of the navmesh near it
+    (128 units) is unchanged, so an actor left to the walker under a floor with none
+    beneath it still goes up to that floor.
 - At a door stop `Follower` returns `Steer::OpenDoor { door, at }` and keeps returning it,
   wherever the actor is pushed meanwhile, until the caller calls `door_opened` (§6.1).
   `Walker::update_with(nav, dt, open)` asks `open(door)` every update until it reports
