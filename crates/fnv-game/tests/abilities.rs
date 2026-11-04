@@ -820,7 +820,9 @@ fn a_start_script_starting_a_later_ability_leaves_it_missing_for_this_sync() {
     assert_eq!(g.extra[&P].spells, vec![FormId(READDS_LATER), FormId(DT_ABILITY)]);
     assert_eq!(effect_sources(&g, P), vec![READDS_LATER, DT_ABILITY, DT_ABILITY]);
     let before: Vec<u32> = g.effects.iter().map(|e| e.id).collect();
-    assert!(before.windows(2).all(|w| w[0] != w[1]), "each its own id: {before:?}");
+    // Every id differs from every other, not just its neighbour ([7, 8, 7] must fail).
+    let distinct: std::collections::HashSet<u32> = before.iter().copied().collect();
+    assert_eq!(distinct.len(), before.len(), "each its own id: {before:?}");
     g.sync_actor_effects(P);
     assert_eq!(g.effects.iter().map(|e| e.id).collect::<Vec<_>>(), before);
 }
