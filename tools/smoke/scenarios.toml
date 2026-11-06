@@ -21469,7 +21469,7 @@ expect = [
   { re = 'start: Startup [\d.]+ s; frame 1 [\d.]+ s: [\d.]+ s before Update, [\d.]+ s in Update, [\d.]+ s after it', count = 1, label = "the first frame's parts are timed" },
   { re = 'start: first render frame finished [\d.]+ s after frame 1 ended', count = 1, label = "and the first render frame" },
   { re = 'radio: \d+ stations .* read in \d+ ms', count = 1, label = "the radio's read arrives from its thread" },
-  { re = 'music: \d+ media sets .* read in \d+ ms', count = 1, label = "the audio places' read arrives from its thread" },
+  { re = 'music: \d+ media sets, .* read in \d+ ms', count = 1, label = "the audio places' read arrives from its thread" },
   { text = "music: in marker", label = "the music finds its place from them" },
 ]
 forbid = [{ text = "a start-up read stopped with a panic", label = "a read that failed" }]
