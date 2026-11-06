@@ -121,6 +121,7 @@ mod test_aid;
 pub use test_aid::melee_knockback::MeleeKnockbackAid;
 pub use test_aid::{drives_run, MEASURING_AIDS};
 pub mod sfx;
+pub mod start_read;
 pub mod sneak_gauges;
 pub mod ui_colour;
 pub mod language;

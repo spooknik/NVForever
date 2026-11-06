@@ -152,3 +152,8 @@ A travel asked for under it goes out behind it and is waited for too.
   and the emblem's place at 1280x720 and 1280x1024, its turning).
 - Smoke: `loading-screen-look`.
 - In the game (owner's data): Doc Mitchell's front door, both ways; see the pull request.
+- Where a start's first seconds go (`engine/nvforever/src/start_times.rs`, every run): `start:
+  Startup <s> s; frame 1 <s> s: <s> s before Update, <s> s in Update, <s> s after it` and
+  `start: first render frame finished <s> s after frame 1 ended`. For the systems inside
+  them: a `--features profile` build with `NVF_PLAY_TEST_PROFILE=1`, whose first `profile:`
+  line covers the first frames.

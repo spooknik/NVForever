@@ -21442,6 +21442,22 @@ expect = [
 forbid = [{ text = "pipelines not ready after", label = "the pipelines' cap" }, { text = "failed and will not be tried again", label = "a pipeline that failed for good" }, { text = "and no longer waited for", label = "a pipeline over the cap" }]
 
 [[scenario]]
+name = "start-times"
+source = "#1732: where a start's first seconds go, logged (engine/nvforever/src/start_times.rs); the radio's and the audio places' reads left the Startup schedule for threads of their own (engine/nvf-play/src/start_read.rs) and still arrive, with Goodsprings' music found from them"
+areas = ["renderer", "sound"]
+paths = ["engine/nvforever/src/start_times.rs", "engine/nvf-play/src/start_read.rs"]
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages", "--pos=-67900,1400,8500"]
+run_seconds = 2
+expect = [
+  { re = 'start: Startup [\d.]+ s; frame 1 [\d.]+ s: [\d.]+ s before Update, [\d.]+ s in Update, [\d.]+ s after it', count = 1, label = "the first frame's parts are timed" },
+  { re = 'start: first render frame finished [\d.]+ s after frame 1 ended', count = 1, label = "and the first render frame" },
+  { re = 'radio: \d+ stations .* read in \d+ ms', count = 1, label = "the radio's read arrives from its thread" },
+  { re = 'music: \d+ media sets .* read in \d+ ms', count = 1, label = "the audio places' read arrives from its thread" },
+  { text = "music: in marker", label = "the music finds its place from them" },
+]
+forbid = [{ text = "a start-up read stopped with a panic", label = "a read that failed" }]
+
+[[scenario]]
 name = "sierra-madre-lobby-hologram"
 source = "#1424: in the Sierra Madre lobby the starlet hologram (NVDLC01StarletHologramLobby, its effect shader NVDLC01HologramNeutral) is drawn see-through; its boxing tape's skinned shapes, hung rigidly from the hand, had no skin, and every blended draw of them was a GPU validation error until the run stopped"
 note = "before the fix 4 of 5 runs stopped after 20 rendering errors right after `covers 21 meshes`; after it 3 of 3 ran clean with the effect on and the actor alpha switching"
