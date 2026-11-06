@@ -778,7 +778,9 @@ pub fn loading_gate(
     }
     // Pipelines not ready: what they would draw is missing from the view, which keeps the
     // clear colour (`pipeline_gate`). Before the first render frame nothing has asked yet.
-    let pipelines = gate.frames() == 0 || gate.busy() > 0;
+    // The start's screen waits for all of them, a travel under it included.
+    let busy_now = if loading.travelling() && !loading.starting() { gate.busy_for_travel() } else { gate.busy() };
+    let pipelines = gate.frames() == 0 || busy_now > 0;
     if loading.pipelines_busy != pipelines {
         loading.pipelines_busy = pipelines;
     }

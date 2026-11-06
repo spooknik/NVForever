@@ -138,6 +138,9 @@ A travel asked for under it goes out behind it and is waited for too.
 - Travel without `--play` (the free camera following `--npc-travel` NPCs) is unchanged:
   no loading screen.
 - The game's rules for choosing a screen are open (spec note §3).
+- Whether a travel's screen should wait for the sun's shadow pipelines is open (#1732): test
+  aid `NVF_PLAY_TEST_TRAVEL_SKIP_SUN_SHADOWS=1` has it not wait, so that both can be measured
+  (`engine/nvforever/src/pipeline_gate.rs`, `sun_shadow`). The start's screen always waits.
 - Test aid: `NVF_PLAY_TEST_LOADING_SHOT=<png>` saves the window when the travel goes out
   (the screen is up); later screens of the run go to `<name>-2.png`, and so on.
 

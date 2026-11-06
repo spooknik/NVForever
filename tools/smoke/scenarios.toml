@@ -20513,6 +20513,23 @@ expect = [
 order = [["nvf mcm install check 1", "tiles: a mod's tiles in StartMenu", "pause menu: mods page", "scripts: MenuMode 1013 blocks run", "pause menu: mods page closed", "nvf mcm install check 0"]]
 
 [[scenario]]
+name = "travel-skip-sun-shadows"
+source = "#1732: test aid NVF_PLAY_TEST_TRAVEL_SKIP_SUN_SHADOWS has a travel's screen not wait for the sun's shadow pipelines (engine/nvforever/src/pipeline_gate.rs), to compare both ways by measuring; their label alone cannot tell them from a camera's prepass, so this also checks that the test finds some"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/pipeline_gate.rs"]
+env = { NVF_PLAY_TEST_TRAVEL_SKIP_SUN_SHADOWS = "1", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "2:cow WastelandNV -6 3;2.3:close" }
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 12
+expect = [
+  { text = "test aid NVF_PLAY_TEST_TRAVEL_SKIP_SUN_SHADOWS: a travel's screen does not wait", label = "the aid is on" },
+  { re = 'pipeline \d+ asked: (pbr_)?prepass_pipeline \(sun shadow\)', label = "pipelines are found to be the sun's shadows" },
+  { re = 'pipeline \d+ asked: (pbr_)?prepass_pipeline$', label = "and the camera's prepass pipelines are not taken for them" },
+  { re = 'loading screen down after [\d.]+ s \(the start', label = "the start's screen comes down" },
+  { re = 'loading screen down after [\d.]+ s\s*$', label = "the travel's screen comes down" },
+]
+forbid = [{ text = "pipelines not ready after", label = "the pipelines' cap" }]
+
+[[scenario]]
 name = "start-conversation-walks-up"
 source = "issue #1544 (owner): the Legion explorers about Nelson greeted the player halfway to Novac. Their script (nvNelsonExplorerBarkSCRIPT) calls StartConversation Player once its GameMode runs, and the conversation opened at once from 10,099 units off. With the AI running, StartConversation's speaker now walks up first (fnv_game Game::walk_up_greet, fnv_ai Ai::walk_up_step)"
 note = "the player stands near Ranger Milo's post at (42000, -38000), noon; explorer 01 (0x0014F408) is placed at (51986, -38898). It runs over and opens the conversation once within 150 units, about 18 game minutes later"
