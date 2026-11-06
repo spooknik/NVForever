@@ -1416,8 +1416,10 @@ pub struct CombatStyleDef {
     pub cannot_use_stealthboy: bool,
 }
 
-/// Everything read from one winning record.
-#[derive(Default)]
+/// Everything read from one winning record. Large (3,848 bytes [observed: `size_of`,
+/// 2026-11-06]), so it travels boxed: each move of one is that many bytes copied, and
+/// [`reads_nothing`] spares most records one altogether.
+#[derive(Debug, Default)]
 struct Read {
     edid: Option<String>,
     /// FULL: the name the player sees.
@@ -1499,7 +1501,36 @@ const READ_SLICE: usize = 16_384;
 /// Whether [`read_one`] finds script units in the record: a [`UNIT_SIGS`] type, or a
 /// patrol point's result script (REFR with XPPA).
 fn carries_units(r: &Record) -> bool {
-    UNIT_SIGS.contains(&&r.header.sig) || (&r.header.sig == b"REFR" && r.subrecords().is_ok_and(|subs| subs.iter().any(|s| &s.sig == b"XPPA")))
+    UNIT_SIGS.contains(&&r.header.sig) || (&r.header.sig == b"REFR" && has_any_sub(r, &[*b"XPPA"]))
+}
+
+/// Whether the record is readable and has one of `subs`; an unreadable record has none, as
+/// [`Record::subrecords`] gives it none.
+fn has_any_sub(r: &Record, subs: &[[u8; 4]]) -> bool {
+    let mut found = false;
+    r.visit_subrecords(|sig, _| found |= subs.contains(sig)).is_ok() && found
+}
+
+/// The most common record types, none of which [`read_one`] treats by type except for the
+/// [`BULK_READ_SUBS`] it looks for. Of 628,464 winning records of the base game with its
+/// add-ons, 419,409 are REFR and 42,467 LAND [observed: count, 2026-11-06].
+const BULK_SIGS: [[u8; 4]; 6] = [*b"REFR", *b"ACHR", *b"ACRE", *b"PGRE", *b"LAND", *b"NAVM"];
+
+/// All that [`read_one`] looks for in a record of the [`BULK_SIGS`] types: the name fields
+/// and script every record may have, a destructible's data, a patrol point's script and an
+/// owner's rank.
+const BULK_READ_SUBS: [[u8; 4]; 6] = [*b"EDID", *b"FULL", *b"SCRI", *b"DEST", *b"XPPA", *b"XRNK"];
+
+/// Whether [`read_one`] would find nothing in the record, so it need not run: a readable
+/// record of a [`BULK_SIGS`] type with none of the [`BULK_READ_SUBS`]. A new read of such a
+/// type in [`read_one`] must add its subrecord to the list; a test gives [`read_one`] every
+/// subrecord the schema knows for these types, so it catches one left out.
+fn reads_nothing(r: &Record) -> bool {
+    if !BULK_SIGS.contains(&r.header.sig) {
+        return false;
+    }
+    let mut found = false;
+    r.visit_subrecords(|sig, _| found |= BULK_READ_SUBS.contains(sig)).is_ok() && !found
 }
 
 /// The base form types whose OBND [`GameData::object_bounds`] keeps (GetObjectDimensions).
@@ -1705,16 +1736,17 @@ impl GameData {
             .collect();
         // The records with script units are read first (their units are decoded before the
         // rest is taken in); every other record is read a slice at a time as the loop below
-        // takes it in. A `Read` is about 3.8 KB and the base game with its add-ons has about
-        // 900 000 winning records: read all at once, they held some 3.3 GB until the build
-        // ended, at every start and in both runs of a load while playing (#1357).
+        // takes it in. A `Read` is about 3.8 KB: read all at once, the winning records held
+        // some GB until the build ended, at every start and in both runs of a load while
+        // playing (#1357). Most of them hold nothing and take no memory ([`reads_nothing`]).
         let mut winners = winners;
-        winners.sort_by_key(|w| w.0);
+        // Each form is listed once, so any sort gives this one order.
+        winners.par_sort_unstable_by_key(|w| w.0);
         clock.lap(&format!("{} winning records listed and sorted", winners.len()));
-        let mut unit_reads: Vec<(u32, Read)> = winners
+        let mut unit_reads: Vec<(u32, Box<Read>)> = winners
             .par_iter()
             .filter(|w| carries_units(w.2))
-            .map(|&(g, pi, r)| (g, read_one(lo, schema, &param_types, g, pi, r)))
+            .map(|&(g, pi, r)| (g, Box::new(read_one(lo, schema, &param_types, g, pi, r))))
             .collect();
         clock.lap(&format!("{} records with script units read", unit_reads.len()));
         let item_order: HashMap<FormId, (u8, u32)> = lo
@@ -1731,9 +1763,16 @@ impl GameData {
             .par_iter()
             .filter(|(_, _, r)| BOUNDS_SIGS.contains(&r.header.sig))
             .filter_map(|&(g, _, r)| {
-                let s = r.subrecords().ok()?.into_iter().find(|s| &s.sig == b"OBND")?;
-                let v: Vec<i16> = s.data.as_chunks::<2>().0.iter().take(6).map(|b| i16::from_le_bytes(*b)).collect();
-                Some((FormId(g), <[i16; 6]>::try_from(v).ok()?))
+                // The first OBND of a readable record, if it holds six values.
+                let mut first: Option<Option<[i16; 6]>> = None;
+                r.visit_subrecords(|sig, data| {
+                    if sig == b"OBND" && first.is_none() {
+                        let v = data.as_chunks::<2>().0;
+                        first = Some((v.len() >= 6).then(|| std::array::from_fn(|i| i16::from_le_bytes(v[i]))));
+                    }
+                })
+                .ok()?;
+                Some((FormId(g), first??))
             })
             .collect();
         clock.lap("object bounds");
@@ -1837,306 +1876,331 @@ impl GameData {
             read_issues: ReadIssues::default(),
         };
         // Decode every unit once.
-        let mut all_units: Vec<(FormId, ScriptUnit)> = Vec::new();
-        for (id, r) in &mut unit_reads {
-            for u in r.units.drain(..) {
-                all_units.push((FormId(*id), u));
-            }
+        let mut all_units: Vec<ScriptUnit> = Vec::new();
+        for (_, r) in &mut unit_reads {
+            all_units.append(&mut r.units);
         }
         let unit_count = all_units.len();
-        let mut compiled: Vec<(FormId, Compiled)> = all_units
+        let compiled: Vec<Compiled> = all_units
             .into_par_iter()
-            .map(|(id, unit)| {
+            .map(|unit| {
                 let dec = decode(&unit.bytes, &d.table);
                 let raw = dec.report.raw_total();
-                (id, Compiled::new(unit, dec.program, raw))
+                Compiled::new(unit, dec.program, raw)
             })
             .collect();
         clock.lap(&format!("{unit_count} units decoded"));
-        crate::source_compile::apply(lo, &d.table, &mut compiled, &mut d.issues);
-        clock.lap("source compile check");
-        let mut unit_of: HashMap<String, UnitId> = HashMap::new();
-        for (_, c) in compiled {
-            unit_of.insert(c.unit.owner.label(), d.units.len());
-            d.unit_by_key.entry(c.key()).or_insert(d.units.len());
-            d.units.push(c);
+        // By owner, not by [`UnitOwner::label`]: two owners have one label only when they are
+        // equal [design: the label prints every field], so a lookup finds the same unit
+        // without writing out a label for every record.
+        let mut unit_of: HashMap<UnitOwner, UnitId> = HashMap::with_capacity(compiled.len());
+        d.unit_by_key.reserve(compiled.len());
+        let mut units: Vec<Compiled> = Vec::with_capacity(compiled.len());
+        for c in compiled {
+            unit_of.insert(c.unit.owner.clone(), units.len());
+            d.unit_by_key.entry(c.key()).or_insert(units.len());
+            units.push(c);
         }
         clock.lap("units indexed");
-        let label = |o: UnitOwner| o.label();
-        // In form order, as one list read all at once was.
-        let mut unit_reads: HashMap<u32, Read> = unit_reads.into_iter().collect();
-        // The reads run a slice at a time inside the loop below: their time is summed here,
-        // and the rest of the loop's is the taking in.
-        let read_time = std::cell::Cell::new(std::time::Duration::ZERO);
-        let move_time = std::cell::Cell::new(std::time::Duration::ZERO);
-        let reads = winners.chunks(READ_SLICE).flat_map(|slice| {
-            let read_start = std::time::Instant::now();
-            let read: Vec<Option<Read>> = slice.par_iter().map(|&(g, pi, r)| (!unit_reads.contains_key(&g)).then(|| read_one(lo, schema, &param_types, g, pi, r))).collect();
-            read_time.set(read_time.get() + read_start.elapsed());
-            let move_start = std::time::Instant::now();
-            let taken: Vec<(FormId, [u8; 4], Read)> =
-                slice.iter().zip(read).map(|(&(g, _, r), read)| (FormId(g), r.header.sig, read.or_else(|| unit_reads.remove(&g)).unwrap_or_default())).collect();
-            move_time.set(move_time.get() + move_start.elapsed());
-            taken
-        });
-        for (id, sig, r) in reads {
-            d.sigs.insert(id, sig);
-            if let Some(e) = r.edid {
-                d.edids.entry(e.to_ascii_lowercase()).or_insert(id);
-                d.edid_of.insert(id, e);
-            }
-            if let Some(n) = r.full {
-                d.full_names.insert(id, n);
-            }
-            if let Some(s) = r.script {
-                d.form_script.insert(id, s);
-            }
-            d.issues.merge(r.issues);
-            d.read_issues.merge(r.read_issues);
-            match &sig {
-                b"SCPT" => {
-                    // SCHR flag "Enabled" clear: the script does not run [documented: xEdit
-                    // SCHR flags; hypothesis: what a disabled script does, logic-fields.md
-                    // §2]. One master script has it clear (l38upgradeGunRack01SCRIPT).
-                    if let Some(&u) = unit_of.get(&label(UnitOwner::Script { form: id.0 })).filter(|&&u| d.units[u].unit.header.flags & 1 != 0) {
-                        d.scripts.insert(id, u);
-                    }
+        d.sigs.reserve(winners.len());
+        // The units picked for it compile while the records are read: the loop below reads
+        // of a unit only what `source_compile::apply` leaves alone.
+        let table = std::mem::take(&mut d.table);
+        let recompiled = std::thread::scope(|scope| {
+            let compile = scope.spawn(|| crate::source_compile::compile_picked(lo, &table, &units));
+            // In form order, as one list read all at once was.
+            let mut unit_reads: HashMap<u32, Box<Read>> = unit_reads.into_iter().collect();
+            // The reads run a slice at a time inside the loop below: their time is summed here,
+            // and the rest of the loop's is the taking in.
+            let read_time = std::cell::Cell::new(std::time::Duration::ZERO);
+            let move_time = std::cell::Cell::new(std::time::Duration::ZERO);
+            let reads = winners.chunks(READ_SLICE).flat_map(|slice| {
+                let read_start = std::time::Instant::now();
+                let read: Vec<Option<Box<Read>>> = slice
+                    .par_iter()
+                    .map(|&(g, pi, r)| {
+                        if unit_reads.contains_key(&g) {
+                            return None;
+                        }
+                        (!reads_nothing(r)).then(|| Box::new(read_one(lo, schema, &param_types, g, pi, r)))
+                    })
+                    .collect();
+                read_time.set(read_time.get() + read_start.elapsed());
+                let move_start = std::time::Instant::now();
+                // `None`: nothing read ([`reads_nothing`]).
+                let taken: Vec<(FormId, [u8; 4], Option<Box<Read>>)> =
+                    slice.iter().zip(read).map(|(&(g, _, r), read)| (FormId(g), r.header.sig, read.or_else(|| unit_reads.remove(&g)))).collect();
+                move_time.set(move_time.get() + move_start.elapsed());
+                taken
+            });
+            for (id, sig, r) in reads {
+                d.sigs.insert(id, sig);
+                let Some(r) = r else { continue };
+                if let Some(e) = r.edid {
+                    d.edids.entry(e.to_ascii_lowercase()).or_insert(id);
+                    d.edid_of.insert(id, e);
                 }
-                b"QUST" => {
-                    if let Some(mut q) = r.quest {
-                        for (stage, entries) in q.stages.iter_mut() {
-                            for (n, e) in entries.iter_mut().enumerate() {
-                                e.unit = unit_of
-                                    .get(&label(UnitOwner::QuestStage { form: id.0, stage: *stage as i64, entry: n as u32 }))
-                                    .copied()
-                                    .filter(|&u| d.units[u].unit.has_scda);
+                if let Some(n) = r.full {
+                    d.full_names.insert(id, n);
+                }
+                if let Some(s) = r.script {
+                    d.form_script.insert(id, s);
+                }
+                d.issues.merge(r.issues);
+                d.read_issues.merge(r.read_issues);
+                match &sig {
+                    b"SCPT" => {
+                        // SCHR flag "Enabled" clear: the script does not run [documented: xEdit
+                        // SCHR flags; hypothesis: what a disabled script does, logic-fields.md
+                        // §2]. One master script has it clear (l38upgradeGunRack01SCRIPT).
+                        if let Some(&u) = unit_of.get(&UnitOwner::Script { form: id.0 }).filter(|&&u| units[u].unit.header.flags & 1 != 0) {
+                            d.scripts.insert(id, u);
+                        }
+                    }
+                    b"QUST" => {
+                        if let Some(mut q) = r.quest {
+                            for (stage, entries) in q.stages.iter_mut() {
+                                for (n, e) in entries.iter_mut().enumerate() {
+                                    e.unit = unit_of
+                                        .get(&UnitOwner::QuestStage { form: id.0, stage: *stage as i64, entry: n as u32 })
+                                        .copied()
+                                        .filter(|&u| units[u].unit.has_scda);
+                                }
                             }
+                            d.quests.insert(id, q);
                         }
-                        d.quests.insert(id, q);
                     }
-                }
-                b"INFO" => {
-                    let mut info = r.info.unwrap_or_default();
-                    let unit = |end| {
-                        unit_of.get(&label(UnitOwner::Info { form: id.0, end })).copied().filter(|&u| d.units[u].unit.has_scda)
-                    };
-                    info.begin = unit(false);
-                    info.end = unit(true);
-                    d.infos.insert(id, info);
-                }
-                b"REFR" => {
-                    if let Some(&u) = unit_of.get(&label(UnitOwner::Patrol { form: id.0 })).filter(|&&u| d.units[u].unit.has_scda) {
-                        d.patrol_scripts.insert(id, u);
+                    b"INFO" => {
+                        let mut info = r.info.unwrap_or_default();
+                        let unit = |end| {
+                            unit_of.get(&UnitOwner::Info { form: id.0, end }).copied().filter(|&u| units[u].unit.has_scda)
+                        };
+                        info.begin = unit(false);
+                        info.end = unit(true);
+                        d.infos.insert(id, info);
                     }
-                }
-                b"PACK" => {
-                    use fnv_script::unit::PackageEvent as P;
-                    let unit = |event| {
-                        unit_of.get(&label(UnitOwner::Package { form: id.0, event })).copied().filter(|&u| d.units[u].unit.has_scda)
-                    };
-                    let p = [unit(P::Begin), unit(P::End), unit(P::Change)];
-                    if p.iter().any(Option::is_some) {
-                        d.packages.insert(id, p);
-                    }
-                }
-                b"TERM" => {
-                    if let Some(mut t) = r.terminal {
-                        for (n, item) in t.items.iter_mut().enumerate() {
-                            item.unit = unit_of
-                                .get(&label(UnitOwner::Terminal { form: id.0, item: n as u32 }))
-                                .copied()
-                                .filter(|&u| d.units[u].unit.has_scda);
+                    b"REFR" => {
+                        if let Some(&u) = unit_of.get(&UnitOwner::Patrol { form: id.0 }).filter(|&&u| units[u].unit.has_scda) {
+                            d.patrol_scripts.insert(id, u);
                         }
-                        d.terminals.insert(id, t);
                     }
-                }
-                _ => {}
-            }
-            if let Some(mut t) = r.topic {
-                t.form = id;
-                d.topic_defs.insert(id, t);
-            }
-            if let Some(n) = r.note {
-                d.notes.insert(id, n);
-            }
-            if let Some(m) = r.message {
-                d.messages.insert(id, m);
-            }
-            if let Some(l) = r.form_list {
-                d.form_lists.insert(id, l);
-            }
-            if let Some(i) = r.menu_icon {
-                d.menu_icons.insert(id, i);
-            }
-            if let Some(a) = r.actor {
-                d.actors.insert(id, a);
-            }
-            if let Some(c) = r.combat_style {
-                d.combat_styles.insert(id, c);
-            }
-            if let Some(l) = r.leveled_actor {
-                d.leveled_actors.insert(id, l);
-            }
-            if let Some(p) = r.package {
-                d.package_defs.insert(id, p);
-            }
-            if let Some(v) = r.reputation {
-                d.reputations.insert(id, v);
-            }
-            if let Some(v) = r.reputation_name {
-                d.reputation_names.insert(id, v);
-            }
-            if let Some(mut c) = r.challenge {
-                c.form = id;
-                d.challenges.insert(id, c.flags);
-                d.challenge_thresholds.insert(id, c.threshold);
-                d.challenge_defs.insert(id, c);
-            }
-            if let Some(v) = r.region {
-                d.regions.insert(id, v);
-            }
-            if let Some(v) = r.magic_effect {
-                d.magic_effects.insert(id, v);
-            }
-            if let Some(v) = r.effects {
-                d.effect_items.insert(id, v);
-            }
-            if let Some(v) = r.ingestible {
-                d.ingestibles.insert(id, v);
-            }
-            if let Some(v) = r.spell_type {
-                d.spell_types.insert(id, v);
-            }
-            if let Some(v) = r.spell_flags.filter(|&v| v != 0) {
-                d.spell_flags.insert(id, v);
-            }
-            if let Some(v) = r.race_spells.filter(|v| !v.is_empty()) {
-                d.race_spells.insert(id, v);
-            }
-            if r.voice_default == Some(false) {
-                d.voices_without_default.insert(id);
-            }
-            if let Some(v) = r.object_effect {
-                d.armor_enchantments.insert(id, v);
-            }
-            if let Some(v) = r.repair_list {
-                d.repair_lists.insert(id, v);
-            }
-            if let Some(v) = r.enchantment_type {
-                d.enchantment_types.insert(id, v);
-            }
-            if r.child_race {
-                d.child_races.insert(id);
-            }
-            if let Some(v) = r.race_older {
-                d.race_older.insert(id, v);
-            }
-            if let Some(v) = r.race_younger {
-                d.race_younger.insert(id, v);
-            }
-            if let Some(v) = r.faction {
-                d.faction_reactions.insert(id, v);
-            }
-            if let Some(v) = r.destruction {
-                d.destructibles.insert(id, v);
-            }
-            if let Some(v) = r.weapon_skill {
-                d.weapon_skills.insert(id, v);
-            }
-            if let Some(v) = r.weapon_anim_type {
-                d.weapon_anim_types.insert(id, v);
-            }
-            if let Some(v) = r.furniture {
-                d.furniture.insert(id, v);
-            }
-            if let Some(v) = r.idle_marker {
-                d.idle_markers.insert(id, v);
-            }
-            if let Some(v) = r.idle {
-                d.idles.insert(id, v);
-            }
-            if let Some(v) = r.image_modifier {
-                d.image_modifiers.insert(id, v);
-            }
-            if let Some(mut v) = r.perk {
-                // An entry's script (an activate choice's, `crate::activate_choices`).
-                for e in &mut v.entries {
-                    if let PerkEffect::EntryPoint(ep) = &mut e.effect {
-                        ep.unit = unit_of.get(&label(UnitOwner::Perk { form: id.0, entry: e.ordinal })).copied().filter(|&u| d.units[u].unit.has_scda);
+                    b"PACK" => {
+                        use fnv_script::unit::PackageEvent as P;
+                        let unit = |event| {
+                            unit_of.get(&UnitOwner::Package { form: id.0, event }).copied().filter(|&u| units[u].unit.has_scda)
+                        };
+                        let p = [unit(P::Begin), unit(P::End), unit(P::Change)];
+                        if p.iter().any(Option::is_some) {
+                            d.packages.insert(id, p);
+                        }
                     }
+                    b"TERM" => {
+                        if let Some(mut t) = r.terminal {
+                            for (n, item) in t.items.iter_mut().enumerate() {
+                                item.unit = unit_of
+                                    .get(&UnitOwner::Terminal { form: id.0, item: n as u32 })
+                                    .copied()
+                                    .filter(|&u| units[u].unit.has_scda);
+                            }
+                            d.terminals.insert(id, t);
+                        }
+                    }
+                    _ => {}
                 }
-                d.perks.insert(id, v);
-            }
-            if let Some(v) = r.av_info {
-                d.actor_value_infos.insert(id, v);
-            }
-            if let Some(v) = r.recipe {
-                d.recipes.insert(id, v);
-            }
-            if let Some(v) = r.camera_path {
-                d.camera_paths.insert(id, v);
-            }
-            if let Some(v) = r.camera_shot {
-                d.camera_shots.insert(id, v);
-            }
-            if let Some(v) = r.recipe_category {
-                d.recipe_categories.insert(id, v);
-            }
-            if let Some(v) = r.casino {
-                d.casinos.insert(id, v);
-            }
-            if let Some(v) = r.class_services {
-                d.class_services.insert(id, v);
-            }
-            if let Some(v) = r.caravan_card {
-                d.caravan_cards.insert(id, v);
-            }
-            if let Some(v) = r.caravan_deck {
-                d.caravan_decks.insert(id, v);
-            }
-            if let Some(v) = r.faction_flags {
-                d.faction_flags.insert(id, v);
-            }
-            if let Some(v) = r.faction_reputation {
-                d.faction_reputations.insert(id, v);
-            }
-            if let Some(v) = r.cell.filter(crate::crime::CellDef::matters) {
-                d.cells.insert(id, v);
-            }
-            if let Some(v) = r.owner_rank {
-                d.owner_ranks.insert(id, v);
-            }
-            if let Some((code, threshold, spell)) = r.need_stage {
-                d.need_stages.entry(code).or_default().push(NeedStage { stage: id, threshold, spell });
-            }
-            if let Some(spell) = r.water_effect {
-                d.water_effects.insert(id, spell);
-            }
-            if let Some(water) = r.drink_water {
-                d.drink_waters.insert(id, water);
-            }
-            if let Some(list) = r.default_objects {
-                d.default_objects = list;
-            }
-            match r.water_damage {
-                Some(n) if n > 0 => {
-                    d.water_damage.insert(id, n as f64);
+                if let Some(mut t) = r.topic {
+                    t.form = id;
+                    d.topic_defs.insert(id, t);
                 }
-                Some(_) => {
-                    d.water_damage.remove(&id);
+                if let Some(n) = r.note {
+                    d.notes.insert(id, n);
                 }
-                None => {}
+                if let Some(m) = r.message {
+                    d.messages.insert(id, m);
+                }
+                if let Some(l) = r.form_list {
+                    d.form_lists.insert(id, l);
+                }
+                if let Some(i) = r.menu_icon {
+                    d.menu_icons.insert(id, i);
+                }
+                if let Some(a) = r.actor {
+                    d.actors.insert(id, a);
+                }
+                if let Some(c) = r.combat_style {
+                    d.combat_styles.insert(id, c);
+                }
+                if let Some(l) = r.leveled_actor {
+                    d.leveled_actors.insert(id, l);
+                }
+                if let Some(p) = r.package {
+                    d.package_defs.insert(id, p);
+                }
+                if let Some(v) = r.reputation {
+                    d.reputations.insert(id, v);
+                }
+                if let Some(v) = r.reputation_name {
+                    d.reputation_names.insert(id, v);
+                }
+                if let Some(mut c) = r.challenge {
+                    c.form = id;
+                    d.challenges.insert(id, c.flags);
+                    d.challenge_thresholds.insert(id, c.threshold);
+                    d.challenge_defs.insert(id, c);
+                }
+                if let Some(v) = r.region {
+                    d.regions.insert(id, v);
+                }
+                if let Some(v) = r.magic_effect {
+                    d.magic_effects.insert(id, v);
+                }
+                if let Some(v) = r.effects {
+                    d.effect_items.insert(id, v);
+                }
+                if let Some(v) = r.ingestible {
+                    d.ingestibles.insert(id, v);
+                }
+                if let Some(v) = r.spell_type {
+                    d.spell_types.insert(id, v);
+                }
+                if let Some(v) = r.spell_flags.filter(|&v| v != 0) {
+                    d.spell_flags.insert(id, v);
+                }
+                if let Some(v) = r.race_spells.filter(|v| !v.is_empty()) {
+                    d.race_spells.insert(id, v);
+                }
+                if r.voice_default == Some(false) {
+                    d.voices_without_default.insert(id);
+                }
+                if let Some(v) = r.object_effect {
+                    d.armor_enchantments.insert(id, v);
+                }
+                if let Some(v) = r.repair_list {
+                    d.repair_lists.insert(id, v);
+                }
+                if let Some(v) = r.enchantment_type {
+                    d.enchantment_types.insert(id, v);
+                }
+                if r.child_race {
+                    d.child_races.insert(id);
+                }
+                if let Some(v) = r.race_older {
+                    d.race_older.insert(id, v);
+                }
+                if let Some(v) = r.race_younger {
+                    d.race_younger.insert(id, v);
+                }
+                if let Some(v) = r.faction {
+                    d.faction_reactions.insert(id, v);
+                }
+                if let Some(v) = r.destruction {
+                    d.destructibles.insert(id, v);
+                }
+                if let Some(v) = r.weapon_skill {
+                    d.weapon_skills.insert(id, v);
+                }
+                if let Some(v) = r.weapon_anim_type {
+                    d.weapon_anim_types.insert(id, v);
+                }
+                if let Some(v) = r.furniture {
+                    d.furniture.insert(id, v);
+                }
+                if let Some(v) = r.idle_marker {
+                    d.idle_markers.insert(id, v);
+                }
+                if let Some(v) = r.idle {
+                    d.idles.insert(id, v);
+                }
+                if let Some(v) = r.image_modifier {
+                    d.image_modifiers.insert(id, v);
+                }
+                if let Some(mut v) = r.perk {
+                    // An entry's script (an activate choice's, `crate::activate_choices`).
+                    for e in &mut v.entries {
+                        if let PerkEffect::EntryPoint(ep) = &mut e.effect {
+                            ep.unit = unit_of.get(&UnitOwner::Perk { form: id.0, entry: e.ordinal }).copied().filter(|&u| units[u].unit.has_scda);
+                        }
+                    }
+                    d.perks.insert(id, v);
+                }
+                if let Some(v) = r.av_info {
+                    d.actor_value_infos.insert(id, v);
+                }
+                if let Some(v) = r.recipe {
+                    d.recipes.insert(id, v);
+                }
+                if let Some(v) = r.camera_path {
+                    d.camera_paths.insert(id, v);
+                }
+                if let Some(v) = r.camera_shot {
+                    d.camera_shots.insert(id, v);
+                }
+                if let Some(v) = r.recipe_category {
+                    d.recipe_categories.insert(id, v);
+                }
+                if let Some(v) = r.casino {
+                    d.casinos.insert(id, v);
+                }
+                if let Some(v) = r.class_services {
+                    d.class_services.insert(id, v);
+                }
+                if let Some(v) = r.caravan_card {
+                    d.caravan_cards.insert(id, v);
+                }
+                if let Some(v) = r.caravan_deck {
+                    d.caravan_decks.insert(id, v);
+                }
+                if let Some(v) = r.faction_flags {
+                    d.faction_flags.insert(id, v);
+                }
+                if let Some(v) = r.faction_reputation {
+                    d.faction_reputations.insert(id, v);
+                }
+                if let Some(v) = r.cell.filter(crate::crime::CellDef::matters) {
+                    d.cells.insert(id, v);
+                }
+                if let Some(v) = r.owner_rank {
+                    d.owner_ranks.insert(id, v);
+                }
+                if let Some((code, threshold, spell)) = r.need_stage {
+                    d.need_stages.entry(code).or_default().push(NeedStage { stage: id, threshold, spell });
+                }
+                if let Some(spell) = r.water_effect {
+                    d.water_effects.insert(id, spell);
+                }
+                if let Some(water) = r.drink_water {
+                    d.drink_waters.insert(id, water);
+                }
+                if let Some(list) = r.default_objects {
+                    d.default_objects = list;
+                }
+                let damage = r.water_damage;
+                match damage {
+                    Some(n) if n > 0 => {
+                        d.water_damage.insert(id, n as f64);
+                    }
+                    Some(_) => {
+                        d.water_damage.remove(&id);
+                    }
+                    None => {}
+                }
             }
-        }
-        {
-            let read_ms = read_time.get().as_secs_f64() * 1e3;
-            let all_ms = clock.last.elapsed().as_secs_f64() * 1e3;
-            tracing::info!("script build: other records read: {read_ms:.0} ms (a slice at a time, {READ_SLICE} records)");
-            let move_ms = move_time.get().as_secs_f64() * 1e3;
-            tracing::info!("script build: records moved out of the slices: {move_ms:.0} ms");
-            tracing::info!("script build: records taken in: {:.0} ms", all_ms - read_ms - move_ms);
-            clock.last = std::time::Instant::now();
-        }
+            {
+                let read_ms = read_time.get().as_secs_f64() * 1e3;
+                let all_ms = clock.last.elapsed().as_secs_f64() * 1e3;
+                tracing::info!("script build: other records read: {read_ms:.0} ms (a slice at a time, {READ_SLICE} records)");
+                let move_ms = move_time.get().as_secs_f64() * 1e3;
+                tracing::info!("script build: records moved out of the slices: {move_ms:.0} ms");
+                tracing::info!("script build: records taken in: {:.0} ms", all_ms - read_ms - move_ms);
+                clock.last = std::time::Instant::now();
+            }
+            let recompiled = compile.join().unwrap_or_else(|p| std::panic::resume_unwind(p));
+            clock.lap("waited for the source compile");
+            recompiled
+        });
+        d.table = table;
+        crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+        d.units = units;
+        clock.lap("source compile results put in");
         for stages in d.need_stages.values_mut() {
             stages.sort_by_key(|s| (s.threshold, s.stage));
         }
@@ -3568,5 +3632,119 @@ mod unit_key_tests {
         }
         let c = Compiled::new(unit("FalloutNV.esm", UnitOwner::QuestStage { form: 0x0010_4C1C, stage: 10, entry: 0 }), Program::default(), 0);
         assert_eq!(c.key(), "FalloutNV.esm|QUST 0x00104C1C stage 10 entry 0");
+    }
+}
+
+#[cfg(test)]
+mod reads_nothing_tests {
+    use super::*;
+    use fnv_esm::raw::{write_subrecords, Subrecord};
+    use fnv_esm::Plugin;
+
+    fn sub(sig: [u8; 4], data: &[u8]) -> Subrecord {
+        Subrecord { sig, data: data.to_vec(), extended: false }
+    }
+
+    fn record(sig: &[u8; 4], fid: u32, payload: &[u8]) -> Vec<u8> {
+        [&sig[..], &(payload.len() as u32).to_le_bytes(), &0u32.to_le_bytes(), &fid.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], payload].concat()
+    }
+
+    /// A plugin of these records, as it is parsed from a file. No game data.
+    fn plugin(records: &[Vec<u8>]) -> Plugin {
+        let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+        let tes4 = record(b"TES4", 0, &write_subrecords(&[sub(*b"HEDR", &hedr)]));
+        let body = records.concat();
+        let group = [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), b"REFR", &0i32.to_le_bytes(), &[0; 8], &body].concat();
+        Plugin::parse(&[tes4, group].concat(), "T.esm".into()).unwrap()
+    }
+
+    /// Each record's [`reads_nothing`], [`carries_units`] and [`read_one`] (as text), checked
+    /// by `f`.
+    fn each(records: &[Vec<u8>], mut f: impl FnMut(&Record, String)) {
+        let plugins = [plugin(records)];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+        for r in &lo.records[0] {
+            let read = read_one(&lo, &schema, &ParamTypes::default(), r.header.form_id, 0, r);
+            f(r, format!("{read:?}"));
+        }
+    }
+
+    #[test]
+    fn a_skipped_record_is_one_read_one_finds_nothing_in() {
+        // Every subrecord the schema knows for each type, but those read_one looks for.
+        let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+        let records: Vec<Vec<u8>> = BULK_SIGS
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let mut sigs: Vec<[u8; 4]> = schema.common.keys().copied().collect();
+                sigs.extend(schema.records.get(s).into_iter().flat_map(|r| r.subrecords.keys().copied()));
+                sigs.retain(|x| !BULK_READ_SUBS.contains(x));
+                sigs.sort_unstable();
+                sigs.dedup();
+                assert!(sigs.len() > 10, "{sigs:?}");
+                let subs: Vec<Subrecord> = sigs.into_iter().map(|x| sub(x, &[0; 64])).collect();
+                record(s, 0x800 + i as u32, &write_subrecords(&subs))
+            })
+            .collect();
+        let mut seen = 0;
+        each(&records, |r, read| {
+            assert!(reads_nothing(r), "{}", r.sig_str());
+            assert_eq!(read, format!("{:?}", Read::default()), "{}", r.sig_str());
+            seen += 1;
+        });
+        assert_eq!(seen, BULK_SIGS.len());
+    }
+
+    #[test]
+    fn a_subrecord_read_one_looks_for_keeps_the_record() {
+        for s in BULK_READ_SUBS {
+            let payload = write_subrecords(&[sub(*b"DATA", &[0; 24]), sub(s, &[0; 4])]);
+            let records: Vec<Vec<u8>> = BULK_SIGS.iter().enumerate().map(|(i, b)| record(b, 0x800 + i as u32, &payload)).collect();
+            each(&records, |r, _| assert!(!reads_nothing(r), "{} {}", r.sig_str(), fnv_util::tag_str(&s)));
+        }
+        // Another record type is always read, and so is one that cannot be read (its issue
+        // is noted).
+        let other = record(b"STAT", 0x800, &write_subrecords(&[sub(*b"DATA", &[0; 4])]));
+        let bad = record(b"REFR", 0x801, b"DATA\xFF\xFF");
+        each(&[other, bad], |r, read| {
+            assert!(!reads_nothing(r), "{}", r.sig_str());
+            if r.header.form_id == 0x801 {
+                assert!(read.contains("record unreadable"), "{read}");
+            }
+        });
+    }
+
+    #[test]
+    fn a_patrol_point_carries_units_when_its_record_is_readable() {
+        let patrol = record(b"REFR", 0x800, &write_subrecords(&[sub(*b"XPPA", &[])]));
+        let plain = record(b"REFR", 0x801, &write_subrecords(&[sub(*b"NAME", &[1, 0, 0, 0])]));
+        // XPPA, then a subrecord cut short.
+        let cut = record(b"REFR", 0x802, &[&write_subrecords(&[sub(*b"XPPA", &[])])[..], b"DATA\xFF\xFF"].concat());
+        each(&[patrol, plain, cut], |r, _| assert_eq!(carries_units(r), r.header.form_id == 0x800, "{:X}", r.header.form_id));
+    }
+
+    #[test]
+    fn owners_and_labels_tell_the_same_units_apart() {
+        use fnv_script::unit::PackageEvent as P;
+        let owners = [
+            UnitOwner::Script { form: 1 },
+            UnitOwner::QuestStage { form: 1, stage: 1, entry: 0 },
+            UnitOwner::QuestStage { form: 1, stage: 1, entry: 1 },
+            UnitOwner::QuestStage { form: 1, stage: -1, entry: 1 },
+            UnitOwner::Info { form: 1, end: false },
+            UnitOwner::Info { form: 1, end: true },
+            UnitOwner::Package { form: 1, event: P::Begin },
+            UnitOwner::Package { form: 1, event: P::End },
+            UnitOwner::Package { form: 1, event: P::Change },
+            UnitOwner::Terminal { form: 1, item: 0 },
+            UnitOwner::Perk { form: 1, entry: 0 },
+            UnitOwner::Patrol { form: 1 },
+            UnitOwner::Other { sig: "SCPT".into(), form: 1, ordinal: 0 },
+            UnitOwner::Other { sig: "REFR".into(), form: 1, ordinal: 0 },
+        ];
+        let labels: HashSet<String> = owners.iter().map(UnitOwner::label).collect();
+        assert_eq!(labels.len(), owners.len());
     }
 }
