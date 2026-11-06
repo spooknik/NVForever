@@ -254,6 +254,20 @@ order = [[
 ]]
 
 [[scenario]]
+name = "read-pool-one-thread"
+source = "#1732: cell, model and actor reads have their own pool (nvf_assets::read_pool); at one thread on it and one on the async compute pool, as a 4-thread machine has, nothing waits on anything else in its pool"
+note = "The cell-streaming flight at the smallest sizes. A task that waited on another on the same pool would stop the flight's cells here. Only the count is checked: at one thread the flight outruns the read-ahead more often than cell-streaming allows."
+areas = ["renderer"]
+paths = ["engine/nvf-assets/src/read_pool.rs"]
+env = { NVF_PLAY_TEST_READ_THREADS = "1", NVF_PLAY_TEST_ASYNC_THREADS = "1" }
+args = ["--cell", "Goodsprings", "--auto-fly", "3000"]
+run_seconds = 40
+expect = [
+  "read pool threads: 1",
+  { re = 'streaming summary: (\d+) cells loaded', range = [40, 100000], label = "cells streamed in" },
+]
+
+[[scenario]]
 name = "cell-streaming"
 source = "docs/design/streaming-hitches.md §2 Cells: cells read ahead on worker threads, spawned over frames, faded in once whole"
 note = "A fast flight over the Mojave without --play: once the start square is in, cells load through the read-ahead and the spawning budget (world.rs CellSpawn, ReadAhead); the summary at the exit counts them. The flight outruns the read-ahead now and then, so cells drawn before theirs was done are allowed, a few"
