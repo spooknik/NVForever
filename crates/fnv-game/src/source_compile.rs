@@ -130,12 +130,15 @@ pub(crate) fn apply(lo: &LoadOrder<'_>, table: &FunctionTable, units: &mut [(fnv
                 && (m == Mode::Always || calls_unknown(&c.program, table) || c.raw > 0 || declares_extender_vars(c.unit.source.as_deref().unwrap_or("")))
         })
         .collect();
+    tracing::info!("script build: source compile: {} of {} units picked, mode {m:?}", picked.len(), units.len());
     if picked.is_empty() {
         return;
     }
+    let clock = std::time::Instant::now();
     // Indexing the load order reads every record: done only when a unit needs it.
     let all: Vec<fnv_script::ScriptUnit> = units.iter().map(|(_, c)| c.unit.clone()).collect();
     let ix = LoadOrderIndex::build(lo, &all);
+    tracing::info!("script build: source compile: load order indexed: {:.0} ms", clock.elapsed().as_secs_f64() * 1e3);
     type Done = (Vec<u8>, Program, usize, Vec<fnv_script::unit::RefSlot>, Vec<fnv_script::VarDecl>);
     let results: Vec<(usize, Result<Done, String>)> = picked
         .par_iter()

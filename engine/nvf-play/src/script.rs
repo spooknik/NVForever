@@ -523,8 +523,12 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
         let r = (|| {
             let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
             let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+            info!("script build: functions.json read and parsed: {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
+            let step = Instant::now();
             let table = FunctionTable::load(&path).map_err(|e| e.to_string())?;
+            info!("script build: function table: {:.0} ms", step.elapsed().as_secs_f64() * 1e3);
             let data: &'static GameData = Box::leak(Box::new(GameData::build(d.lo, d.schema, table, &json, refs)));
+            info!("script build: the whole thread: {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
             Ok((data, t.elapsed().as_secs_f64()))
         })();
         let _ = tx.send(r);

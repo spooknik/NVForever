@@ -1668,11 +1668,33 @@ impl GameData {
     }
 }
 
+/// The time of each step of [`GameData::build`], one log line a step (`script build: …`,
+/// #1732). The steps run one after another, so the lines add up to the build's time.
+struct StepClock {
+    last: std::time::Instant,
+}
+
+impl StepClock {
+    fn new() -> StepClock {
+        StepClock { last: std::time::Instant::now() }
+    }
+
+    /// Log the time since the last lap as `step`'s.
+    fn lap(&mut self, step: &str) {
+        let now = std::time::Instant::now();
+        tracing::info!("script build: {step}: {:.0} ms", now.duration_since(self.last).as_secs_f64() * 1e3);
+        self.last = now;
+    }
+}
+
 impl GameData {
     /// Build from a load order. `functions` is the parsed `functions.json` (for the
     /// condition parameter types); `table` the function table built from it.
     pub fn build(lo: &LoadOrder, schema: &Schema, table: FunctionTable, functions: &Json, refs: &RefTable) -> GameData {
+        let build_start = std::time::Instant::now();
+        let mut clock = StepClock::new();
         let param_types = ParamTypes::from_catalogue(functions);
+        clock.lap("condition parameter types");
         let winners: Vec<(u32, usize, &Record)> = lo
             .index
             .iter()
@@ -1688,11 +1710,39 @@ impl GameData {
         // ended, at every start and in both runs of a load while playing (#1357).
         let mut winners = winners;
         winners.sort_by_key(|w| w.0);
+        clock.lap(&format!("{} winning records listed and sorted", winners.len()));
         let mut unit_reads: Vec<(u32, Read)> = winners
             .par_iter()
             .filter(|w| carries_units(w.2))
             .map(|&(g, pi, r)| (g, read_one(lo, schema, &param_types, g, pi, r)))
             .collect();
+        clock.lap(&format!("{} records with script units read", unit_reads.len()));
+        let item_order: HashMap<FormId, (u8, u32)> = lo
+            .index
+            .iter()
+            .filter_map(|(&g, defs)| {
+                let first = defs.first()?;
+                let r = lo.records[first.plugin as usize][first.ordinal as usize];
+                crate::functions::items::form_type_code(&r.header.sig).map(|_| (FormId(g), (first.plugin, first.ordinal)))
+            })
+            .collect();
+        clock.lap("item order");
+        let object_bounds: HashMap<FormId, [i16; 6]> = winners
+            .par_iter()
+            .filter(|(_, _, r)| BOUNDS_SIGS.contains(&r.header.sig))
+            .filter_map(|&(g, _, r)| {
+                let s = r.subrecords().ok()?.into_iter().find(|s| &s.sig == b"OBND")?;
+                let v: Vec<i16> = s.data.as_chunks::<2>().0.iter().take(6).map(|b| i16::from_le_bytes(*b)).collect();
+                Some((FormId(g), <[i16; 6]>::try_from(v).ok()?))
+            })
+            .collect();
+        clock.lap("object bounds");
+        let form_flags: HashMap<FormId, u32> = winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect();
+        let record_fields = RecordFields::new(schema, winners.iter().filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig)).map(|&(g, _, r)| (FormId(g), r.clone())));
+        let station_flags: HashMap<FormId, u32> = winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect();
+        clock.lap("form flags, record field handles");
+        let radiation_markers = crate::radiation::markers(refs);
+        clock.lap("radiation markers");
         let mut d = GameData {
             table,
             param_types: param_types.clone(),
@@ -1727,32 +1777,13 @@ impl GameData {
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
-            item_order: lo
-                .index
-                .iter()
-                .filter_map(|(&g, defs)| {
-                    let first = defs.first()?;
-                    let r = lo.records[first.plugin as usize][first.ordinal as usize];
-                    crate::functions::items::form_type_code(&r.header.sig).map(|_| (FormId(g), (first.plugin, first.ordinal)))
-                })
-                .collect(),
-            object_bounds: winners
-                .par_iter()
-                .filter(|(_, _, r)| BOUNDS_SIGS.contains(&r.header.sig))
-                .filter_map(|&(g, _, r)| {
-                    let s = r.subrecords().ok()?.into_iter().find(|s| &s.sig == b"OBND")?;
-                    let v: Vec<i16> = s.data.as_chunks::<2>().0.iter().take(6).map(|b| i16::from_le_bytes(*b)).collect();
-                    Some((FormId(g), <[i16; 6]>::try_from(v).ok()?))
-                })
-                .collect(),
-            form_flags: winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect(),
+            item_order,
+            object_bounds,
+            form_flags,
             full_names: HashMap::new(),
             sigs: HashMap::new(),
             ini_texts: Vec::new(),
-            record_fields: RecordFields::new(
-                schema,
-                winners.iter().filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig)).map(|&(g, _, r)| (FormId(g), r.clone())),
-            ),
+            record_fields,
             scripted_by_cell: BTreeMap::new(),
             reputations: HashMap::new(),
             reputation_names: HashMap::new(),
@@ -1785,7 +1816,7 @@ impl GameData {
             idles: HashMap::new(),
             idle_children: HashMap::new(),
             image_modifiers: HashMap::new(),
-            station_flags: winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect(),
+            station_flags,
             perks: HashMap::new(),
             actor_value_infos: HashMap::new(),
             recipes: HashMap::new(),
@@ -1800,7 +1831,7 @@ impl GameData {
             drink_waters: HashMap::new(),
             default_objects: Vec::new(),
             water_damage: HashMap::new(),
-            radiation_markers: crate::radiation::markers(refs),
+            radiation_markers,
             class_services: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
@@ -1812,6 +1843,7 @@ impl GameData {
                 all_units.push((FormId(*id), u));
             }
         }
+        let unit_count = all_units.len();
         let mut compiled: Vec<(FormId, Compiled)> = all_units
             .into_par_iter()
             .map(|(id, unit)| {
@@ -1820,20 +1852,31 @@ impl GameData {
                 (id, Compiled::new(unit, dec.program, raw))
             })
             .collect();
+        clock.lap(&format!("{unit_count} units decoded"));
         crate::source_compile::apply(lo, &d.table, &mut compiled, &mut d.issues);
+        clock.lap("source compile check");
         let mut unit_of: HashMap<String, UnitId> = HashMap::new();
         for (_, c) in compiled {
             unit_of.insert(c.unit.owner.label(), d.units.len());
             d.unit_by_key.entry(c.key()).or_insert(d.units.len());
             d.units.push(c);
         }
+        clock.lap("units indexed");
         let label = |o: UnitOwner| o.label();
         // In form order, as one list read all at once was.
         let mut unit_reads: HashMap<u32, Read> = unit_reads.into_iter().collect();
+        // The reads run a slice at a time inside the loop below: their time is summed here,
+        // and the rest of the loop's is the taking in.
+        let read_time = std::cell::Cell::new(std::time::Duration::ZERO);
+        let move_time = std::cell::Cell::new(std::time::Duration::ZERO);
         let reads = winners.chunks(READ_SLICE).flat_map(|slice| {
+            let read_start = std::time::Instant::now();
             let read: Vec<Option<Read>> = slice.par_iter().map(|&(g, pi, r)| (!unit_reads.contains_key(&g)).then(|| read_one(lo, schema, &param_types, g, pi, r))).collect();
+            read_time.set(read_time.get() + read_start.elapsed());
+            let move_start = std::time::Instant::now();
             let taken: Vec<(FormId, [u8; 4], Read)> =
                 slice.iter().zip(read).map(|(&(g, _, r), read)| (FormId(g), r.header.sig, read.or_else(|| unit_reads.remove(&g)).unwrap_or_default())).collect();
+            move_time.set(move_time.get() + move_start.elapsed());
             taken
         });
         for (id, sig, r) in reads {
@@ -2085,11 +2128,22 @@ impl GameData {
                 None => {}
             }
         }
+        {
+            let read_ms = read_time.get().as_secs_f64() * 1e3;
+            let all_ms = clock.last.elapsed().as_secs_f64() * 1e3;
+            tracing::info!("script build: other records read: {read_ms:.0} ms (a slice at a time, {READ_SLICE} records)");
+            let move_ms = move_time.get().as_secs_f64() * 1e3;
+            tracing::info!("script build: records moved out of the slices: {move_ms:.0} ms");
+            tracing::info!("script build: records taken in: {:.0} ms", all_ms - read_ms - move_ms);
+            clock.last = std::time::Instant::now();
+        }
         for stages in d.need_stages.values_mut() {
             stages.sort_by_key(|s| (s.threshold, s.stage));
         }
         d.idle_children = idle_children(&d.idles);
+        clock.lap("need stages, idle children");
         let (mut lines, order, first_plugin) = topic_lines(lo);
+        clock.lap("dialogue lines listed");
         for list in lines.values_mut() {
             d.lines_moved_by_previous += follow_previous(list, &first_plugin, &d.infos);
         }
@@ -2112,11 +2166,14 @@ impl GameData {
         d.top_level = top.into_iter().map(|t| t.form).collect();
         d.greeting = d.by_edid("GREETING").filter(|t| d.topic_defs.contains_key(t));
         d.goodbye = d.by_edid("GOODBYE").filter(|t| d.topic_defs.contains_key(t));
+        clock.lap("topics ordered and linked");
         for (id, p) in &refs.refs {
             if let (Some(cell), Some(_)) = (p.cell, d.script_of_base(p.base)) {
                 d.scripted_by_cell.entry(cell).or_default().push(*id);
             }
         }
+        clock.lap("scripted references by cell");
+        tracing::info!("script build: GameData::build: {:.0} ms", build_start.elapsed().as_secs_f64() * 1e3);
         d
     }
 
