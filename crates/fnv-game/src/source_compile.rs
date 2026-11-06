@@ -122,6 +122,13 @@ type Done = (Vec<u8>, Program, usize, Vec<fnv_script::unit::RefSlot>, Vec<fnv_sc
 /// What [`compile_picked`] made, by the unit's place in the list, in list order.
 pub(crate) struct Recompiled(Vec<(usize, Result<Done, String>)>);
 
+impl Recompiled {
+    /// Nothing to put in.
+    pub(crate) fn none() -> Recompiled {
+        Recompiled(Vec::new())
+    }
+}
+
 /// Compile from source the units the mode picks, changing nothing yet, so the rest of the
 /// build can run meanwhile ([`apply`] puts the results in). The build's other steps read
 /// only what this leaves alone (see [`crate::data::Compiled::new`]).

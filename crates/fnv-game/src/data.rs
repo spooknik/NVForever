@@ -1504,6 +1504,31 @@ fn carries_units(r: &Record) -> bool {
     UNIT_SIGS.contains(&&r.header.sig) || (&r.header.sig == b"REFR" && has_any_sub(r, &[*b"XPPA"]))
 }
 
+/// [`carries_units`] as it was first written, for [`GameData::build_the_long_way`].
+fn carries_units_copying(r: &Record) -> bool {
+    UNIT_SIGS.contains(&&r.header.sig) || (&r.header.sig == b"REFR" && r.subrecords().is_ok_and(|subs| subs.iter().any(|s| &s.sig == b"XPPA")))
+}
+
+/// The first OBND of a readable record, if it holds six values.
+fn bounds_of(r: &Record) -> Option<[i16; 6]> {
+    let mut first: Option<Option<[i16; 6]>> = None;
+    r.visit_subrecords(|sig, data| {
+        if sig == b"OBND" && first.is_none() {
+            let v = data.as_chunks::<2>().0;
+            first = Some((v.len() >= 6).then(|| std::array::from_fn(|i| i16::from_le_bytes(v[i]))));
+        }
+    })
+    .ok()?;
+    first?
+}
+
+/// [`bounds_of`] as it was first written, for [`GameData::build_the_long_way`].
+fn bounds_of_copying(r: &Record) -> Option<[i16; 6]> {
+    let s = r.subrecords().ok()?.into_iter().find(|s| &s.sig == b"OBND")?;
+    let v: Vec<i16> = s.data.as_chunks::<2>().0.iter().take(6).map(|b| i16::from_le_bytes(*b)).collect();
+    <[i16; 6]>::try_from(v).ok()
+}
+
 /// Whether the record is readable and has one of `subs`; an unreadable record has none, as
 /// [`Record::subrecords`] gives it none.
 fn has_any_sub(r: &Record, subs: &[[u8; 4]]) -> bool {
@@ -1722,6 +1747,19 @@ impl GameData {
     /// Build from a load order. `functions` is the parsed `functions.json` (for the
     /// condition parameter types); `table` the function table built from it.
     pub fn build(lo: &LoadOrder, schema: &Schema, table: FunctionTable, functions: &Json, refs: &RefTable) -> GameData {
+        Self::build_with(lo, schema, table, functions, refs, false)
+    }
+
+    /// [`GameData::build`] without its shortcuts, for a test to compare with it
+    /// (tests/build_shortcuts.rs, #1732): every record is read and its subrecords copied, the
+    /// source compile runs and is put in before the records are read, and units found by
+    /// label are checked against those found by owner. Not for the game: it is slower.
+    #[doc(hidden)]
+    pub fn build_the_long_way(lo: &LoadOrder, schema: &Schema, table: FunctionTable, functions: &Json, refs: &RefTable) -> GameData {
+        Self::build_with(lo, schema, table, functions, refs, true)
+    }
+
+    fn build_with(lo: &LoadOrder, schema: &Schema, table: FunctionTable, functions: &Json, refs: &RefTable, long_way: bool) -> GameData {
         let build_start = std::time::Instant::now();
         let mut clock = StepClock::new();
         let param_types = ParamTypes::from_catalogue(functions);
@@ -1745,7 +1783,7 @@ impl GameData {
         clock.lap(&format!("{} winning records listed and sorted", winners.len()));
         let mut unit_reads: Vec<(u32, Box<Read>)> = winners
             .par_iter()
-            .filter(|w| carries_units(w.2))
+            .filter(|w| if long_way { carries_units_copying(w.2) } else { carries_units(w.2) })
             .map(|&(g, pi, r)| (g, Box::new(read_one(lo, schema, &param_types, g, pi, r))))
             .collect();
         clock.lap(&format!("{} records with script units read", unit_reads.len()));
@@ -1762,18 +1800,7 @@ impl GameData {
         let object_bounds: HashMap<FormId, [i16; 6]> = winners
             .par_iter()
             .filter(|(_, _, r)| BOUNDS_SIGS.contains(&r.header.sig))
-            .filter_map(|&(g, _, r)| {
-                // The first OBND of a readable record, if it holds six values.
-                let mut first: Option<Option<[i16; 6]>> = None;
-                r.visit_subrecords(|sig, data| {
-                    if sig == b"OBND" && first.is_none() {
-                        let v = data.as_chunks::<2>().0;
-                        first = Some((v.len() >= 6).then(|| std::array::from_fn(|i| i16::from_le_bytes(v[i]))));
-                    }
-                })
-                .ok()?;
-                Some((FormId(g), first??))
-            })
+            .filter_map(|&(g, _, r)| Some((FormId(g), if long_way { bounds_of_copying(r) } else { bounds_of(r) }?)))
             .collect();
         clock.lap("object bounds");
         let form_flags: HashMap<FormId, u32> = winners.iter().filter(|(_, _, r)| r.header.flags != 0).map(|&(g, _, r)| (FormId(g), r.header.flags)).collect();
@@ -1901,13 +1928,24 @@ impl GameData {
             d.unit_by_key.entry(c.key()).or_insert(units.len());
             units.push(c);
         }
+        if long_way {
+            let by_label: HashMap<String, UnitId> = unit_of.iter().map(|(o, &u)| (o.label(), u)).collect();
+            assert_eq!(by_label.len(), unit_of.len(), "two owners with one label");
+            for (i, c) in units.iter().enumerate() {
+                assert_eq!(by_label.get(&c.unit.owner.label()), unit_of.get(&c.unit.owner), "unit {i}");
+            }
+        }
         clock.lap("units indexed");
         d.sigs.reserve(winners.len());
         // The units picked for it compile while the records are read: the loop below reads
         // of a unit only what `source_compile::apply` leaves alone.
         let table = std::mem::take(&mut d.table);
+        if long_way {
+            let recompiled = crate::source_compile::compile_picked(lo, &table, &units);
+            crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+        }
         let recompiled = std::thread::scope(|scope| {
-            let compile = scope.spawn(|| crate::source_compile::compile_picked(lo, &table, &units));
+            let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, &table, &units) });
             // In form order, as one list read all at once was.
             let mut unit_reads: HashMap<u32, Box<Read>> = unit_reads.into_iter().collect();
             // The reads run a slice at a time inside the loop below: their time is summed here,
@@ -1922,7 +1960,7 @@ impl GameData {
                         if unit_reads.contains_key(&g) {
                             return None;
                         }
-                        (!reads_nothing(r)).then(|| Box::new(read_one(lo, schema, &param_types, g, pi, r)))
+                        (long_way || !reads_nothing(r)).then(|| Box::new(read_one(lo, schema, &param_types, g, pi, r)))
                     })
                     .collect();
                 read_time.set(read_time.get() + read_start.elapsed());
