@@ -1416,7 +1416,7 @@ pub struct CombatStyleDef {
     pub cannot_use_stealthboy: bool,
 }
 
-/// Everything read from one winning record. Large (3,848 bytes [observed: `size_of`,
+/// Everything read from one winning record. Large (3,848 bytes [design: `size_of`,
 /// 2026-11-06]), so it travels boxed: each move of one is that many bytes copied, and
 /// [`reads_nothing`] spares most records one altogether.
 #[derive(Debug, Default)]

@@ -190,9 +190,10 @@ impl Loading {
         self.trip.is_some()
     }
 
-    /// Whether the world holds off loading until the start's screen has been drawn: its
-    /// model reads share the pool that compiles the screen's pipelines, and the frame that
-    /// first asks for them blocks on one (docs/design/loading-screen.md §1a).
+    /// Whether the world holds off loading until the start's screen has been drawn. The hold
+    /// began when model reads shared the pool that compiles the screen's pipelines
+    /// (docs/design/loading-screen.md §1a). They have their own pool now; whether the hold
+    /// still helps a start has not been measured (#1732).
     pub fn world_held(&self) -> bool {
         self.picture_hold.is_some()
     }
