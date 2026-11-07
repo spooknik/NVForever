@@ -43,7 +43,7 @@ use bevy::prelude::*;
 use fnv_nif::scene::{scene_objects, Decoded, SceneObject};
 use fnv_nif::{NifFile, Value};
 use crate::texture::TextureCache;
-use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
+use bevy::tasks::{futures::check_ready, Task};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -572,7 +572,7 @@ impl ActorCtx<'_, '_> {
                 continue;
             }
             let (data, job) = ((*self.models.data).clone(), key.clone());
-            let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { fetch(&data, &job) });
+            let task = crate::read_pool::read_pool().spawn(async move { fetch(&data, &job) });
             self.cache.fetching.insert(key, task);
         }
         ready
@@ -654,7 +654,7 @@ impl ActorCtx<'_, '_> {
             return true;
         }
         let (data, job) = ((*self.models.data).clone(), key.clone());
-        let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { read_clip(&data, &job) });
+        let task = crate::read_pool::read_pool().spawn(async move { read_clip(&data, &job) });
         self.cache.clip_reads.insert(key, task);
         false
     }

@@ -19,7 +19,7 @@ use crate::texture::{worker_texture, TextureCache, TextureSnapshot, WorkerTextur
 use bevy::asset::AssetHandleProvider;
 use bevy::image::CompressedImageFormats;
 use bevy::render::render_resource::TextureFormat;
-use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
+use bevy::tasks::{futures::check_ready, Task};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::ecs::system::SystemParam;
@@ -1237,7 +1237,7 @@ impl ModelCtx<'_> {
             formats: HashMap::new(),
             out: DeferredAssets::default(),
         };
-        let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move {
+        let task = crate::read_pool::read_pool().spawn(async move {
             let m = prepare_into(&mut sink, &path, keep_cpu, false, &swaps);
             (m, sink.out)
         });

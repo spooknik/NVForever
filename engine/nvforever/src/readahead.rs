@@ -27,7 +27,7 @@ use crate::actors::{ActorPose, ActorWorld};
 use crate::world::{Streamer, WorldData};
 use bevy::prelude::*;
 use fnv_world::placed::{base_object, placement};
-use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
+use bevy::tasks::{futures::check_ready, Task};
 use fnv_actor::locomotion::Body;
 use fnv_actor::weapon::AnimType;
 use nvf_assets::actor::{ActorCtx, ActorParts, ClipReader, PartState};
@@ -495,7 +495,7 @@ pub fn read_ahead(
                     continue;
                 }
                 let (data, job) = ((*ctx.models.data).clone(), path.clone());
-                let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { crate::facegen::read_file(&data, &job) });
+                let task = nvf_assets::read_pool::read_pool().spawn(async move { crate::facegen::read_file(&data, &job) });
                 ahead.facegen.push((path, task));
             }
             Job::Anims { skeleton, body, creature, prefix } => match ctx.cache.part_state(&skeleton) {
@@ -507,7 +507,7 @@ pub fn read_ahead(
                         continue;
                     };
                     let (anims, data) = (aw.anims.clone(), (*ctx.models.data).clone());
-                    let pool = AsyncComputeTaskPool::get_or_init(TaskPool::default);
+                    let pool = nvf_assets::read_pool::read_pool();
                     let task = pool.spawn(async move { anims.warm(&mut ClipReader::new(data), &skeleton, &skel, body, creature, prefix) });
                     ahead.anims.push((key, task));
                 }
@@ -597,7 +597,7 @@ mod tests {
         // No sleeps or timing assumptions about when the worker gets scheduled.
         let gate: Arc<Mutex<(bool, Option<Waker>)>> = Arc::default();
         let worker_gate = gate.clone();
-        let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move {
+        let task = nvf_assets::read_pool::read_pool().spawn(async move {
             anims.warm(&mut ClipReader::new(data), &skeleton, &skel, body, creature, prefix);
             std::future::poll_fn(move |cx| {
                 let mut gate = worker_gate.lock().unwrap();
