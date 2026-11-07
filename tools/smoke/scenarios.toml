@@ -21070,8 +21070,10 @@ expect = [
   { text = "script runner: gr_nvfsmoke.txt ran (game restart)", count = 1 },
   "main menu: New Game",
   { text = "script runner: ln_nvfsmoke.txt ran (new game)", count = 1, label = "the ln_ file runs once the new game begins" },
+  { text = "main menu: open", label = "the menu opens" },
+  { text = "scripts ready in", label = "the script data is taken in" },
 ]
-order = [["script runner: gr_nvfsmoke.txt ran", "main menu: New Game", "script runner: ln_nvfsmoke.txt ran (new game)"]]
+order = [["script runner: gr_nvfsmoke.txt ran", "main menu: New Game", "script runner: ln_nvfsmoke.txt ran (new game)"], ["main menu: open", "scripts ready in"]]
 
 # ------------------------------------------------------------------ the dialogue menu from its file
 # What these prove: the pieces handed to the tile renderer (`tiles: DialogMenu painted`), the tile
