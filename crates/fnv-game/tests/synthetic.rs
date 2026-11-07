@@ -2172,6 +2172,38 @@ fn weapon_out_and_weapon_animation_type() {
 }
 
 #[test]
+fn player_limb_losses_fit_the_10mm_capture_at_200_maximum_health() {
+    use fnv_game::actor_values::HEALTH;
+    use fnv_game::combat::{HitInfo, LimbHit, HEAD, LEFT_ARM, LEFT_MOBILITY, RIGHT_ARM, RIGHT_MOBILITY, TORSO};
+    use fnv_game::functions::set_actor_value_current;
+    let f = fixture();
+    let p = FormId::PLAYER_REF;
+    // [observed: o17_air limbs_10mm, check 3] The losses below; maximum Health 200
+    // remains [hypothesis], since that run did not record its base Health.
+    for (condition, share, health_damage, limb_damage, loss) in [
+        (LEFT_ARM, 25.0, 16.06, 16.06, 16.06),
+        (RIGHT_ARM, 25.0, 16.06, 16.06, 16.06),
+        (LEFT_MOBILITY, 25.0, 16.06, 16.06, 16.06),
+        (RIGHT_MOBILITY, 25.0, 16.06, 16.06, 16.06),
+        (TORSO, 60.0, 16.06, 16.06, 6.69),
+        (HEAD, 20.0, 32.12, 16.06, 20.075),
+        (HEAD, 20.0, 76.12, 38.06, 47.575),
+    ] {
+        let mut g = game(&f);
+        g.new_game();
+        set_actor_value_current(&mut g, p, HEALTH, 200.0).unwrap();
+        let info = HitInfo { attacker: Some(FormId(NPC_REF)), limb: Some(LimbHit { condition, health_percent: share, damage: limb_damage, points: false }), ..Default::default() };
+        let r = g.hit(p, health_damage, info);
+        assert_eq!(r.max_health, 200.0);
+        assert!((r.dealt - health_damage).abs() < 1e-9);
+        let (code, after) = r.limb.unwrap();
+        assert_eq!(code, condition);
+        assert!((100.0 - after - loss).abs() < 0.005, "condition {condition}: loss {} against {loss}", 100.0 - after);
+        assert!(!r.crippled);
+    }
+}
+
+#[test]
 fn limb_hits_lower_conditions_and_cripple() {
     use fnv_game::combat::{HitInfo, LimbHit};
     let f = fixture();

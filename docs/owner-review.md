@@ -278,6 +278,14 @@ the spec it links to.
     nothing in the data sets the frag grenade apart. If you want the frag grenade alone, the rule can key on
     its PROJ. ([combat-rules §5](spec-notes/combat-rules.md))
 
+51. **Corpses shot again wake for 3 s (#1798).** A corpse moves for at most 3 s and is then
+   held; a shot or blow on a held corpse shoves it and lets it move for up to 3 s more.
+   In the 50-a-side battle 79 of 141 rests were such re-wakes, about half the ragdoll
+   solver's 8–14 ms a frame. Nothing changed yet. If you rule a shorter wake after a
+   shove (say 1 s), or none for a corpse at rest a while, re-shot corpses twitch less and
+   the battle gets faster. ([ragdoll §4](spec-notes/ragdoll.md),
+   [frame-rate-audit §5](design/frame-rate-audit.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 

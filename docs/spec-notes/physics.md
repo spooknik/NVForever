@@ -979,6 +979,27 @@ character moved 0.06 units instead of 1.28. `move_character` continues such a st
 the horizontal motion it lost, only when every hit of the step was level (test
 `walking_on_level_ground_loses_no_step`). Re-check both when upgrading rapier.
 
+A third, about cost (issue #1797) [observed: rapier 0.36.0 source and a per-move timer in
+the 50-a-side battle at Goodsprings, 2026-11-07]: the controller's move sweeps the shape at
+most 20 times, sliding along what each sweep meets, with the autostep's casts and a
+contact pass for the ground after each; pressed into a crease between two meshes every
+slide meets the other surface and the normal nudge keeps the motion left over above the
+stop threshold, so the move used all 20 and went nowhere. One actor between the terrain
+and a canyon rock's mesh (NVNRockCanyon02) took 3 ms a step, one perched between two
+yuccas' meshes 22 ms, against about 0.1 ms for the others, every step, the feet exactly
+where they were; with up to 8 steps a long frame the battle fell into frames of 400 ms.
+A groove of two planes steeper than walkable reproduces it (test
+`a_stuck_character_is_held_with_the_steps_it_would_have_had`). **Rule**
+(`Character::hold_when_stuck`, on for the actors the game walks, off for the player and
+the tools' probes) [engineering choice]: a move whose first controller move met something
+on all 20 sweeps and left the feet exactly where they were holds the character there; the
+next 19 steps return the same standing step without sweeping, the 20th is a full move
+again (which holds it again, or moves it on). A character in the same place with the same
+input gets the same step from the controller, so the hold only differs when the input or
+the world changed during the third of a second; the test shows the same steps held and
+not held in the groove, and none held walking up steps, along a wall, into a steep ramp
+and into a corner.
+
 ### 6.2 Rest height after a teleport (arrival rule)
 
 Question: why does the player stand at z 8693.87 after leaving Doc Mitchell's house when

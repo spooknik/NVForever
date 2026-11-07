@@ -1529,6 +1529,40 @@ expect = [
 forbid = [{ re = 'locomotion: \S+ 000F570B 1EFiendViolet 2hr (Fast)?Left plays \S*mt(fast)?left\.kf', label = "the unarmed walk left, which turns her side-on to the player (owner's video 2026-10-25)" }]
 
 [[scenario]]
+name = "player-limbs-shots"
+source = "issue #1345; docs/spec-notes/combat-rules.md §12: NPC shots select a part on the player's capsule and damage its condition [design]"
+note = "[design] combat-violet's Hunting Rifle setup, without god mode. Health 5000 keeps the player alive while Violet fires. Six conditions are read at the end; at least one must be below 100. Not yet run."
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "3:player.setav health 5000;3.3:close;42:player.getav PerceptionCondition;42.1:player.getav EnduranceCondition;42.2:player.getav LeftAttackCondition;42.3:player.getav RightAttackCondition;42.4:player.getav LeftMobilityCondition;42.5:player.getav RightMobilityCondition;42.8:close" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 45
+expect = [
+  "fights the player with WeapHuntingRifle (gun)",
+  { re = "combat: the player's (?:head|torso|left arm|right arm|left leg|right leg) takes [0-9.]+, condition (?P<n>[0-9.]+)", range = [0, 99.9], label = "a rifle shot takes player limb condition" },
+  { re = 'console: GetActorValue on player >> [0-9.]+', count = 6, label = "all six conditions after rifle hits are read" },
+  { re = 'console: GetActorValue on player >> (?P<n>[0-9.]+)', range = [0, 99.99], label = "a final condition after rifle hits is below 100" },
+]
+forbid = ["god mode: no damage taken", "combat: the player died"]
+
+[[scenario]]
+name = "player-limbs-blows"
+source = "issue #1345; docs/spec-notes/combat-rules.md §12: a creature's blow selects a part on the player's capsule [design]"
+note = "[design] combat-violet's position, without god mode; combat-dogs' nearby dog 000F573F is added to npc-packages so it can turn and approach. Violet is disabled and the dog is put beside the player and set on them. Health 5000 keeps the player alive; all six conditions are read at the end. Tests the creature/Fists limb multiplier hypothesis. Not yet run."
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/combat.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "3:player.setav health 5000;3.3:close;42:player.getav PerceptionCondition;42.1:player.getav EnduranceCondition;42.2:player.getav LeftAttackCondition;42.3:player.getav RightAttackCondition;42.4:player.getav LeftMobilityCondition;42.5:player.getav RightMobilityCondition;42.8:close", NVF_PLAY_TEST_SCRIPT = "4:call:FiendVioletRef:Disable,6:moveto:0x000F573F:player:140:0:0,6.2:combat:0x000F573F:player" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef,000F573F"]
+run_seconds = 45
+expect = [
+  { re = 'npc combat summary.*[1-9][0-9]* blows', label = "the dog lands blows" },
+  { re = "combat: the player's (?:head|torso|left arm|right arm|left leg|right leg) takes [0-9.]+, condition (?P<n>[0-9.]+)", range = [0, 99.9], label = "a creature blow takes player limb condition" },
+  { re = 'console: GetActorValue on player >> [0-9.]+', count = 6, label = "all six conditions after creature blows are read" },
+  { re = 'console: GetActorValue on player >> (?P<n>[0-9.]+)', range = [0, 99.99], label = "a final condition after creature blows is below 100" },
+]
+forbid = ["god mode: no damage taken", "combat: the player died", "combat: Violet hits the player"]
+
+[[scenario]]
 name = "combat-dogs"
 source = "CLAUDE.md: after combat AI changes, the dogs (docs/design/combat-ai.md §7)"
 areas = ["combat"]
@@ -2664,6 +2698,22 @@ order = [[
 expect = [
   { gap = ['menu: open Container(0x00105658) "Refrigerator"', "menu: close"], range = [2.25, 3.75], label = "menu: close about 3 s after the open" },
 ]
+
+[[scenario]]
+name = "tag-reset-clears"
+source = "[observed 2026-11-06] docs/spec-notes/chargen.md §3: Reset clears the tags the menu opened with, and Done is refused until three are tagged again"
+note = "[design] The second opening starts with the first's three tags, so the old rule (back to the opening state) would finish with those at the first Done."
+areas = ["chargen", "menus"]
+paths = ["engine/nvf-play/src/chargen.rs", "engine/nvf-play/src/chargen/lists.rs", "crates/fnv-game/src/chargen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1048,8:menu:1048", NVF_PLAY_TEST_CHARGEN = "5:pick:Guns,5.1:pick:Speech,5.2:pick:Survival,6:done,10:reset,10.1:done,10.2:pick:Lockpick,10.3:pick:Medicine,10.4:pick:Repair,11:done" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 14
+order = [[
+  "done, tag skills: Guns, Speech, Survival",
+  "chargen: reset",
+  "Done refused: 0 of 3 skills tagged",
+  "done, tag skills: Lockpick, Medicine, Repair",
+]]
 
 [[scenario]]
 name = "chargen-menus"
@@ -13123,6 +13173,26 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "3:view", NV
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = ["effect shader: Flames01 on "]
+
+[[scenario]]
+name = "burn-first-person"
+source = "issue #1772: the reporter sees the inside of the burning player's head and body in orange in first person [observed]; overlays and add-ons follow the camera's view of the third-person body [design: docs/spec-notes/effect-shaders.md §4, §8]"
+note = "The player starts in first person, starts Flames01 at 8 s and switches to third person at 13 s. Compare fp_no_fire.png, fp_on_fire.png and tp_on_fire.png: first person must stay clear, and third person must show the burn. The visibility logs must go from no covered meshes seen to some seen."
+areas = ["effect-shaders", "particles", "render"]
+paths = [
+  "engine/nvforever/src/effect_shaders.rs", "engine/nvforever/src/effect_particles.rs",
+  "engine/nvforever/src/player_body.rs", "engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/particles.rs",
+  "docs/spec-notes/effect-shaders.md",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "8:call:player:PlayMagicShaderVisuals:0x0005F9B6", NVF_PLAY_TEST_CONTROL = "13:view", NVF_PLAY_TEST_SHOTS = "7:fp_no_fire.png,11:fp_on_fire.png,17:tp_on_fire.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  "effect shader: Flames01 on ",
+  { re = 'effect shader: Flames01 on the player: the camera sees 0 of [1-9]\d* covered meshes', label = "the burning body is unseen in first person" },
+  { re = 'effect shader: Flames01 on the player: the camera sees (?P<n>[1-9]\d*) of [1-9]\d* covered meshes', range = [1, 1000], label = "the burning body is seen in third person" },
+  { gap = [ { re = 'effect shader: Flames01 on the player: the camera sees 0 of [1-9]\d* covered meshes' }, { re = 'effect shader: Flames01 on the player: the camera sees [1-9]\d* of [1-9]\d* covered meshes' } ], range = [0.1, 100], label = "the hidden burn precedes the visible burn" },
+]
 
 [[scenario]]
 name = "b29-spray-follows-sequence"

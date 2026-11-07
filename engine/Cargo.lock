@@ -1491,8 +1491,6 @@ dependencies = [
 [[package]]
 name = "bevy_render"
 version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c74591faf8ff1b84beb59e93f05b233a03c62d1cbc446874bd2231b72dde184"
 dependencies = [
  "async-channel",
  "bevy_app",
@@ -5474,6 +5472,7 @@ dependencies = [
  "simba",
  "static_assertions",
  "thiserror 2.0.21",
+ "web-time",
  "wide",
 ]
 

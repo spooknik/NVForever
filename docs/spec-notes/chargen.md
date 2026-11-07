@@ -98,7 +98,10 @@ the view's height, from the top left of a 1024 × 800 rectangle centred on the s
 - **Opening state**: the skills the player has tagged (the psych test's three)
   [observed: the psych test tags three before stage 90]. Clicking a tagged skill untags
   it; an untagged one is tagged while fewer than three are [observed: the owner's
-  screenshots, 2/3 then 3/3]. Reset goes back to the opening state [hypothesis].
+  screenshots, 2/3 then 3/3]. Reset clears every tag, those it opened with too: opened
+  at 3/3 with the save's three tags (`SetTagSkills 3`), it reads 0/3, the skills' figures
+  drop back and Done dims [observed 2026-11-06: private job ov_tags, 1280x720]. Tags an
+  AddTagSkills opening locks stay [hypothesis: not captured; they may not be un-tagged].
 
 - **The attributes page**: the same file's attribute rows, which AddSPECIALPoints opens
   (Intense Training): levelup.md §8.

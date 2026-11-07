@@ -864,6 +864,21 @@ pub struct PlayerBody {
 }
 
 impl PlayerBody {
+    /// [design: show_rigs] Add-ons follow the part at their attachment, with the body
+    /// as the fallback for an attachment outside the known skeleton.
+    pub(crate) fn effect_part(&self, attachment: Entity) -> EffectPart {
+        let Some(rig) = self.body.as_ref().map(|b| &b.third) else { return EffectPart::Body };
+        if let Some(d) = rig.drawn.iter().find(|d| d.entity == attachment) {
+            return if d.head { EffectPart::Head } else if d.arm { EffectPart::Arms } else { EffectPart::Body };
+        }
+        rig.animator.nodes.iter().position(|e| *e == attachment).map_or(EffectPart::Body, |i| effect_bone_part(&rig.animator.skel, i))
+    }
+
+    /// [design: show_rigs] The camera's current decision, including the headless body.
+    pub(crate) fn sees_effect(&self, part: EffectPart) -> bool {
+        self.body.as_ref().and_then(|b| b.third.seen).is_some_and(|s| s.effect_part(part))
+    }
+
     /// The landing clip after a jump or fall is playing (GetAnimAction 12, `anim_state`).
     pub fn landing(&self) -> bool {
         self.body.as_ref().is_some_and(|b| b.third.animator.layers.iter().any(|l| l.tag == TAG_LAND && !l.finished()))
@@ -2053,7 +2068,38 @@ struct Seen {
     weapon: bool,
 }
 
+/// [design: show_rigs] The independently hidden parts of the third-person body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EffectPart {
+    Body,
+    Head,
+    Arms,
+}
+
+/// [design: build_rig] Descendants follow their head or arm branch. Unclassified
+/// bones follow the body; the names select branches, not individual finger bones.
+fn effect_bone_part(skel: &PreparedSkeleton, mut bone: usize) -> EffectPart {
+    for _ in 0..skel.parents.len() {
+        match skel.names.get(bone).and_then(|n| n.as_deref()) {
+            Some("Bip01 Head") => return EffectPart::Head,
+            Some("Bip01 L UpperArm" | "Bip01 R UpperArm") => return EffectPart::Arms,
+            _ => {}
+        }
+        let Some(parent) = skel.parents.get(bone).copied().flatten() else { break };
+        bone = parent;
+    }
+    EffectPart::Body
+}
+
 impl Seen {
+    fn effect_part(self, part: EffectPart) -> bool {
+        self.body && match part {
+            EffectPart::Body => true,
+            EffectPart::Head => self.head,
+            EffectPart::Arms => self.arms,
+        }
+    }
+
     /// The render layer of a drawn entity: the seen body's when the camera sees it, else
     /// the one only the sun's shadows are cast from. Neither is the world's, so the
     /// flashlight casts no shadow from the player (`flashlight.rs`).
@@ -2725,6 +2771,30 @@ fn drive_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn effect_bones_follow_their_branch_and_unknown_bones_follow_the_body() {
+        let skel = PreparedSkeleton {
+            names: ["Bip01", "Bip01 Head", "eye", "Bip01 L UpperArm", "finger", "Bip01 R UpperArm", "hand", "extra"].map(|n| Some(n.to_string())).to_vec(),
+            parents: vec![None, Some(0), Some(1), Some(0), Some(3), Some(0), Some(5), None],
+            ..default()
+        };
+        for (bone, part) in [(0, EffectPart::Body), (1, EffectPart::Head), (2, EffectPart::Head), (3, EffectPart::Arms), (4, EffectPart::Arms), (5, EffectPart::Arms), (6, EffectPart::Arms), (7, EffectPart::Body), (99, EffectPart::Body)] {
+            assert_eq!(effect_bone_part(&skel, bone), part);
+        }
+    }
+
+    #[test]
+    fn effect_addons_follow_first_person_headless_and_third_person_parts() {
+        let parts = [EffectPart::Body, EffectPart::Head, EffectPart::Arms];
+        let first = Seen { body: false, head: true, arms: true, weapon: true };
+        assert_eq!(parts.map(|p| first.effect_part(p)), [false, false, false]);
+        let headless = Seen { body: true, head: false, arms: false, weapon: false };
+        assert_eq!(parts.map(|p| headless.effect_part(p)), [true, false, false]);
+        let third = Seen { body: true, head: true, arms: true, weapon: true };
+        assert_eq!(parts.map(|p| third.effect_part(p)), [true, true, true]);
+        assert!(!PlayerBody::default().sees_effect(EffectPart::Body));
+    }
 
     #[test]
     fn shade_casters_near_the_line_to_the_sun() {

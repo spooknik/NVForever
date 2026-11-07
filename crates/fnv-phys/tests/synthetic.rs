@@ -3077,3 +3077,85 @@ fn a_character_put_over_light_clutter_pinned_against_a_wall_walks_on() {
     assert!(c.feet[1] - from[1] > 50.0, "{:?} from {from:?}", c.feet);
     assert!((c.feet[2] - from[2]).abs() < 40.0, "{:?} from {from:?}", c.feet);
 }
+
+/// A groove of two planes rising at `deg` from level either side of the line x = 0,
+/// z = 100, 800 long in y: walls steeper than walkable meeting at its bottom, the crease a
+/// character stuck in for the controller's every sweep (issue #1797).
+fn groove(deg: f32) -> PhysWorld {
+    let mut w = ground();
+    let (h, d) = (300.0, 300.0 / deg.to_radians().tan());
+    let vertices = vec![[-d, -400.0, 100.0 + h], [-d, 400.0, 100.0 + h], [0.0, -400.0, 100.0], [0.0, 400.0, 100.0], [d, -400.0, 100.0 + h], [d, 400.0, 100.0 + h]];
+    let triangles = vec![[0, 2, 1], [1, 2, 3], [2, 4, 3], [3, 4, 5]];
+    w.add_ref(&at(1, [0.0, 0.0, 0.0]), &[object(Shape::TriMesh { vertices, triangles, materials: vec![0; 4] }, Motion::Static)]);
+    w
+}
+
+#[test]
+fn a_stuck_character_is_held_with_the_steps_it_would_have_had() {
+    // Dropped into the groove and walked: along it a character gets some way and sticks,
+    // into a wall it sticks at once [observed: this test, rapier 0.36.0]. Held, it makes the
+    // same steps without sweeping again.
+    let mut held = 0;
+    for deg in [50.0f32, 60.0, 70.0, 80.0] {
+        for v in [[0.0, 0.0], [150.0, 0.0], [150.0, 150.0], [0.0, 150.0], [-150.0, 30.0]] {
+            let run = |hold: bool| {
+                let mut w = groove(deg);
+                let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 400.0]);
+                c.hold_when_stuck = hold;
+                settle(&mut w, &mut c, 120);
+                let steps: Vec<_> = walk(&mut w, &mut c, v, 120).into_iter().map(|s| (s.feet, s.grounded, s.landed_speed, s.swimming)).collect();
+                (steps, c.held_steps)
+            };
+            let ((free, none), (kept, n)) = (run(false), run(true));
+            assert_eq!(none, 0);
+            assert_eq!(free, kept, "{deg} degrees, {v:?}");
+            held += n;
+        }
+    }
+    assert!(held > 1000, "held {held} steps");
+}
+
+#[test]
+fn a_held_character_moves_on_when_the_way_is_free() {
+    let mut w = groove(70.0);
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 400.0]);
+    c.hold_when_stuck = true;
+    settle(&mut w, &mut c, 120);
+    walk(&mut w, &mut c, [150.0, 0.0], 30);
+    assert!(c.held_steps > 0);
+    let z = c.feet[2];
+    // The groove gone, it falls to the ground within a retry's steps.
+    w.remove_ref(1);
+    let steps = walk(&mut w, &mut c, [150.0, 0.0], STUCK_RETRY as usize + 60);
+    assert!(steps[..STUCK_RETRY as usize].iter().any(|s| s.feet[2] < z - 1.0), "{:?}", c.feet);
+    assert!(c.grounded && c.feet[2] < TERRAIN_SHELL + 1.0 && c.feet[0] > 50.0, "{:?}", c.feet);
+}
+
+#[test]
+fn holding_changes_nothing_for_characters_that_are_not_stuck() {
+    // Steps, a wall to slide along, a ramp too steep and a corner: the hold never comes.
+    type Scene = (fn(&mut PhysWorld), [f32; 2]);
+    let scenes: Vec<Scene> = vec![
+        (|w| { w.add_ref(&at(1, [300.0, 0.0, 7.0]), &[object(boxed([200.0, 200.0, 7.0]), Motion::Static)]); }, [150.0, 0.0]),
+        (|w| { w.add_ref(&at(1, [300.0, 0.0, 50.0]), &[object(boxed([200.0, 200.0, 50.0]), Motion::Static)]); }, [150.0, 60.0]),
+        (|w| ramp(w, 60.0), [150.0, 10.0]),
+        (|w| {
+            w.add_ref(&at(1, [150.0, 0.0, 50.0]), &[object(boxed([10.0, 200.0, 50.0]), Motion::Static)]);
+            w.add_ref(&at(2, [0.0, 150.0, 50.0]), &[object(boxed([200.0, 10.0, 50.0]), Motion::Static)]);
+        }, [150.0, 150.0]),
+    ];
+    for (i, (build, v)) in scenes.into_iter().enumerate() {
+        let run = |hold: bool| {
+            let mut w = ground();
+            build(&mut w);
+            let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+            c.hold_when_stuck = hold;
+            settle(&mut w, &mut c, 30);
+            let steps: Vec<_> = walk(&mut w, &mut c, v, 120).into_iter().map(|s| (s.feet, s.grounded)).collect();
+            (steps, c.held_steps)
+        };
+        let ((free, _), (kept, n)) = (run(false), run(true));
+        assert_eq!(free, kept, "scene {i}");
+        assert_eq!(n, 0, "scene {i}");
+    }
+}

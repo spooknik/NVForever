@@ -1081,7 +1081,18 @@ From the ESM audit (gap 5). Code: `fnv_combat::data::ProjectileStats::lands_as_w
   joints. Without this, the torso's top cap covered the lower head and took head shots
   [observed]. The torso's lower end is not pulled in: pulled, it left a band at the hips
   that no capsule covered [observed].
-- **Damage** (`nvf-play` combat; projectiles and melee alike):
+- **The player's capsule** (`nvf_play::combat::player_hit_condition`, issue #1345)
+  [design]: first and third person use the character controller's feet, height and
+  radius, and the player's heading. A hit above 86 % of its height selects the head;
+  below 50 % it selects a leg. Between them, more than 60 % of the radius sideways
+  from the facing selects an arm; otherwise the torso. Left and right follow the
+  player's facing. Height clamps to the capsule; a leg hit exactly on the centre line
+  chooses the right leg. The named thresholds follow human skeleton proportions
+  [design]; how the original chooses a player's part remains [hypothesis], observer
+  check 3. The selected condition actor value finds the part in
+  `body_parts_for(PLAYER_BASE, HUMAN_SKELETON)`, the same data the player's limbs
+  already follow [design: `combat.rs`]. Missing data keeps location 0 and no limb.
+- **Damage** (`nvf-play` combat):
   - The hit's part gives the damage multiplier (`BodyPart::hit_part`; head hits count
     for the unaware-headshot critical).
   - The part gives the `GetHitLocation` number (`BodyPart::location`, the BodyLocation
@@ -1097,8 +1108,18 @@ From the ESM audit (gap 5). Code: `fnv_combat::data::ProjectileStats::lands_as_w
     Until 2026-10-25 the multiplier stayed in, so head hits crippled twice as fast.
     Guns only: two machete hits did not fit (×4 on the head, ×2 on a leg), so melee is
     open.
-  - Hits on the single capsule stay location 0 (torso); explosions are −1, with no
-    limb [design].
+  - Player shots missing a part use the capsule rule above, then `BodyPart::hit_part`,
+    `BodyPart::location` and `limb_hit`, including the head's ×2 Health multiplier
+    [design: `combat.rs`]. NPC blows on the player use the same rule for location and
+    limb, with `HitPart::default()` for Health [hypothesis: melee is open]. Creature
+    blows keep their weapon's Limb Dmg Mult, or the Fists' when that path supplies
+    them [hypothesis: the unmeasured creature multiplier]. NPC-on-NPC blows keep
+    location 0, no limb and their existing Health damage [design: `actor_attacks`].
+    Blocked blows use the damage left after blocking; zero damage gives no limb
+    loss. God mode stops Health and limb loss [design: `limb_hit`, `hit_player`].
+  - Other single capsules without part data keep location 0. Explosions keep
+    location −1 and their own limb shares; falls keep their own leg damage
+    [design: `combat.rs`, crippled-limbs.md §5, physics.md §6.12].
 - **Limb condition** (`Game::hit`, `Game::damage_limb`):
   - The part's condition actor value (25–31, starting at 100) loses
     `limb damage ÷ (max health × health % ÷ 100) × 100`, and stops at 0.
@@ -1116,7 +1137,8 @@ From the ESM audit (gap 5). Code: `fnv_combat::data::ProjectileStats::lands_as_w
   - the HUD's health line lists crippled limbs.
   - What every crippled limb does, to the player and to NPCs: crippled-limbs.md.
 
-  Nothing hurts the player yet (no NPC attacks); scripts can (`DamageActorValue`).
+  Ordinary NPC shots and blows now damage the player's limbs by default, as well as
+  explosions, falls and scripts [design: `combat.rs`, issue #1345].
 - **Hit reactions** (`damage::staggers`, `deaths.rs`) [design: the owner's rule,
   2026-10-11; before it every hit played one, and fast hits held an actor in it]:
   - The hit that cripples a body part always plays one.

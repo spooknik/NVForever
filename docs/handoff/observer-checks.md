@@ -142,10 +142,21 @@ engine if needed, and delete the item here.
    10mm Pistol, three runs to the player's death, 38 hits) [observed]: each body hit
    took 16.06 Health; the arm or leg hit lost the same 16.06 of its condition, the torso
    (EnduranceCondition) 6.69 (0.4167 of it); a head hit took 32.12 Health and 20.075
-   PerceptionCondition (0.625 of the Health lost, as on one larger 76.12 head hit). So
-   nothing halved arm and leg damage here; whether ours' `fCombatPlayerLimbDamageMult`
-   halving is cancelled by body-part multipliers is open (#1345). The lead-pipe trooper
-   never landed a blow in 0.15 h (no data).
+   PerceptionCondition (0.625 of the Health lost); one larger head hit took 76.12
+   Health and 47.575 PerceptionCondition. Maximum Health 200 remains [hypothesis]:
+   the run did not record base Health. At 200, with DefaultBodyPartData's shares
+   (arms and legs 25 %, torso 60 %, head 20 %, ×2 Health) and Limb Dmg Mult 1,
+   `damage before the part multiplier × 1 × 0.5 × 100 / (200 × part health % / 100)`
+   gives 16.06, 6.69, 20.075 and 47.575 [design: `Game::damage_limb`, `limb_hit`,
+   crippled-limbs.md §5]. The part ratios follow from the shares alone: nothing
+   cancels the halving, and the existing formula needs no change under that Health
+   hypothesis. Pinned by a synthetic 200-Health player test (#1345).
+   Still open: **how does the original choose the part on the player's capsule,
+   and what condition and Health do blows take?** Record base Health, hit point,
+   facing, GetHitLocation and all six conditions around shots and blows. NVForever's
+   capsule bands and unchanged melee Health multiplier are [hypothesis]
+   (combat-rules.md §12). The lead-pipe trooper never landed a blow in 0.15 h
+   [observed: o17_air], so that run gave no melee data.
 4. **Hardcore needs and waiting.** Partly answered 2026-10-31 (o7_00, o7_05, owner save
    nvfHardcore, TimeScale 30, about 59 frames a second):
    - The needs rise at our rates [observed]: Dehydration 2 every 0.168 game hours
@@ -1417,3 +1428,17 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     NVForever puts it. At its front the original shows the weapon's metal hand (the WEAP's
     BIPL addon `ARMAPowerfist`), not her bare hand. Still to look at: the same with the
     weapon holstered, and in the player's first person.
+
+## Added 2026-11-06 (burning in first person, issue #1772)
+
+100. **What does burning draw on the first-person arms?** (P2; effect-shaders.md §4.)
+    NVForever puts shader overlays only on the third-person body and leaves the
+    first-person arms alone [design: `effect_shaders.rs::play`]. Whether the original
+    puts Flames01's membrane, flames or add-on models on the arms is unconfirmed
+    [hypothesis]. Capture the same first-person view before and during
+    `player.PlayMagicShaderVisuals 0005F9B6`, with a weapon lowered and then raised;
+    switch to third person while it plays for comparison. Do the arms change colour,
+    carry flame sprites, or emit particles, and does switching perspective change that?
+    Answered in part 2026-11-06 (private job ov_burn, the Prospector Saloon) [observed]: with
+    the weapon holstered first person shows nothing of the burn, third person shows flames at
+    the head, and back in first person nothing again. The raised weapon's arms are still open.

@@ -174,6 +174,20 @@ pub struct Stats {
     /// Colliders by rapier shape type name (`"cuboid"`, `"heightfield"`, ...).
     pub colliders: BTreeMap<String, usize>,
     pub steps: u64,
+    /// The solver's load (#1798): bodies awake, contact pairs touching, their manifolds
+    /// and contact points the solver works on, and the joints.
+    pub bodies_awake: usize,
+    pub contact_pairs: usize,
+    pub manifolds: usize,
+    pub solver_contacts: usize,
+    pub joints: usize,
+    /// rapier's stage timers summed over every step so far, microseconds (all 0 without
+    /// the `solver-timers` feature): the solver's serial set-up (velocity assembly), its
+    /// solve (velocity resolution: the constraint iterations and writeback), collision
+    /// detection, island construction, CCD, the whole rapier step. Not serialized (timings
+    /// differ run to run).
+    #[serde(skip)]
+    pub solver_us: [u64; 6],
 }
 
 /// State of one body, for readback (e.g. dynamic clutter positions).
@@ -428,6 +442,8 @@ pub struct PhysWorld {
     /// Standalone hit-volume colliders written since the last refresh or step: (collider,
     /// actor body, pose on the body), placed by `flush_hit_volumes`.
     pub(crate) hitvol_pending: Vec<(ColliderHandle, RigidBodyHandle, Pose)>,
+    /// [`Stats::solver_us`], milliseconds.
+    pub(crate) solver_ms: [f64; 6],
 }
 
 impl PhysWorld {
@@ -444,6 +460,8 @@ impl PhysWorld {
         // `clutter_on_the_terrain_shell_falls_asleep`]. Why is not known; a prediction
         // distance of the default plus the skin rests them (asleep within 2 s).
         w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
+        #[cfg(feature = "solver-timers")]
+        w.physics_pipeline.counters.enable();
         PhysWorld {
             params,
             w,
@@ -469,6 +487,7 @@ impl PhysWorld {
             grip: None,
             standalone_hit_volumes: true,
             hitvol_pending: Vec::new(),
+            solver_ms: [0.0; 6],
         }
     }
 
@@ -899,6 +918,10 @@ impl PhysWorld {
         {
             let _span = tracing::info_span!("phys::rapier_step").entered();
             self.step_world();
+            let c = &self.w.physics_pipeline.counters;
+            for (a, t) in self.solver_ms.iter_mut().zip([c.solver.velocity_assembly_time, c.solver.velocity_resolution_time, c.stages.collision_detection_time, c.stages.island_construction_time, c.stages.ccd_time, c.step_time]) {
+                *a += t.time_ms();
+            }
         }
         // Diagnostics: marks the step's own detection took, with no refresh between.
         if self.dirty {
@@ -1057,6 +1080,16 @@ impl PhysWorld {
         for (_, c) in self.w.colliders.iter() {
             *s.colliders.entry(shape_name(c.shape().shape_type())).or_default() += 1;
         }
+        s.bodies_awake = self.w.islands.num_active_bodies();
+        for pair in self.w.narrow_phase.contact_pairs().filter(|p| p.has_any_active_contact()) {
+            s.contact_pairs += 1;
+            for m in pair.solver_manifolds().iter().filter(|m| !m.data.solver_contacts.is_empty()) {
+                s.manifolds += 1;
+                s.solver_contacts += m.data.solver_contacts.len();
+            }
+        }
+        s.joints = self.w.impulse_joints.len();
+        s.solver_us = self.solver_ms.map(|v| (v * 1000.0) as u64);
         s
     }
 
@@ -1105,6 +1138,7 @@ impl PhysWorld {
             grip: self.grip.clone(),
             standalone_hit_volumes: self.standalone_hit_volumes,
             hitvol_pending: self.hitvol_pending.clone(),
+            solver_ms: self.solver_ms,
         }
     }
 

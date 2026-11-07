@@ -80,6 +80,7 @@ mod lights;
 mod limbs;
 mod lips;
 mod memory_budget;
+mod gpu_poll;
 mod pipeline_gate;
 mod lockpick_view;
 mod roulette_view;
@@ -1378,6 +1379,9 @@ fn main() -> AppExit {
     .add_plugins(nvf_assets::AssetReleasePlugin)
     // Their keep limits follow the machine's RAM and GPU memory budget (memory_budget.rs).
     .add_plugins(memory_budget::MemoryBudgetPlugin)
+    // wgpu's clean-up of finished GPU work on a thread of its own, not the render thread's
+    // queue submit (gpu_poll.rs, #1427).
+    .add_plugins(gpu_poll::GpuPollPlugin)
     .insert_resource(StartPose {
         position: start,
         heading: args.heading,

@@ -4,9 +4,14 @@
 //! `stress sample: t <s> s, frames <n>, frame mean <m> ms, frame worst <w> ms, entities <n>,
 //! refs drawn <n>, meshes <n>, images <n>, materials <n>, models cached <n>, textures
 //! cached <n>, audio <n>, cells <n>,
-//! bodies <fixed>/<kinematic>/<dynamic>, actors <n>, nan actors <n>, ragdolls <n>,
+//! bodies <fixed>/<kinematic>/<dynamic>, bodies awake <n>, contact pairs <n>, manifolds <n>,
+//! solver contacts <n>, joints <n>, solver ms <a>/<r>/<d>/<i>/<c>/<s>, actors <n>,
+//! nan actors <n>, ragdolls <n>,
 //! projectiles <n>[, gpu allocated <MB>, gpu reserved <MB>, gpu blocks <n>], at <place>`
-//! with what the engine holds now and where the camera is (the crash report's place text),
+//! with what the engine holds now and where the camera is (the crash report's place text);
+//! `bodies awake` to `joints` are the physics solver's load now, and `solver ms` rapier's
+//! stage timers summed since the start (`fnv_phys::Stats::solver_us`: set-up, solve,
+//! collision detection, islands, CCD, the whole step; 0 outside the profile build) (#1798),
 //! and `stress gpu labels: <label> <MB> in <n>; …` (the GPU allocator's report, where the
 //! backend gives one: [`gpu_memory`]). At the exit, `stress frames: <n> frames, mean <m> ms,
 //! 1% low <l> ms (<fps> fps), worst <w> ms` over the run after its start-up ([`frame_stats`]),
@@ -311,7 +316,8 @@ fn sample(
     let nan = actors.iter().filter(|r| r.nodes.first().and_then(|&e| globals.get(e).ok()).is_some_and(|g| !g.translation().is_finite())).count();
     let (cells, bodies, ragdolls) = phys.as_deref().map_or((0, "0/0/0".to_string(), 0), |p| {
         let st = p.world.stats();
-        (p.cells.len(), format!("{}/{}/{}", st.bodies_fixed, st.bodies_kinematic, st.bodies_dynamic), p.world.ragdolls().count())
+        let solver = format!(", bodies awake {}, contact pairs {}, manifolds {}, solver contacts {}, joints {}, solver ms {:.0}/{:.0}/{:.0}/{:.0}/{:.0}/{:.0}", st.bodies_awake, st.contact_pairs, st.manifolds, st.solver_contacts, st.joints, st.solver_us[0] as f64 / 1000.0, st.solver_us[1] as f64 / 1000.0, st.solver_us[2] as f64 / 1000.0, st.solver_us[3] as f64 / 1000.0, st.solver_us[4] as f64 / 1000.0, st.solver_us[5] as f64 / 1000.0);
+        (p.cells.len(), format!("{}/{}/{}{solver}", st.bodies_fixed, st.bodies_kinematic, st.bodies_dynamic), p.world.ragdolls().count())
     });
     let gpu = cached.2.as_deref().map_or(String::new(), gpu_memory);
     info!(
