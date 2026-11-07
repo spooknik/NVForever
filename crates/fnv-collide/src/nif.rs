@@ -91,6 +91,9 @@ pub struct RawCollision {
     pub mass: Option<f32>,
     pub friction: Option<f32>,
     pub restitution: Option<f32>,
+    /// The rigid body's Body Flags; bit 0 "respond to wind" [documented: nif.xml
+    /// bhkRigidBody "Body Flags", "1 = respond to wind"].
+    pub body_flags: Option<i64>,
     /// Body translation (xyz of the stored vec4) and rotation quaternion as stored (x, y, z, w).
     pub body_translation: [f32; 3],
     pub body_rotation: [f32; 4],
@@ -543,6 +546,7 @@ fn extract_with(file: &NifFile, dec: &Decoded, render: bool) -> Extracted {
             mass: info.and_then(|s| s.float("mass")),
             friction: info.and_then(|s| s.float("friction")),
             restitution: info.and_then(|s| s.float("restitution")),
+            body_flags: body.int("body_flags"),
             body_translation: [t[0], t[1], t[2]],
             body_rotation: f4("rotation").unwrap_or([0.0, 0.0, 0.0, 1.0]),
             shape,
@@ -675,6 +679,7 @@ impl RawCollision {
             shape: self.shape.scaled(f).into(),
             shell: self.shell * f,
             material: self.convex_material,
+            wind: self.body_flags.is_some_and(|b| b & 1 != 0),
         }
     }
 
@@ -825,6 +830,7 @@ mod tests {
             shape: crate::shape::Shape::Sphere { radius: 1.0 }.into(),
             shell: 0.0,
             material: None,
+            wind: false,
         }
     }
 
@@ -925,6 +931,7 @@ mod tests {
             mass: Some(0.0),
             friction: Some(0.5),
             restitution: Some(0.4),
+            body_flags: Some(0),
             body_translation: [1.0, 0.0, 0.0],
             body_rotation: [0.0, 0.0, 0.0, 1.0],
             shape: Shape::Box { half_extents: [1.0, 2.0, 3.0] },

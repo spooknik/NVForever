@@ -612,7 +612,8 @@ world-sounds test knocked Sunny's three bottles 117–128 units ("impacts by mat
 
 The three motorcycles outside the Goodsprings saloon could be pushed by the player; in the
 game they do not move, while tumbleweeds and Sarsaparilla crates do [observed: owner,
-playtest list 5 item 59].
+playtest list 5 item 59]. The tumbleweeds roll with the weather's wind: [wind](wind.md)
+(their model's body flag, issue #1401).
 
 - They are STAT references (`Motorcycle01Static`, 0x00106341, 0x00106342, 0x0010750C)
   [observed: `fnvtool world refs --world WastelandNV`]. Their model,

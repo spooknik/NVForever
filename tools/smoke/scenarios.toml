@@ -211,6 +211,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "placed-water-no-reflect"
+source = "issue #1780: the Ultra-Luxe fountain's placed water (PWAT DupontCircle01Water, which does not set DNAM bit 0 Reflects) is a dull green pool in the original, no reflection; it is drawn with its water type's body alone (fnv_world::sky::placeable_water_reflects, engine/nvforever/src/water.rs, docs/spec-notes/world.md §6 Placed water)"
+note = "the observer-checks item 87 spot, facing north at noon (capture ul_fountain, 2026-11-06). Before the fix the pool was the pale sky with waves (about sRGB 170,190,193)"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/water.rs", "engine/nvforever/src/water.wesl", "crates/fnv-world/src/sky.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "3:0:0", NVF_PLAY_TEST_SHOTS = "8:ul_fountain_water.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=1176,-700,1080", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 10
+manual = "ul_fountain_water.png against the original's frame from the same spot (kept privately): an even dull olive-green pool, no sky, obelisk or building reflection, no bright waves"
+expect = [
+  { text = "placed water 00165AD0: its PWAT 000A1A9D does not set Reflects, drawn without reflection", label = "the fountain's water is drawn without reflection" },
+  { re = 'test aid: screenshot .*ul_fountain_water\.png', label = "the frame is saved" },
+]
+
+[[scenario]]
 name = "reflection-lake"
 source = "issue #1042: at Lake Mead the reflection camera switches on with the lake in view and off looking at the sky, where Bevy's box test of the water planes still passed them (engine/nvforever/src/reflection.rs)"
 note = "Boulder Beach shore (as wade-in-swim), the lakelurks kept unaware (NVF_PLAY_TEST_UNSEEN); looking at the lake, then 70 degrees up. Since #1060 the camera comes on only when the water shader counted drawn water pixels, so this is also the positive check of that count (water.wesl), the one reflection-off-unseen (camera stays off) cannot give"
@@ -1386,7 +1401,7 @@ kind = "tool"
 source = "CLAUDE.md: after detection changes, fnvtool actor detect (docs/design/detection.md §4)"
 areas = ["detection"]
 paths = ["crates/fnv-game/src/detection.rs", "engine/nvforever/src/detection.rs", "crates/fnvtool/src/actor_detect.rs"]
-commands = [["actor", "detect", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--detector", "SunnyRef"]]
+commands = [["actor", "detect", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--detector", "SunnyRef", "--light", "90", "--dark", "10"]]
 # The table of detection.md §4 ("never" is null in the output).
 expect = [
   { json = "situations.?situation=standing, lit.detected_out_to", equals = 2590.0 },
@@ -1418,7 +1433,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 40
 order = [[
-  { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
+  { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking', known_failing = "#970 (claude/observer-o27, 2026-11-06): the light at the player at noon is now the original's GetActorLightAmount, 100 (was our 93); the sneaking player at about 1,900 units reaches the settler's detected band straight from hidden (value 0.3 to 1.9 in sight, light 100). Whether the original's settler notices or detects here is not captured" },
   { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected', known_failing = "claude/sight-own-capsule 2026-10-23, 2 of 2 runs: actors' sight rays no longer pass through walls (they started inside the detector's own capsule and always ended clear, docs/design/streaming-hitches.md §4); the settler, about 1,830 units off, loses the sneaking player behind something (noticed → hidden, out of sight (blocked)) and the shots at 22 s do not reach detected. The step was recorded while every actor saw through walls; whether the original's settler detects the player here is not captured" },
 ]]
 expect = [
@@ -1735,6 +1750,18 @@ expect = [
   { re = 'armed locomotion: Actor 00104C7D .* 1hp (Forward|Backward|Left|Right|TurnLeft|TurnRight) plays .*\\1hp\w+\.kf', label = "Ringo walks or turns on the pistol's own clips" },
   { re = 'armed locomotion: Actor 00104C7D .* 1hp Fast\w+ plays .*\\locomotion\\1hpfast\w+\.kf', label = "Ringo runs on the pistol's own run clips (pistol up)" },
   { re = 'armed locomotion: .* 1hp (Fast)?(Forward|Backward|Left|Right) plays .*\\mt\w+\.kf', count = 0, label = "no unarmed walk or run with the pistol drawn" },
+]
+
+[[scenario]]
+name = "h2h-weapon-hand"
+source = "#1586 (owner's report 2026-11-04): Veronica's bare hand stuck out of her power fist. A hand-to-hand weapon's BIPL names its own hand model (WeapPowerFistVeronica: WeaponPowerfist -> ARMAPowerfist, Right Hand, PowerFist.NIF), worn in place of the bare hand as an outfit's glove is [observed: the original shows the metal hand, capture pf_h2h_rest3 2026-11-06] (docs/spec-notes/actors.md §9.2, crates/fnv-actor/src/resolve.rs)"
+note = "at the 188 Trading Post at noon with every NPC's weapon out (--actor-weapons drawn); Veronica (VeronicaREF 0x000E32A9) stands 180 units south of the camera with her power fist"
+areas = ["actors"]
+paths = ["crates/fnv-actor/src/resolve.rs", "crates/fnv-actor/src/records.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/outfits.rs"]
+args = ["--play", "--pos=30941,31711,5531", "--heading", "180", "--hour", "12", "--no-voice", "--actor-weapons", "drawn"]
+run_seconds = 15
+expect = [
+  { re = '(?i)actor weapons: 000E32A9 \S*powerfistrigid\.nif: worn with its hand model\(s\) \[.*powerfist\.nif.*\] in place of the bare hand', label = "Veronica's power fist comes with its metal hand" },
 ]
 
 [[scenario]]
@@ -3452,15 +3479,16 @@ expect = [
 
 [[scenario]]
 name = "creature-sounds-aware"
-source = "playtest list 7 item 46 (docs/spec-notes/audio.md §14.1): a creature that becomes aware plays its Aware sound"
-note = "three radscorpions (CrRadscorpion1Small 0x0001CF9D; its AudioTemplateRadScorpion lists Aware at a 75 % chance (CSDC 75), no clip has an Aware key) placed at the player in Goodsprings at 3, 6 and 9 s, each its own roll; god mode; they notice the player and fight"
+source = "issue #989 (docs/spec-notes/audio.md §16.1): a creature that becomes aware plays no Aware sound unless a clip key names it; the original's radscorpions and lakelurk kings played none (observer batch o28). Until then (playtest list 7 item 46) it was played on becoming aware"
+note = "three radscorpions (CrRadscorpion1Small 0x0001CF9D; its AudioTemplateRadScorpion lists Aware at a 75 % chance (CSDC 75), no clip has an Aware key) placed at the player in Goodsprings at 3, 6 and 9 s; god mode; they notice the player and fight without an Aware sound"
 areas = ["creature-sounds", "audio"]
 paths = ["engine/nvforever/src/anim_sounds.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrRadscorpion1Small:1,6:call:player:PlaceAtMe:CrRadscorpion1Small:1,9:call:player:PlaceAtMe:CrRadscorpion1Small:1" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 20
 expect = [
-  { re = 'anim sounds summary:.*creatures: \d+ sounds \([^)]*\bAware [1-9]', label = "its Aware sound on noticing the player" },
+  { re = 'anim sounds summary:.*creatures: [1-9]\d* sounds', label = "the radscorpions sound their keys" },
+  { re = 'anim sounds summary:.*creatures: \d+ sounds \([^)]*\bAware [1-9]', count = 0, label = "no Aware sound on noticing the player" },
 ]
 
 [[scenario]]
@@ -7852,6 +7880,36 @@ expect = [
 ]
 
 [[scenario]]
+name = "grenade-launcher-arc"
+source = "#1471: the Grenade Launcher's round on the Searchlight Airport runway, first person, along the runway (heading 75), aimed level, 15 and 30 degrees up; the original's (o26_gl, combat-rules.md §5) left 110-140 units above the ground at 1,750 units/s and first hit the ground 793 / 1,944 / 2,815 units out after 0.45 / 1.16 / 1.86 s, going off there"
+note = "the radscorpions about are killed first (killall, as the original's save had them); no spread (NVF_PLAY_TEST_NO_SPREAD), so each round leaves along the aim; the view is set again before each shot (the kick lifts it); each `fire` press is let go 0.1 s later"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/projectile.rs", "crates/fnv-combat/src/shot.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:8", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close", NVF_PLAY_TEST_LOOK = "2:75:0,10:75:15,15:75:30", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.1:fire,11:fire,11.1:fire,16:fire,16.1:fire" }
+args = ["--cell", "Goodsprings", "--pos=37000,-117160,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'combat: projectile 40mmGrenLaunchProjectile left .* at 1750 units/s, -?0\.\d deg up; first touched .*, (?P<n>\d+) units across the ground', range = [760, 860], label = "aimed level it lands about as far as the original's 793 units" },
+  { re = 'combat: projectile 40mmGrenLaunchProjectile left .* at 1750 units/s, 15\.\d deg up; first touched .*, (?P<n>\d+) units across the ground', range = [1860, 2030], label = "15 degrees up: the original's 1,944 units" },
+  { re = 'combat: projectile 40mmGrenLaunchProjectile left .* at 1750 units/s, 30\.\d deg up; first touched .*, (?P<n>\d+) units across the ground', range = [2700, 2930], label = "30 degrees up: the original's 2,815 units" },
+  { re = 'combat: projectile 40mmGrenLaunchProjectile went off after [\d.]+ s at .*units across the ground from where it left$', count = 3, label = "each round goes off where it first lands, without rolling" },
+]
+
+[[scenario]]
+name = "frag-grenade-roll"
+source = "#1785: a thrown frag grenade on the Searchlight Airport runway, aimed level along the runway; the original's (o26_gl frag0, combat-rules.md §5) landed 513 units out after 0.58 s and rolled on to about 1,200 units by its fuse (2.5 s); launcher rounds do not roll (owner)"
+note = "the radscorpions about are killed first (killall); first person; one grenade thrown at 6 s (the attack held 0.5 s, the original's 30 loops)"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_GIVE = "00004330:3", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close", NVF_PLAY_TEST_LOOK = "2:75:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.5:fire" }
+args = ["--cell", "Goodsprings", "--pos=37000,-117160,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 13
+expect = [
+  { re = 'combat: projectile GrenadeFragProjectile left .*first touched .* after (?P<n>[\d.]+) s', range = [0.5, 0.7], label = "it lands after about as long as the original's (0.58 s)" },
+  { re = 'combat: projectile GrenadeFragProjectile went off after 2\.\d+ s .*, (?P<n>\d+) units across the ground from where it left, after rolling', range = [1000, 2500], label = "it rolls on and goes off on its fuse (ours throws at the PROJ's 1,200 units/s, the original's about 950: the distance is not the original's 1,206, issue #1785; about 1,880 expected: at most 1,200 x 0.7 s in the air plus 0.9 x 1,200 / 0.66 rolling is under 2,500)" },
+]
+
+[[scenario]]
 name = "grenade-blast-big-creature"
 source = "owner 2026-10-27: 40 mm grenades fired beside giant radscorpions often did them no harm; a blast now reaches every body within its radius by its nearest part, seen from the blast or just above it, and only walls, rocks, the ground and wrecks shield (projectile.rs blast, combat.rs cover_ray)"
 note = "a large radscorpion (CrRadscorpion2Large) placed 500 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the player fires two 40 mm grenades at it at 9.1 and 11.1 s"
@@ -11241,6 +11299,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "intercom-voice-unfiltered"
+source = "issue #992 (docs/spec-notes/audio.md §15.5): the original plays a line said through a talking activator as its file, without a voice filter (observer batch o28, Benny through the Tops' security intercom)"
+note = "VMQTops at stage 20, then VTopsPresidentialIntercomREF (0x00129556) activated: its OnActivate (SCPT 0x0012954B) sets Benny as its talking actor and activates itself while VMQTops 20 is done, objective 30 not shown and Benny is out of the suite (in a new game the script only says there is no response); Benny's GREETING through the intercom (0x00147865) needs only IsActorTalkingThroughActivator 1 and GetIsID Benny and has voice files"
+areas = ["dialogue", "audio"]
+paths = ["engine/nvf-play/src/voice_filter.rs", "engine/nvf-play/src/voice.rs", "crates/fnv-sim/src/forms.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "8", NVF_PLAY_TEST_SCRIPT = "5:stage:VMQTops:20,12:activate:VTopsPresidentialIntercomREF" }
+args = ["--cell", "2ETopsPresidentialSuite", "--play", "--pos=1990,1216,8040", "--heading", "0", "--hour", "20", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'voice: playing \S+\.ogg \([\d.]+ s\) .*line \S*00147865', label = "Benny's intercom line plays from its file" },
+  { re = 'voice: playing .* through the voice filter', count = 0, label = "and not through the voice filter" },
+]
+
+[[scenario]]
 name = "knockdown-player"
 source = "playthrough blocker row 1's leftover (docs/outstanding.md): the player knocked down by PushActorAway drops as a ragdoll, the view leaves first person, the controls are held, the get-up idle plays and the view and the controls come back (docs/spec-notes/unconscious.md §5.4)"
 note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s; at 16 s the console has him push the player with force 10 and reads the player's GetKnockedState (0 for a pushed actor); the player lies 2.4 s (PLAYER_KNOCKDOWN_DOWN, observed in the original), the camera held where the eye was; gets up with GetUpFaceUp or GetUpFaceDown seen from the third-person camera, and is in first person again"
@@ -11517,6 +11589,29 @@ expect = [
   { re = 'sneak gauges summary: on true, shown (?P<n>[\d.]+) s', range = [10, 30], label = "shown for the time sneaking" },
   { re = 'sneak gauges summary: .*most light (?P<n>\d+)', range = [30, 100], label = "noon light measured at the player" },
   { re = 'sneak gauges summary: .*most noise (?P<n>\d+)', range = [100, 1000], label = "the shot is loud" },
+]
+
+[[scenario]]
+name = "detection-light-night"
+source = "#970 (docs/design/detection.md §3): the light at the player follows the original's GetActorLightAmount; at midnight in Goodsprings under NVWastelandClear it read 82.35 (210/255, the night sunlight's blue) in o11_light and o27_light"
+areas = ["detection"]
+paths = ["engine/nvforever/src/detection.rs", "crates/fnv-world/src/sky.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "0", "--weather", "NVWastelandClear", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'detection summary: .*; light at the player (?P<n>[\d.]+) to', range = [80, 85], label = "the least light at the player is the night sunlight's 82.35" },
+]
+
+[[scenario]]
+name = "wind-tumbleweeds"
+source = "#1401 (docs/spec-notes/wind.md): the bodies whose model flags respond to wind (the tumbleweeds, bhkRigidBody Body Flags bit 0) start awake and roll downwind; in the original those near Goodsprings rolled north-north-west at 150-210 units a second after a load (o27_tumble)"
+areas = ["physics"]
+paths = ["engine/nvforever/src/tumble.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-collide/src/nif.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--weather", "NVWastelandClear", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'wind summary: (?P<n>\d+) bodies respond to the wind', range = [1, 100], label = "the tumbleweeds near Goodsprings respond to the wind" },
+  { re = 'wind summary: .*the farthest went [0-9A-F]{8} (?P<n>\d+) units', range = [100, 100000], label = "one of them rolls away" },
 ]
 
 [[scenario]]
@@ -11906,10 +12001,10 @@ expect = [
 [[scenario]]
 name = "blast-perks-grenade-demolition"
 source = "#1569 (docs/spec-notes/perk-entry-points.md §2): the player's own 40 mm grenade at their feet: Demolition Expert changes the damage, with the weapon behind the blast, and no DT comes in"
-note = "The damage falls off with where the blast lands, so the check reads the perks line. Its factor is not read here (a log line cannot divide): fnv-combat a_blast_passes_the_damage_and_dt_entry_points and nvf-play combat::tests::blast_perks have the arithmetic. the shot catches the player in about 6 runs of 10 (#1581): a missing blast line fails this scenario, so rerun it before reading more into that"
+note = "Aimed 70 degrees down, not 75: since the round leaves the muzzle (#1471) a shot at 75 lands about 10 units off its old spot, where the blast's line-of-sight rays to the player were blocked in both runs (the Hit the Deck runs, same aim, were caught); The damage falls off with where the blast lands, so the check reads the perks line. Its factor is not read here (a log line cannot divide): fnv-combat a_blast_passes_the_damage_and_dt_entry_points and nvf-play combat::tests::blast_perks have the arithmetic. the shot catches the player in about 6 runs of 10 (#1581): a missing blast line fails this scenario, so rerun it before reading more into that"
 areas = ["combat", "perks"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/damage.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:8", NVF_PLAY_TEST_CONSOLE = "4:player.addperk DemolitionExpert;player.getav health;4.6:close;14:player.getav health;14.4:close", NVF_PLAY_TEST_LOOK = "6:46:-75", NVF_PLAY_TEST_CONTROL = "7:weapon,10:fire" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:8", NVF_PLAY_TEST_CONSOLE = "4:player.addperk DemolitionExpert;player.getav health;4.6:close;14:player.getav health;14.4:close", NVF_PLAY_TEST_LOOK = "6:46:-70", NVF_PLAY_TEST_CONTROL = "7:weapon,10:fire" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
 run_seconds = 18
 expect = [
@@ -12807,6 +12902,24 @@ order = [[
   { re = 'pickpocket: open on 0x00104C79: Sneak \d+ against \d+', label = "the steal menu opens with both Sneak skills" },
   { re = 'pickpocket: (took .* from .* unseen|caught by .* with )', label = "the take is unseen or caught" },
 ]]
+
+[[scenario]]
+name = "pickpocket-plant-dynamite"
+source = "#1640 (docs/spec-notes/pickpocket.md §5): a stick of dynamite placed in a pocket while sneaking goes live; the victim panics (the idle tree's root naming GetPlantedExplosive) and stands; after fProjectileInventoryGrenadeTimer it goes off and kills him (its 75 points hurt anyone); the kill is the player's and no faction turns on the player"
+note = "Chet in the general store is held where he stands (SetRestrained 1 at 0.5 s, as in pickpocket-steal); the console sets the player's Sneak to 100 at 2 s (the placement's chance at its cap); the inventory is emptied at 6 s, after the pre-order packs' items have come, and given one stick of Dynamite at 6.5 s (value 25: a chance of 78% against Chet's Sneak 15; a Frag Grenade's value of 150 leaves 16%, and the seeded first roll, 64, would catch it); the player stands at him (NEAR), sneaks at 4 s, is put in front of him at 7 s (FACE), presses E at 8 s, moves to the player's side at 9.5 s (left), places the dynamite at 10 s (Enter; the roll is seeded by the victim, so it repeats) and closes the menu at 11 s (E); the fuse's 2 s run after. Chet, in front of the player, detects him, so the kill is seen by its victim (Goodsprings infamy, observed 2026-11-06); nobody else is in the store to turn"
+areas = ["activate", "menus", "crime", "idles"]
+paths = ["engine/nvf-play/src/pickpocket.rs", "crates/fnv-game/src/pickpocket.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_CONSOLE = "2:player.setav sneak 100;2.3:close", NVF_PLAY_TEST_SCRIPT = "0.5:call:GSChetRef:SetRestrained:1,6:call:player:RemoveAllItems,6.5:call:player:AddItem:WeapNVDynamite:1", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,9.5:left,10:enter,11:e" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  { re = 'pickpocket: open on 0x00104C79', label = "E opens his pocket" },
+  { re = 'pickpocket: planted Dynamite x1 \(live, explosion', label = "the dynamite goes live in his pocket" },
+  { re = 'idle: GSChetRef plays PanicGrenadePlant.*\(Panic\)', label = "he panics: the idle tree's panic idle plays" },
+  { re = "pickpocket: Dynamite explodes in 0x00104C79's pocket: it dies", label = "it goes off and kills him" },
+  { re = 'crime: murder against GSChetRef 0x00104C79; seen by \[.*\]; turned on the player: \[\]', label = "the kill is the player's murder; nobody turns" },
+]]
+forbid = [{ text = "crime: the player is now an enemy of", label = "no faction turns on the player" }]
 
 [[scenario]]
 name = "ragdoll-under-a-box"

@@ -283,9 +283,15 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     }
     // The player's skill keeps its part from the attributes: SetActorValue sets the rest
     // [observed: gaps6, Guns 17 (all from the attributes at level 1, untagged) reads 67
-    // after SetActorValue Guns 50, and 117 after 100, GetBaseActorValue the same].
+    // after SetActorValue Guns 50, and 117 after 100, GetBaseActorValue the same;
+    // o26_setav 2026-11-06, nvfdoc: `player.setav repair 35` from the console and from a
+    // script read 52 with Repair 17 from the attributes, issue #1575].
     let v = a.num(1)?;
-    let v = if r == FormId::PLAYER_REF && crate::actor_values::SKILLS.contains(&code) { v + g.derived_skill(r, code) } else { v };
+    // The tag bonus stays too, the points spent go [observed: o26_setav, nvfLanius at
+    // level 50, 27 from the attributes: Repair 127 read 62 after SetAV 35 and Science 127
+    // read 27 after SetAV 0, Guns 142 read 92 after SetAV 50, 15 above; that the 15 is
+    // Guns' tag bonus (fAVDTagSkillBonus) is a hypothesis, the save's tags were not read].
+    let v = if r == FormId::PLAYER_REF && crate::actor_values::SKILLS.contains(&code) { v + g.derived_skill(r, code) + g.tag_bonus(code) } else { v };
     set_base(g, r, code, v)?;
     none()
 }

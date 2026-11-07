@@ -1161,6 +1161,10 @@ fn a_mine_spares_its_owners_side() {
     assert!(!spares(&g, None, BANDIT_REF));
 }
 
+/// A frag grenade's blast (FalloutNV.esm GrenadeFragExplosion: 125 damage, no object
+/// effect, the weapon's damage type None [observed]).
+const FRAG: fnv_game::pickpocket::Explosive = fnv_game::pickpocket::Explosive { damage: 125.0, resist: None, enchantment: None };
+
 #[test]
 fn a_planted_explosive_goes_off_after_the_timer() {
     // GECK wiki Projectile notes: GetPlantedExplosive is true after
@@ -1171,17 +1175,138 @@ fn a_planted_explosive_goes_off_after_the_timer() {
     let (victim, grenade) = (FormId(OWN_REF), FormId(0x0000_4330));
     let rules = fnv_game::pickpocket::Rules::default();
     let start = g.time;
-    g.plant_explosive(victim, grenade);
+    g.plant_explosive(victim, grenade, FRAG).unwrap();
     assert!(!g.has_planted_explosive(victim), "not before the freak-out time");
     g.time = start + rules.freakout_time + 0.01;
     assert!(g.has_planted_explosive(victim));
     assert!(g.tick_planted().is_empty(), "not before the timer");
     g.time = start + rules.grenade_timer + 0.01;
     let blasts = g.tick_planted();
-    assert_eq!(blasts, vec![fnv_game::pickpocket::Blast { victim, item: grenade }]);
+    assert_eq!(blasts, vec![fnv_game::pickpocket::Blast { victim, item: grenade, killed: true }]);
     assert!(g.is_dead(victim));
     assert!(!g.has_planted_explosive(victim), "gone off");
     assert_eq!(g.misc_stat(fnv_game::misc_stats::PANTS_EXPLODED), 1.0);
     // A dead actor cannot be pickpocketed.
     assert_eq!(g.pickpocket_refusal(victim), Some(fnv_game::pickpocket::Refusal::NotAllowed));
+}
+
+/// Plant `blast` on `victim` and run the clock past the timer; the blasts.
+fn plant_and_wait(g: &mut Game, victim: FormId, blast: fnv_game::pickpocket::Explosive) -> Vec<fnv_game::pickpocket::Blast> {
+    let rules = fnv_game::pickpocket::Rules::default();
+    let start = g.time;
+    g.plant_explosive(victim, FormId(0x0000_4330), blast).unwrap();
+    g.time = start + rules.grenade_timer + 0.01;
+    g.tick_planted()
+}
+
+#[test]
+fn only_an_explosion_that_hurts_the_victims_kind_kills() {
+    // Owner 2026-11-05: "instantly killing them if it's a damaging type"; the rule
+    // (`Game::explosive_harms`) is a hypothesis (observer-checks.md).
+    use fnv_game::cond::{Cmp, Condition, Operand, RunOn};
+    use fnv_game::data::{EffectItem, MagicEffectDef};
+    const GET_IS_CREATURE: u16 = 0x40;
+    let (ench, damage_health, man, rat) = (FormId(0x9A0), FormId(0x9A1), FormId(LOAFER_REF), FormId(LURKER_REF));
+    let mut f = fixture();
+    // As the Pulse Grenade's EMP: Damage Health on some kinds only (here: creatures).
+    f.data.magic_effects.insert(damage_health, MagicEffectDef { flags: MagicEffectDef::HOSTILE | MagicEffectDef::DETRIMENTAL, actor_value: Some(av::HEALTH), ..Default::default() });
+    let only_creatures = Condition { cmp: Cmp::Eq, or: false, run_on: RunOn::Subject, function: GET_IS_CREATURE, params: Vec::new(), rhs: Operand::Value(1.0) };
+    f.data.effect_items.insert(ench, vec![EffectItem { effect: damage_health, magnitude: 200, area: 0, duration: 0, actor_value: Some(av::HEALTH), conditions: vec![only_creatures] }]);
+    let pulse = fnv_game::pickpocket::Explosive { damage: 10.0, resist: Some(fnv_game::functions::av_by_name("EMP Resistance").unwrap()), enchantment: Some(ench) };
+
+    // The EMP on a man: it goes off (one more Pants Exploded), he lives.
+    let mut g = game(&f);
+    let b = plant_and_wait(&mut g, man, pulse);
+    assert_eq!(b.len(), 1);
+    assert!(!b[0].killed && !g.is_dead(man), "{b:?}");
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::PANTS_EXPLODED), 1.0);
+    // On a creature it kills.
+    let b = plant_and_wait(&mut g, rat, pulse);
+    assert!(b[0].killed && g.is_dead(rat), "{b:?}");
+
+    // A blast without damage kills nobody; a frag kills both.
+    let mut g = game(&f);
+    let flash = fnv_game::pickpocket::Explosive { damage: 0.0, resist: None, enchantment: None };
+    assert!(!plant_and_wait(&mut g, man, flash)[0].killed);
+    assert!(!g.is_dead(man));
+    assert!(plant_and_wait(&mut g, man, FRAG)[0].killed);
+    assert!(plant_and_wait(&mut g, rat, FRAG)[0].killed);
+}
+
+#[test]
+fn a_planted_explosive_does_not_go_live_on_an_essential_actor() {
+    // Fallout Wiki, Fallout 3 Pickpocket: a child just gets the explosive, no explosion;
+    // New Vegas and essential actors: hypothesis (observer-checks.md).
+    use fnv_game::pickpocket::NotLive;
+    let essential = FormId(WATCHMAN_REF);
+    let f = fixture();
+    let mut g = game(&f);
+    g.extra.entry(essential).or_default().essential = Some(true);
+    assert_eq!(g.plant_explosive(essential, FormId(0x4330), FRAG), Err(NotLive::Essential));
+    assert!(g.pickpocket.planted.is_empty(), "nothing goes live");
+    g.time += 10.0;
+    assert!(g.tick_planted().is_empty());
+    assert!(!g.is_dead(essential));
+    // A child: `functions.rs`, a_planted_explosive_stays_an_item_on_a_child.
+}
+
+#[test]
+fn a_planted_kill_is_seen_by_whoever_saw_the_player_while_it_was_live() {
+    // Fallout Wiki, New Vegas Pickpocket: staying hidden from the plant to the blast, no
+    // one turns hostile and no infamy is gained; the kill is judged with those who
+    // detected the player while it was live (pickpocket.md §5).
+    use fnv_game::crime::{Kind, Note as CrimeNote};
+    let (victim, witness, player) = (FormId(LOAFER_REF), FormId(GANGER_A_REF), FormId::PLAYER_REF);
+    let rules = fnv_game::pickpocket::Rules::default();
+    let murders = |g: &Game| -> Vec<Vec<FormId>> {
+        g.crimes.notes.iter().filter_map(|n| match n {
+            CrimeNote::Crime { kind: Kind::Murder, seen_by, .. } => Some(seen_by.clone()),
+            _ => None,
+        }).collect()
+    };
+    let f = fixture();
+
+    // Hidden all along: a murder nobody saw.
+    let mut g = game(&f);
+    plant_and_wait(&mut g, victim, FRAG);
+    assert!(g.is_dead(victim));
+    assert_eq!(murders(&g), vec![Vec::<FormId>::new()], "seen by nobody");
+
+    // Seen in the middle of the fuse, gone from view at the blast: still a witness.
+    let mut g = game(&f);
+    let start = g.time;
+    g.plant_explosive(victim, FormId(0x4330), FRAG).unwrap();
+    g.time = start + 0.5;
+    let t = g.time;
+    g.detection.pairs.insert((witness, player), (Detection { value: 30.0, band: Band::Detected, ..Default::default() }, t));
+    assert!(g.tick_planted().is_empty());
+    g.detection.pairs.remove(&(witness, player));
+    g.time = start + rules.grenade_timer + 0.01;
+    assert!(g.tick_planted()[0].killed);
+    assert_eq!(murders(&g), vec![vec![witness]]);
+    assert!(g.pickpocket.blast_witnesses.is_empty(), "only while the kill is judged");
+    assert!(g.crime_witnesses().is_empty());
+}
+
+#[test]
+fn a_planted_kill_counts_for_the_weapon_the_player_holds() {
+    // Fallout Wiki, New Vegas Pickpocket: the kill counts as one with the weapon type
+    // the player has equipped. Here the player holds nothing (fists, Unarmed), and the
+    // victim's last hit by the player was with a gun: the fists get the kill.
+    use fnv_game::challenges::{kind, ChallengeDef};
+    const UNARMED: u32 = 45;
+    const GUNS: u32 = 41;
+    let (victim, gun, by_fists, by_gun) = (FormId(LOAFER_REF), FormId(0x9B0), FormId(0x9B1), FormId(0x9B2));
+    let mut f = fixture();
+    f.data.weapon_skills.insert(gun, i64::from(GUNS));
+    for (c, skill) in [(by_fists, UNARMED), (by_gun, GUNS)] {
+        let def = ChallengeDef { form: c, kind: kind::KILL_FROM_LIST, threshold: 100, flags: 0, interval: 0, value1: 0, value2: skill, value3: 0, form1: None, form2: None, name: None, description: None };
+        f.data.challenge_defs.insert(c, def);
+    }
+    let mut g = game(&f);
+    g.extra.entry(victim).or_default().last_hit = Some(fnv_game::game::LastHit { attacker: Some(FormId::PLAYER_REF), weapon: Some(gun), location: 0, critical: false });
+    assert!(plant_and_wait(&mut g, victim, FRAG)[0].killed);
+    let progress = |c: FormId| g.player.challenges.get(&c).map_or(0, |c| c.progress);
+    assert_eq!((progress(by_fists), progress(by_gun)), (1, 0));
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::PEOPLE_KILLED), 1.0);
 }

@@ -38,6 +38,17 @@ engine if needed, and delete the item here.
   `SetNumericINISetting "bGeneralSubtitles:Interface" 1` showed no subtitles; a timed
   cleanup by sample count can miss a session's end (samples run 15-60 a second) and
   `GameHour >= 10.13` fired at once (sessions start near 10.1, not 10.0).
+- **Observer notes from o26 (2026-11-06):** sessions of one campaign run in one game, one
+  after another: the save is loaded once, so each session starts where the last left
+  off (reset in a `timed` item). A `timed` script naming a ref variable `rW` or `rO`
+  did not compile ("script did not compile" for every hook), the same lines with
+  `rItem`, `rBase` did (like `fW` before). Values a script works out go to the header
+  through the player's `Variable01`-`Variable10` (`player.SetAV VariableNN x`, read as
+  `player.GetAV VariableNN`); they come back as whole numbers. Real time from a header:
+  `floor(days) × 24 + hour` (GameDaysPassed is fractional). `IsHardcore` and
+  `SetHardcore` need `player.` in a script. The capture job's `query` steps with a full
+  script all failed again (plugin version 10, o26_setav steps), so read through the
+  observer.
 - **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
   12 (Ringo, Nash, Red Lucy, Doc Mitchell: nvftest/nvfdoc have them), 16, 17, 26, 27, 54.
 
@@ -145,7 +156,11 @@ engine if needed, and delete the item here.
      [observed, unexplained; one case].
    - `IsHardcore` read 0 in this Hardcore save, so it does not tell whether Hardcore is
      on. SetHardcore 1 on nvfairport still did nothing: the needs stayed 0 for two hours
-     (o6_00-01).
+     (o6_00-01). Explained 2026-11-06 (o26_stim): both need the player as calling
+     reference in a script. `IsHardcore` alone does not compile ("requires a calling
+     reference") and `SetHardcore 1` alone fails; `player.IsHardcore` reads 1 on
+     `nvfHardcore`, and `player.SetHardcore 1` / `0` switches it on `nvfairport` and
+     `nvfHardcore`. The needs-over-two-hours run could be redone that way.
    - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
      normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. The job had `tgm` on
      at the time (o7_00 steps 6 to 101; it went off before the Stimpak) [observed: the
@@ -1122,25 +1137,6 @@ The numbers above stay put so links to them hold; each item here gives its own p
     off the condition from a share of the limb's pool (of maximum Health), and whether the
     player's limbs take `fCombatPlayerLimbDamageMult`.
 
-## Added 2026-11-03 (a Stimpak's Hardcore effects outside Hardcore, issue #1438)
-
-76. **Does an aid effect whose conditions fail still count down its duration?** (P3;
-    aid-items.md §6.) The Stimpak's Health effects split by IsHardcore. NVForever now
-    holds a lasting effect whose conditions fail as inactive and lets its time run, so
-    outside Hardcore the Stimpak's 6 s heal over time is gone 6 s after the use
-    [hypothesis]. In the original (`nvfstrip`, Hardcore off): `player.damageav health
-    60`, use a Stimpak, wait 3 s, `SetHardcore 1` (or the settings switch), and log
-    `player.getav health` each second for 10 s: whether Health rises after Hardcore comes
-    on (the held effect taking hold) or not. Then again with 10 s between the use and
-    Hardcore on. Also whether STATS EFF lists the Stimpak at any point outside Hardcore.
-    The answer: the Health log and the EFF screenshots.
-    Tried 2026-11-06 (o25_stim, `nvfairport`), no answer: the observer's compiler refused
-    `IsHardcore` as a field ("Let fV := IsHardcore"), and the damage and the use ran
-    before the first sample (Health read 180 of 200 throughout both runs, before and after
-    `SetHardcore 1`). Next try: read Health in a `timed` script around the use, and check
-    that SetHardcore takes hold first (check 4 saw it do nothing on `nvfairport`), or start
-    from `nvfHardcore` and turn Hardcore off instead.
-
 ## Added 2026-11-03 (collision of animated objects, issue #1396)
 
 77. **Does an animated activator's collision move with it, keep its pose after a load,
@@ -1342,3 +1338,82 @@ The numbers above stay put so links to them hold; each item here gives its own p
     pipe swings still land (GetHealthPercentage or OnHit per swing, the player backing off
     5 units a swing). And a deathclaw (VCrTier4DeathClawMed) on the standing god-mode
     player again: o12_reach had one start at 88 units, far nearer than its RNAM 192 gives.
+
+## Added 2026-11-06 (observer batch o27: issues #970, #986, #1401)
+
+Answered [observed, 2026-11-06, `nvfairport`]: the light at an actor (#970, o27_light:
+the brightest channel of the sunlight outdoors, of the cell's ambient indoors;
+detection.md §3) and the tumbleweeds (#1401, o27_tumble: awake after a load, rolling
+north-north-west until they rest; wind.md §2). Open:
+
+93. **The light at an actor where something shades it, and a lamp's share.** (P3;
+    detection.md §3.) `player.GetActorLightAmount` at noon under a roof outdoors (the
+    Goodsprings gas station's canopy, SCOLgsGasStation at (-75584, 4562)), and indoors
+    at set distances from one lamp of known radius (a dark interior such as
+    SLGoodspringsCaveINT, which reads 36.08 away from its lamps). NVForever gives a
+    shaded target the weather's ambient and adds the lamps' brightest channel ×
+    (1 − (d/r)²) [hypothesis].
+94. **Tumbleweeds against the wind's speed, and whether they start again.** (P3; wind.md
+    §4.) Force HVDustStorm (127) and then load the save (or `coc` away and back) so the
+    tumbleweeds wake under it; compare their speeds with o27_tumble's 150–210 units a
+    second under 50. Then watch one at rest for an hour of game time at TimeScale 30.
+95. **Holotapes: subtitles and the radio.** (P2; holotapes.md §3, #986.) Tried
+    2026-11-06 (o27_holotape, `nvfairport`): the job gives VMQ01BeagleJournalNote and
+    waits; the Pip-Boy was to be driven by hand (computer use) with the game's sound
+    recorded by loopback (the `soundcard` module records the default output device), but
+    the input was interrupted before the Pip-Boy opened, so the run was stopped. Still to
+    do: tune the Pip-Boy radio to Radio New Vegas, play the note from DATA > Misc, close
+    the Pip-Boy; screenshots during the tape show whether a subtitle is drawn (the
+    owner's INI has dialogue subtitles on, general subtitles off), and the recording
+    whether the radio goes quiet under the tape, ducks or plays on, and comes back
+    after. The plugin cannot pick a menu entry, so this needs the owner or hand input.
+
+## Added 2026-11-06 (observer batch o28, sound: issues #989, #990, #992)
+
+Answered in this batch (audio.md §15.5, §16.1): talking activators' lines are not
+filtered by the original and their files are already processed (#992); a creature's Idle,
+Aware and Attack sounds play only from clip keys, and the Securitrons' siren played in
+none of the five situations tried (#989); no shipped master sets an acoustic space's walla
+(#990). Tools for this batch (scratchpad, not committed): JIP `IsSoundPlaying <sound>
+<ref>` read every sample through the player's `Variable01`-`09`, and the WASAPI loopback
+recorded with Python `soundcard` (ffmpeg has no loopback device on this machine), fitted
+to the decoded file by cross-correlation and a per-band transfer estimate.
+
+96. **When does a Securitron sound its siren (`NPCSecuritronSiren`, CREA sound type 21)?**
+    (P3; audio.md §16.1.) Not on spawning, standing 20 s, `StartCombat`, an assault or
+    trespass alarm, nor while hurt to death (o28_creature_sounds, o28_creature_sounds2).
+    Left to try: a Strip Securitron reacting to a crime it sees for itself in `nvfstrip`
+    (the player shooting a Strip NPC by `FireWeapon`, IsSoundPlaying without a ref), a
+    Securitron switching to its Mk II (Lucky 38 upgrade), and the Hoover Dam battle's
+    Securitrons (VHDSecuritronBattle…). If none, it is unused data.
+97. **Does the original filter a helmet wearer's voice?** (P3; audio.md §15.5.) A line
+    said by an NPC given a power armour helmet (Modulates Voice) recorded on the loopback
+    beside the same line bare-headed, fitted to the file as o28_intercom was. Needs a
+    line the observer can make an NPC say with a known file (`SayTo player <topic>` with
+    a topic whose line has conditions only on the speaker).
+
+## Added 2026-11-06 (exploding pants, issue #1640)
+
+98. **A planted explosive: who dies, who panics, who sees.** (P3; pickpocket.md §5.)
+    Reverse-pickpocket while sneaking and unseen, each in its own run from a fresh load: (a)
+    a Pulse Grenade on an ordinary NPC (a Goodsprings settler): does it die? Note its
+    Health before and after; NVForever keeps it alive [hypothesis]. (b) The same on a
+    robot (a Protectron or Mister Handy): does it die? (c) A Frag Grenade on a child (Freeside
+    or Westside) and on an essential NPC (Sunny Smiles before Back in the Saddle, or Doc
+    Mitchell): does it go live (GetPlantedExplosive 1 after 0.1 s) and go off? Is it still
+    in their inventory afterwards? NVForever: neither goes live. (d) During the panic,
+    stand within 2 m in view with Sneak low: does the victim detect the player
+    (`GetDetected` on it, then hostility after the blast)? (e) The panic on a creature that
+    can be pickpocketed (a giant rat): does it play anything, does it stop, or does it go
+    on walking? (f) Seen by a third NPC halfway through the fuse, then hidden at the blast:
+    does that NPC turn hostile? NVForever counts it as a witness.
+
+## Added 2026-11-06 (the power fist's hand, issue #1586)
+
+99. **The power fist's hand on Veronica: what is left open.** (P3; actors.md §9.2.) Capture
+    `pf_h2h_rest3` (nvfairport, Veronica at her placed spot at the 188, power fist drawn
+    with SetAlert, AI off, first-person camera 110 units off in front, to her right and to
+    her side; brass knuckles the same way): the gauntlet sits on the forearm where
+    NVForever puts it. At its front the original shows the weapon's metal hand (the WEAP's
+    BIPL addon `ARMAPowerfist`), not her bare hand. Still to look at: the same with the
+    weapon holstered, and in the player's first person.

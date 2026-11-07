@@ -37,6 +37,7 @@ fn object(half: f32, motion: Motion) -> CollisionObject {
         shape: Shape::Box { half_extents: [half; 3] }.into(),
         shell: 0.0,
         material: None,
+        wind: false,
     }
 }
 
@@ -847,6 +848,7 @@ fn several_dynamic_bodies_join_into_one_with_their_shapes_in_place() {
         shape: Arc::new(Shape::Sphere { radius: 3.0 }),
         shell: x / 10.0,
         material: None,
+        wind: false,
     };
     let j = one_dynamic_body(&[body(0.0, Motion::Dynamic), body(10.0, Motion::Dynamic)]).unwrap();
     assert_eq!(j.node_transform.translation, [1.0, 0.0, 0.0]);

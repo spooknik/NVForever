@@ -207,6 +207,8 @@ struct PreparedObject {
     material: Material,
     /// Body pose in the world, rapier units.
     pose: Pose,
+    /// It responds to the weather's wind (`CollisionObject::wind`).
+    wind: bool,
     leaves: Vec<Leaf>,
     /// Contact shell times the reference's scale, game units.
     shell: f32,
@@ -264,6 +266,7 @@ impl PreparedRef {
                 motion: o.motion,
                 material: Material { friction: o.friction, restitution: o.restitution, mass: o.mass, code: o.material },
                 pose: body_pose,
+                wind: o.wind,
                 leaves,
                 shell: o.shell * pose.scale,
             });
@@ -383,6 +386,8 @@ pub struct PhysWorld {
     /// fixed bodies like the static ones and so cannot be told apart by body type. A door's
     /// moving parts are keyframed; its static frame is not.
     pub(crate) keyframed: BTreeMap<u32, Vec<RigidBodyHandle>>,
+    /// The dynamic bodies of each reference that respond to the wind ([`PhysWorld::blow`]).
+    pub(crate) wind: BTreeMap<u32, Vec<RigidBodyHandle>>,
     /// Actor hit volumes by reference FormID (`crate::actors`).
     pub(crate) actors: BTreeMap<u32, crate::actors::ActorBody>,
     /// Ragdolls by actor reference FormID, and the ragdoll body each of their rigid
@@ -446,6 +451,7 @@ impl PhysWorld {
             terrain: BTreeMap::new(),
             refs: BTreeMap::new(),
             keyframed: BTreeMap::new(),
+            wind: BTreeMap::new(),
             actors: BTreeMap::new(),
             ragdolls: BTreeMap::new(),
             ragdoll_of: HashMap::new(),
@@ -520,9 +526,15 @@ impl PhysWorld {
                 Motion::Static | Motion::Keyframed => RigidBodyBuilder::fixed(),
                 Motion::Dynamic => RigidBodyBuilder::dynamic().sleeping(p.asleep),
             };
+            // A body that responds to the wind starts awake, so the wind takes it on from
+            // where it was placed until it comes to rest (`blow`) [hypothesis: the
+            // original's tumbleweeds near the player were rolling when a game was
+            // loaded and came to rest within 15 s, o27_tumble, docs/spec-notes/wind.md].
+            let blown = o.wind && o.motion == Motion::Dynamic;
+            let builder = if blown { builder.sleeping(false) } else { builder };
             // A dynamic body that has not moved yet would keep the clutter touching it
             // awake (a cleaner bottle on a container's lid): asleep too.
-            let hold = p.asleep && o.motion == Motion::Dynamic;
+            let hold = p.asleep && o.motion == Motion::Dynamic && !blown;
             let builder = if hold { builder.sleeping(true) } else { builder };
             let body = self.insert_body(builder.pose(o.pose).user_data(owner.encode()));
             // Kept with the reference at once, so a caller that catches a panic part way
@@ -530,6 +542,9 @@ impl PhysWorld {
             self.refs.entry(p.form_id).or_default().push(body);
             if o.motion == Motion::Keyframed {
                 self.keyframed.entry(p.form_id).or_default().push(body);
+            }
+            if blown {
+                self.wind.entry(p.form_id).or_default().push(body);
             }
             report.colliders += self.attach(body, owner, &o.material, o.leaves, o.shell);
             if o.motion == Motion::Dynamic {
@@ -618,6 +633,7 @@ impl PhysWorld {
     fn remove_bodies(&mut self, form_id: u32) -> bool {
         let Some(bodies) = self.refs.remove(&form_id) else { return false };
         self.keyframed.remove(&form_id);
+        self.wind.remove(&form_id);
         for b in bodies {
             self.remove_body(b);
         }
@@ -715,6 +731,33 @@ impl PhysWorld {
             b.apply_impulse(dir * (dv * m), true);
             // A query before the next step must not lose the wake-up (`update_queries`).
             self.struck.push(h);
+            n += 1;
+        }
+        n
+    }
+
+    /// The references with bodies that respond to the wind, and the centre of mass of
+    /// their first such body (game units).
+    pub fn wind_refs(&self) -> Vec<(u32, [f32; 3])> {
+        self.wind.iter().filter_map(|(&id, b)| Some((id, arr3(self.w.bodies.get(*b.first()?)?.center_of_mass() / self.k)))).collect()
+    }
+
+    /// Blow reference `form_id`'s bodies that respond to the wind for `dt` seconds: each
+    /// awake one's horizontal velocity is drawn towards `wind` (game units a second,
+    /// horizontal) by at most `accel` × `dt` (game units a second squared), so a slope it
+    /// cannot climb or something it lodges against stops it, and once it has come to rest
+    /// and fallen asleep the wind leaves it there [hypothesis: the original's tumbleweeds,
+    /// docs/spec-notes/wind.md]. A body asleep is not woken. Returns how many it blew.
+    pub fn blow(&mut self, form_id: u32, wind: [f32; 2], accel: f32, dt: f32) -> usize {
+        let k = self.k;
+        let Some(bodies) = self.wind.get(&form_id) else { return 0 };
+        let mut n = 0;
+        for &b in bodies {
+            let Some(body) = self.w.bodies.get_mut(b).filter(|x| x.is_dynamic() && !x.is_sleeping()) else { continue };
+            let v = body.linvel();
+            let want = Vector::new(wind[0] * k, wind[1] * k, v.z);
+            let dv = (want - v).clamp_length_max((accel * dt).max(0.0) * k);
+            body.set_linvel(v + Vector::new(dv.x, dv.y, 0.0), false);
             n += 1;
         }
         n
@@ -1044,6 +1087,7 @@ impl PhysWorld {
             terrain: self.terrain.clone(),
             refs: self.refs.clone(),
             keyframed: self.keyframed.clone(),
+            wind: self.wind.clone(),
             actors: self.actors.clone(),
             ragdolls: self.ragdolls.clone(),
             ragdoll_of: self.ragdoll_of.clone(),

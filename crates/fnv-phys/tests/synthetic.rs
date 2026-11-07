@@ -34,6 +34,7 @@ fn object(shape: Shape, motion: Motion) -> CollisionObject {
         shape: shape.into(),
         shell: 0.0,
         material: None,
+        wind: false,
     }
 }
 
@@ -255,6 +256,30 @@ fn clutter_on_the_terrain_shell_falls_asleep() {
     }
     let bike = w.ref_bodies(1)[0];
     assert!((bike.translation[2] - (30.0 + shell)).abs() < 0.5, "{bike:?}");
+}
+
+/// A body that responds to the wind starts awake even when placed asleep, and the wind
+/// rolls it downwind; one that does not is not blown (docs/spec-notes/wind.md).
+#[test]
+fn the_wind_blows_the_bodies_that_respond_to_it() {
+    let mut w = ground();
+    let shell = fnv_phys::TERRAIN_SHELL;
+    let ball = |wind| CollisionObject { mass: 2.0, wind, ..object(Shape::Sphere { radius: 30.0 }, Motion::Dynamic) };
+    let params = w.params;
+    w.insert_ref(PreparedRef::new(&params, &at(1, [0.0, 0.0, 30.0 + shell]), &[ball(true)]).asleep());
+    w.insert_ref(PreparedRef::new(&params, &at(2, [-400.0, 0.0, 30.0 + shell]), &[ball(false)]).asleep());
+    assert_eq!(w.wind_refs().iter().map(|r| r.0).collect::<Vec<_>>(), vec![1]);
+    assert!(!w.ref_bodies(1)[0].sleeping && w.ref_bodies(2)[0].sleeping);
+    let dt = params.dt;
+    for _ in 0..120 {
+        assert_eq!(w.blow(2, [200.0, 0.0], 300.0, dt), 0);
+        w.blow(1, [200.0, 0.0], 300.0, dt);
+        w.step();
+    }
+    let b = w.ref_bodies(1)[0];
+    assert!(b.translation[0] > 100.0 && b.translation[1].abs() < 20.0, "{b:?}");
+    assert!(b.linvel[0] > 100.0 && b.linvel[0] < 230.0, "{b:?}");
+    assert_eq!(w.ref_bodies(2)[0].translation[0], -400.0);
 }
 
 #[test]

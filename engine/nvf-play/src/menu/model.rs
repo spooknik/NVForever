@@ -117,6 +117,9 @@ pub struct Row {
     /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
     /// with " +" (docs/spec-notes/weapon-mods.md §3).
     pub mods: u8,
+    /// What the attached mods add to one unit's value: their IMOD values, which its
+    /// condition does not lower (`FormStore::mods_value`, issue #982).
+    pub mods_value: i32,
     /// The Misc tab's folder rows (the keyring, the caravan cards, and "Back" inside
     /// one): no item of their own ([`Folder`]).
     pub folder: Option<FolderRow>,
@@ -172,7 +175,7 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, folder: Some(f), reference: None }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: Some(f), reference: None }
     }
 }
 
@@ -244,6 +247,13 @@ pub fn plain_error(forms: &FormStore, e: &SimError) -> String {
 pub type Units = (FormId, Option<u32>, u8);
 
 impl Row {
+    /// One unit's value before a trade's multiplier: the item's value at its condition
+    /// plus what its attached mods add, which the condition does not lower [observed:
+    /// o26_value 2026-11-06, `FormStore::mods_value`; issue #982].
+    pub fn worth(&self, prices: &Prices) -> Option<f32> {
+        self.value.map(|v| prices.value_at(v, self.condition) + self.mods_value as f32)
+    }
+
     pub fn units(&self) -> Units {
         (self.item, self.at.map(f32::to_bits), self.mods)
     }
@@ -309,6 +319,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             price: None,
             bartered: false,
             mods: extra.mods,
+            mods_value: forms.mods_value(item, extra.mods),
             folder: None,
             reference: None,
         });
@@ -317,7 +328,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
         r.quest = world.is_quest_item(r.item);
     }
     sort_rows(&mut rows);
-    let value = rows.iter().map(|r| r.value.unwrap_or(0) as i64 * r.count as i64).sum();
+    let value = rows.iter().map(|r| (r.value.unwrap_or(0) + r.mods_value) as i64 * r.count as i64).sum();
     Ok(Listing { rows, weight: totals.weight, value, hidden })
 }
 
@@ -351,11 +362,12 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
             price: None,
             bartered: false,
             mods: s.extra.mods,
+            mods_value: forms.mods_value(s.base, s.extra.mods),
             folder: None,
             reference: Some(r),
         };
         l.weight += f64::from(row.weight.unwrap_or(0.0)) * f64::from(row.count);
-        l.value += row.value.unwrap_or(0) as i64 * row.count as i64;
+        l.value += (row.value.unwrap_or(0) + row.mods_value) as i64 * row.count as i64;
         l.rows.push(row);
         added = true;
     }
@@ -962,7 +974,7 @@ impl MenuModel {
                     why.is_none()
                 })
                 .map(|mut r| {
-                    r.price = r.value.map(|v| prices.value_at(v, r.condition) * mult);
+                    r.price = r.worth(&prices).map(|v| v * mult);
                     r
                 })
                 .collect();
@@ -1040,6 +1052,7 @@ impl MenuModel {
                                 price: None,
                                 bartered: false,
                                 mods: 0,
+                                mods_value: 0,
                                 folder: None,
                                 reference: None,
                             }),

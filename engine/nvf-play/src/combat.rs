@@ -1942,12 +1942,17 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
     let tracer_hold = std::env::var("NVF_PLAY_TEST_TRACERS").ok().and_then(|v| v.trim().parse().ok()).filter(|s: &f32| *s > 0.0);
     let forms = CombatForms::build(d.lo, d.schema);
     let rules = Rules::from_forms(&forms);
+    // A thrown grenade's restitution (combat-rules.md §5).
+    let grenade_restitution = forms.setting("fGrenadeRestitution").unwrap_or(CombatTuning::default().grenade_restitution);
     let fists = forms.by_edid("Fists");
     info!("combat: {} weapons, {} ammo, {} projectiles, {} explosions read in {:.0} ms", forms.weapons.len(), forms.ammo.len(), forms.projectiles.len(), forms.explosions.len(), t.elapsed().as_secs_f64() * 1000.0);
     commands.insert_resource(Combat {
         forms,
         rules,
-        tuning: CombatTuning::default(),
+        tuning: CombatTuning {
+            grenade_restitution,
+            ..CombatTuning::default()
+        },
         weapon: None,
         equipped: None,
         mods: 0,
@@ -2926,7 +2931,20 @@ pub(crate) fn fire(
                         }
                         None => gun_dir,
                     };
-                    shot::leaving(&world, eye, aim, anim.muzzle, reach, Some(PLAYER), control.third_person_view())
+                    let leaving = shot::leaving(&world, eye, aim, anim.muzzle, reach, Some(PLAYER), control.third_person_view());
+                    // An arcing explosive round (a grenade launcher's) leaves the muzzle,
+                    // along the aim: the original's 40 mm round started 110 / 125 / 138
+                    // units above the feet and 55 ahead at aim 0 / 15 / 30 degrees up,
+                    // where our weapon's muzzle is (110 / 126 / 142, 64 ahead), not at the
+                    // eye; from the eye it fell 5 % short at 15 degrees [observed: o26_gl,
+                    // combat-rules.md §5, issue #1471]. Not when the barrel is in a wall.
+                    let arcing = vats_shot.is_none()
+                        && chain.explosion.is_some()
+                        && chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).is_some_and(|p| p.gravity > 0.0 && !p.has("Hitscan") && p.kind.as_deref() == Some("Missile"));
+                    match anim.muzzle {
+                        Some(m) if arcing && !leaving.covered && world.ray(eye, m, &[PLAYER]).is_none() => shot::Leaving { origin: m, seen: Seen::ON_PATH, ..leaving },
+                        _ => leaving,
+                    }
                 };
                 let rng = &mut c.rng;
                 let mut rand = || rng.next_f32();
@@ -4271,7 +4289,41 @@ fn fly(
             });
             let ghost = move |to: V3| Ghost { id, proj, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
-            for e in f.p.step(&world, dt) {
+            let touched_before = f.p.first_contact.is_some();
+            let events = f.p.step(&world, dt);
+            // An explosive's arc, for comparing with the original's (combat-rules.md §5,
+            // issue #1471): where it left and how, and where it first touched something.
+            if let (false, Some((point, age)), Some((from, v)), Some(_)) = (touched_before, f.p.first_contact, f.p.launch, f.p.explosion) {
+                let edid = c.forms.projectiles.get(&f.proj).and_then(|p| p.edid.as_deref()).unwrap_or("?");
+                let across = |a: V3, b: V3| (a[0] - b[0]).hypot(a[1] - b[1]);
+                info!(
+                    "combat: projectile {edid} left ({:.0}, {:.0}, {:.0}) at {:.0} units/s, {:.1} deg up; first touched ({:.0}, {:.0}, {:.0}) after {:.2} s, {:.0} units across the ground and {:.0} below where it left",
+                    from[0],
+                    from[1],
+                    from[2],
+                    vec::len(v),
+                    v[2].atan2(v[0].hypot(v[1])).to_degrees(),
+                    point[0],
+                    point[1],
+                    point[2],
+                    age,
+                    across(point, from),
+                    from[2] - point[2]
+                );
+            }
+            if let (Some((from, _)), Some(ProjEvent::Explode { point, .. })) = (f.p.launch, events.iter().find(|e| matches!(e, ProjEvent::Explode { .. }))) {
+                let edid = c.forms.projectiles.get(&f.proj).and_then(|p| p.edid.as_deref()).unwrap_or("?");
+                info!(
+                    "combat: projectile {edid} went off after {:.2} s at ({:.0}, {:.0}, {:.0}), {:.0} units across the ground from where it left{}",
+                    f.p.age,
+                    point[0],
+                    point[1],
+                    point[2],
+                    (point[0] - from[0]).hypot(point[1] - from[1]),
+                    if f.p.rolling { ", after rolling" } else { "" }
+                );
+            }
+            for e in events {
                 match e {
                     ProjEvent::Hit { actor, part, object, point, delay, normal, material } => {
                         let from = if f.p.hitscan { f.origin } else { before };

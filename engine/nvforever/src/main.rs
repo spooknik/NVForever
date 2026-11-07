@@ -27,6 +27,7 @@ mod activators;
 mod nif_mirror;
 mod anim_paths;
 mod actor_feet;
+mod tumble;
 mod actor_jumps;
 mod actor_materials;
 mod anim_objects;
@@ -1547,6 +1548,8 @@ fn main() -> AppExit {
             app.add_plugins(speech_look::SpeechLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.
             app.add_plugins(detection::DetectionPlugin);
+            // The weather's wind on the bodies that respond to it, the tumbleweeds (tumble.rs).
+            app.add_plugins(tumble::TumblePlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
             // Fighters look angry (combat_face.rs; lips.rs draws the face).

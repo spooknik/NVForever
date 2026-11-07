@@ -130,6 +130,14 @@ at exit. Smoke: `flamer-burns-player`, `flamer-burns-npc`, `radscorpion-poison`,
   [observed: campaign o12_burn, 2026-11-01, issue #973]. So neither the effect nor the
   explosion's distance makes the troopers' 1-2 a second; something of the shot (the
   glob fired by Cook-Cook, its caster or the projectile) is what is left to capture.
+  A glob fired by the player burns the same: an unarmed, restrained NCR trooper (Health
+  50) 350 units in front, hit by one glob from `player.FireWeapon` on the Incinerator,
+  lost about 9.7 at the hit and then **exactly 4 a second for 8.0 s** (32); two globs
+  0.2 s apart from the attack key held 60 loops hit for about 9.8 and 8.3, and the burn
+  went on at 4 a second (renewed, not doubled) until he died 8 s after the second hit
+  [observed: campaign o26_burn, 2026-11-06, `nvfairport`, issue #973]. So the glob, its
+  projectile and a player caster all give ours; what is left is an NPC caster (an NPC
+  firing at a target crashed the game three times in 2026-11-01 setups).
 - Several cazador stings: one poison refreshed, or several adding up?
 - Does a radscorpion poison with every attack or only its forward power attack (built:
   only the forward power attack)? How often does it sting?

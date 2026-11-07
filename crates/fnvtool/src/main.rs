@@ -327,11 +327,13 @@ pub enum ActorCmd {
         /// Measure as in an interior (the shorter reach).
         #[arg(long)]
         interior: bool,
-        /// The light level of a lit place, 0–100.
-        #[arg(long, default_value_t = 90.0)]
+        /// The light level of a lit place, 0–100 (default: the original's at Goodsprings
+        /// at noon, docs/design/detection.md §3).
+        #[arg(long, default_value_t = 100.0)]
         light: f64,
-        /// The light level of a dark place, 0–100.
-        #[arg(long, default_value_t = 10.0)]
+        /// The light level of a dark place, 0–100 (default: the original's at Goodsprings
+        /// at midnight, 210/255; a cave is about 36, a dust storm 0).
+        #[arg(long, default_value_t = 82.35)]
         dark: f64,
     },
     /// The parts list of placed NPCs: skeleton, race parts, hair, head parts, worn

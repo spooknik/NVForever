@@ -556,7 +556,7 @@ fn item_data(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, r: &Row, 
 /// (`crate::tiles::item_card`) both read these.
 pub fn item_figures(m: &MenuModel, r: &Row, info: Option<&Info>) -> Info {
     let prices = m.trade.as_ref().map(|t| t.prices).unwrap_or_default();
-    let value = r.value.map(|v| prices.value_at(v, r.condition).round() as i64);
+    let value = r.worth(&prices).map(|v| v.round() as i64);
     let condition = r.condition.filter(|_| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor)));
     let mut i = info.cloned().unwrap_or_else(|| Info { condition, ..Info::default() });
     i.weight = r.weight.filter(|w| *w > 0.0).map(|w| format!("{w:.2}"));

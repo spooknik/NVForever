@@ -784,6 +784,19 @@ impl SkyState {
         }
     }
 
+    /// A colour type now as stored (0..255 per channel, blended on the bytes;
+    /// `fnv_world::sky::Weather::color_bytes`), blended across a weather fade.
+    pub fn color_bytes(&self, ty: ColorType) -> [f32; 3] {
+        let cur = self.weather.color_bytes(&self.climate, ty, self.hour);
+        match &self.prev {
+            Some(p) => {
+                let old = p.color_bytes(&self.climate, ty, self.hour);
+                std::array::from_fn(|i| old[i] + (cur[i] - old[i]) * self.fade)
+            }
+            None => cur,
+        }
+    }
+
     /// The image-space grade now: the base image space with the weather's adapters for
     /// the time of day, blended across a weather fade; none indoors yet [interim].
     pub fn cinematic(&self) -> Cinematic {

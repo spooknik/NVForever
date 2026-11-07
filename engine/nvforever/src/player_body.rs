@@ -986,7 +986,9 @@ fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>,
     let weapon = eq.iter().copied().find(|id| world.actors.weapons.contains_key(id));
     // A weapon with "Hide Backpack" goes with the armour: while it is equipped the body is
     // dressed without the pieces in the Backpack slot (`Resolver::resolve_wearing`).
-    worn.extend(weapon.filter(|w| world.actors.weapons.get(w).is_some_and(|x| x.hide_backpack)));
+    // So does one with armour addons of its own (WEAP BIPL: a hand-to-hand weapon's hand
+    // model, `Resolver::resolve_wearing`), for the third-person body ([`build`]).
+    worn.extend(weapon.filter(|w| world.actors.weapons.get(w).is_some_and(|x| x.hide_backpack || !x.addons.is_empty())));
     (worn, weapon, weapon.map_or(0, |w| inv.equipped_mods(w)))
 }
 
@@ -1268,7 +1270,12 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
-    let (fa, shows) = first_person::appearance(&world.actors, &a, |p| vfs.exists(p));
+    // The first-person arms keep the bare hand: a held weapon's own addons (the power
+    // fist's metal hand, `equipped`) are for the third-person body only [hypothesis: the
+    // first-person weapon models are drawn over the arms' hands as before].
+    let first_worn: Vec<FormId> = worn.iter().copied().filter(|w| world.actors.weapons.get(w).is_none_or(|x| x.addons.is_empty())).collect();
+    let first_a = if first_worn.len() == worn.len() { None } else { Some(world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(&first_worn), look)?) };
+    let (fa, shows) = first_person::appearance(&world.actors, first_a.as_ref().unwrap_or(&a), |p| vfs.exists(p));
     let first = match build_rig(commands, parent, world, ctx, &fa, View::First, Some(&shows)) {
         Ok(r) => Some(r),
         Err(e) => {

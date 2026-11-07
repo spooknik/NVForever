@@ -1100,7 +1100,11 @@ fn spawn_placed_water(
     let Some(wid) = fnv_world::sky::placeable_water_type(world.lo, world.schema, base.form_id) else { return false };
     let Some(path) = base.world_model_path() else { return false };
     let Some(model) = models.model(&path) else { return false };
-    let Some(mat) = water_material(world, wid, models, water) else { return false };
+    let reflects = fnv_world::sky::placeable_water_reflects(world.lo, world.schema, base.form_id);
+    let Some(mat) = water_material(world, wid, reflects, true, models, water) else { return false };
+    if !reflects {
+        info!("placed water {r:08X}: its PWAT {:08X} does not set Reflects, drawn without reflection", base.form_id);
+    }
     for s in &model.shapes {
         commands.entity(cell_e).with_child((
             Mesh3d(s.mesh.clone()),
@@ -1435,7 +1439,7 @@ fn spawn_water(
     // The same surface the physics swims in (`Cell::water_surface`, physics.md §6.6).
     let Some(height) = c.water_surface(ws.default_water_height) else { return };
     let Some(wid) = c.water_type.or(ws.water) else { return };
-    let Some(mat) = water_material(world, wid, models, water) else { return };
+    let Some(mat) = water_material(world, wid, true, false, models, water) else { return };
     let s = CELL_SIZE;
     let mesh = water.plane(&mut models.meshes);
     commands.entity(cell_e).with_child((

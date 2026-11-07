@@ -844,6 +844,12 @@ pub(crate) fn arm_weapon(
     if !shapes.back.is_empty() || !shapes.gun.is_empty() {
         info!("actor weapons: {reference:08X} {path}: {} shape(s) on the back, {} gun shape(s) the clips show and hide", shapes.back.len(), shapes.gun.len());
     }
+    // The weapon's own hand models (WEAP BIPL: the power fist's metal hand), drawn as
+    // worn parts in place of the bare hand (`fnv_actor::Resolver::resolve_wearing`).
+    if !w.addons.is_empty() {
+        let models: Vec<&str> = w.addons.iter().filter_map(|a| world.actors.armors.get(a)).filter_map(|a| a.worn[0].as_deref()).collect();
+        info!("actor weapons: {reference:08X} {path}: worn with its hand model(s) {models:?} in place of the bare hand");
+    }
     hold.gun = shapes.gun.into_iter().map(|(e, n)| (e, n, None)).collect();
     hold.back = shapes.back;
     if !shapes.posed.is_empty() {
