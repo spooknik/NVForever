@@ -1395,7 +1395,12 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     original's, a sharp symmetric triangle [observed: a capture of the original's World Map at
     1280x720, 2026-11, heading 0] (`data::arrow_turn`). Until 2026-11-12 the hand-built page
     stretched the whole picture over the box and turned it by the heading itself, its tip off
-    the way the player faced; fixed on both drawings. Drawn over the markers and under the highlighted one [documented:
+    the way the player faced; fixed on both drawings. The hand-built arrow's drawn size changed
+    with it: the box is still 40 × 51.2, but its picture went from 1.25 × 0.8 times its texels
+    (the whole 32 × 64 picture stretched) to 1.4 times both ways (the part the file's zoom
+    shows), so the pointer is drawn about 12% wider and 75% taller than before [design: as the
+    file draws it; how it compares with the original's size is to be checked on shots, not
+    measured]. Drawn over the markers and under the highlighted one [documented:
     depths 1, 7, 11].
   - Quest markers: the targets (`QSTA`) of the active quest's objectives shown and not done,
     where they are now; a target indoors at the door outdoors into its interior
