@@ -491,6 +491,15 @@ pub struct DataState {
     /// The World Map's waypoints as last worked out, by what they depend on
     /// ([`cached_waypoints`]).
     waypoints_cache: Option<(WaypointKey, Waypoints)>,
+    /// The pointer is in use this frame (the mouse's, not with Controller chosen): the Travel
+    /// target is kept on the way to the hint only then ([`travel_target`]); a refit reads it as
+    /// the preparation did ([`DataState::refit_map`]).
+    aiming: bool,
+    /// A fast-travel question asked this frame (a click on a marker, Enter, A), not sent yet: sent
+    /// once the map is drawn ([`flush_travel`]), so a refit or a fallback that moves the highlight
+    /// box onto another marker asks about that one ([`DataState::refit_map`],
+    /// [`refit_hand_built`]).
+    travel_pending: Option<u32>,
     /// The preparation is the early one (`MapMenu` on, [`prepare`]): only then are the Local Map's
     /// rows for the page drawn from the file gathered ([`WorldParts::rows`]); with the switch off
     /// the hand-built page does no more than it did.
@@ -554,10 +563,15 @@ pub(crate) struct MapMark {
     /// The marker's middle in the map's window.
     pub(crate) at: Vec2,
     /// The marker's or the door's reference (the World Map's rows are kept by it,
-    /// `crate::tiles::map_menu`), its name, and on the World Map its texture coordinates.
+    /// `crate::tiles::map_menu`), and its texture coordinates.
     pub(crate) form: u32,
-    pub(crate) name: String,
     pub(crate) uv: Option<[f32; 2]>,
+    /// For the page drawn from the file only (`MapMenu` on, [`DataState::tile_rows`]; else
+    /// empty, the hand-built page keeps its names apart): the name, and a World Map marker's
+    /// reputation line ([`model::reputation_line`]), which the highlight box shows when a refit
+    /// puts it on this marker.
+    pub(crate) name: String,
+    pub(crate) detail: Option<String>,
 }
 
 impl MapMark {
@@ -808,13 +822,17 @@ pub fn draw(
         // Prepared before the frame, for the tab the body was made for.
         let tab = match (body, st.prepared.as_ref()) {
             (Some((_, b)), Some(p)) if p.view.tab == b.tab => b.tab,
-            _ => return,
+            _ => {
+                // Drawn from its tiles (or not shown): its refit, if any, is done.
+                flush_travel(st, &mut input);
+                return;
+            }
         };
         // A map prepared in the window the page drawn from the file published, now drawn by hand
         // (the tile page fell back this frame): gathered again in the hand-built window, so what
         // is drawn and where the pointer is read agree. No input is taken again.
         let pointer = screen.as_deref().and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
-        match refit_hand_built(st, tab, &game, pointer) {
+        let view = match refit_hand_built(st, tab, &game, pointer) {
             Some(v) => {
                 if let Some(p) = st.prepared.as_mut() {
                     p.view = v.clone();
@@ -822,9 +840,14 @@ pub fn draw(
                 v
             }
             None => st.prepared.as_ref().map(|p| p.view.clone()).unwrap_or_else(|| unreachable!()),
-        }
+        };
+        flush_travel(st, &mut input);
+        view
     } else {
-        match step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images, None) {
+        // `MapMenu` off: prepared and drawn here, the question sent in the same frame as before.
+        let view = step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images, None);
+        flush_travel(st, &mut input);
+        match view {
             Some(v) => v,
             None => return,
         }
@@ -890,6 +913,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     // pointer is ignored so it cannot take the highlight box back from the stick.
     let pointer = screen.and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
     st.pointer_now = screen.and_then(|s| s.pointer);
+    st.aiming = pointer.is_some();
     let e = early.unwrap_or_default();
     if e.hold {
         hold_input(st, tab, &lists, input);
@@ -950,8 +974,18 @@ fn refit_hand_built(st: &mut DataState, tab: usize, game: &Game, pointer: Option
     let lists = lists(st, game);
     let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
     let view = build(st, tab, &lists, game, on_map, pointer.is_some());
+    st.follow_the_box(tab);
     info!("pipboy data: {} drawn by hand in its own window", TAB_NAMES[tab]);
     Some(view)
+}
+
+/// Send the fast-travel question asked this frame ([`DataState::travel_pending`]) once the map is
+/// drawn, so it asks about the marker the highlight box is on as drawn [design: one question, the
+/// same frame it was asked in].
+fn flush_travel(st: &mut DataState, input: &mut Input) {
+    if let Some(m) = st.travel_pending.take() {
+        input.ask.write(FastTravelAsk(m));
+    }
 }
 
 /// What each row of tab `tab`'s list stands for: a quest's, note's or challenge's FormID, a
@@ -1059,13 +1093,23 @@ impl DataState {
         }
         if tab == WORLD {
             self.cursor_marker = picked;
-            self.travel_marker = travel_target(self.travel_marker, picked, self.pointer_now.is_some(), forms);
+            self.travel_marker = travel_target(self.travel_marker, picked, self.aiming, forms);
         }
-        // A Place Marker question asked this frame was asked of the place before the refit.
+        self.follow_the_box(tab);
+        self.travel_marker
+    }
+
+    /// What was asked this frame of the place or marker under the highlight box follows the box
+    /// as it is now drawn (a refit, a fallback): a Place Marker question asks of the place under
+    /// it, a fast-travel question not sent yet of the Travel target picked again (none: not asked).
+    /// No input is taken again.
+    fn follow_the_box(&mut self, tab: usize) {
         if let (Some(Popup { ask: Ask::Marker(ask), .. }), Some(at)) = (self.popup.as_mut(), self.spot[tab]) {
             *ask = ask.at(at);
         }
-        self.travel_marker
+        if tab == WORLD && self.travel_pending.is_some() {
+            self.travel_pending = self.travel_marker;
+        }
     }
 
     /// The question box over the map (fast travel's or Place Marker's), while it is up.
@@ -1520,7 +1564,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     // highlighted marker [observed: the original; docs/design/controller.md §3].
     let mouse = (input.buttons.just_pressed(MouseButton::Left), input.buttons.just_released(MouseButton::Left));
     if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
-        input.ask.write(FastTravelAsk(m));
+        st.travel_pending = Some(m);
     }
     // Dragging a map moves the point at its middle: the left button held down on it (not
     // on a button at the right), the pointer moving (or the test aid's drag).
@@ -2315,10 +2359,12 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         let Some(found) = known(st, game, mk) else { continue };
         drawn_other += usize::from(mk.world != world);
         let uv = projection.uv(mk.pos[0], mk.pos[1]);
-        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(uv), form: mk.form, name: mk.name.clone(), uv: Some(uv) });
+        let detail = mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
+        let (name, tile_detail) = if st.tile_rows { (mk.name.clone(), detail.clone()) } else { (String::new(), None) };
+        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(uv), form: mk.form, uv: Some(uv), name, detail: tile_detail });
         names.push(mk.name.clone());
         forms.push(mk.form);
-        details.push(mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep))));
+        details.push(detail);
     }
     let mut quests = Vec::new();
     let mut targets = Vec::new();
@@ -2545,16 +2591,13 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let enabled = |form: u32| game.sim.as_ref().is_none_or(|s| s.present(form));
     for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
-        if !(inside(at) || st.tile_rows) {
-            continue;
-        }
-        let mark = MapMark { icon: None, highlighted: false, at, form: d.form, name: d.name.clone(), uv: Some(view.local_uv(d.pos[0], d.pos[1])) };
+        let uv = Some(view.local_uv(d.pos[0], d.pos[1]));
         if inside(at) {
-            marks.push(mark.clone());
+            marks.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: String::new(), detail: None });
             names.push(d.name.clone());
         }
         if st.tile_rows {
-            rows.push(mark);
+            rows.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: d.name.clone(), detail: None });
         }
     }
     if loc.interior.is_none() {
@@ -2562,16 +2605,13 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         for mk in all.iter().filter(|mk| mk.world == loc.world) {
             let Some(found) = known(st, game, mk) else { continue };
             let at = on_map(mk.pos[0], mk.pos[1]);
-            if !(inside(at) || st.tile_rows) {
-                continue;
-            }
-            let mark = MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, name: mk.name.clone(), uv: Some(view.local_uv(mk.pos[0], mk.pos[1])) };
+            let uv = Some(view.local_uv(mk.pos[0], mk.pos[1]));
             if inside(at) {
-                marks.push(mark.clone());
+                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: String::new(), detail: None });
                 names.push(mk.name.clone());
             }
             if st.tile_rows {
-                rows.push(mark);
+                rows.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: mk.name.clone(), detail: None });
             }
         }
     }
@@ -3800,7 +3840,12 @@ mod tests {
         let Body::Map(m) = &prepared.body else { panic!("a map") };
         assert_eq!(m.player.map(|p| p.0), Some(Vec2::new(300.0, 200.0)), "prepared in the measured window");
         assert_eq!(refit_hand_built(&mut st, QUESTS, &game, None), None, "not a map");
+        // A Place Marker question asked this frame of the place under the box in the tile window.
+        let asked = st.spot[WORLD].expect("the place in the tile window");
+        st.popup = Some(Popup::marker(marker::MarkerAsk::Set(asked), "Here?".into(), vec!["Yes".into(), "No".into()]));
         let again = refit_hand_built(&mut st, WORLD, &game, None).expect("gathered again");
+        let now = st.spot[WORLD].expect("the place in the hand-built window");
+        assert!(matches!(st.popup.as_ref().map(|p| &p.ask), Some(Ask::Marker(marker::MarkerAsk::Set(at))) if *at == now), "the question asks of the place under the box as drawn by hand");
         let Body::Map(m) = &again.body else { panic!("a map") };
         assert_eq!(m.player.map(|p| p.0), Some(MAP_MID), "at the hand-built window's middle");
         assert_eq!(m.world.as_ref().map(|w| w.view.window), Some(hand_built_window()));
@@ -3898,7 +3943,10 @@ mod tests {
         // picked again under the box.
         let before = st.spot[WORLD].expect("the place before");
         st.popup = Some(Popup::marker(marker::MarkerAsk::Set(before), "Here?".into(), vec!["Yes".into(), "No".into()]));
+        // And a fast-travel question asked this frame of marker 41, not sent yet.
+        st.travel_pending = Some(41);
         let travel = st.refit_map(WORLD, moved, cursor, cursor, Some(42), &[41, 42]);
+        assert_eq!(st.travel_pending, Some(42), "the question asks of the marker the box is on as drawn");
         assert_eq!((map_window(&st, WORLD), st.cursor[WORLD]), (moved.window, Some(cursor)));
         assert_eq!((st.cursor_marker, st.travel_marker, travel), (Some(42), Some(42), Some(42)), "the marker picked again is the Travel target");
         let spot = st.spot[WORLD].expect("Place Marker's place");
@@ -3906,8 +3954,14 @@ mod tests {
         assert!((spot.pos[0] - want[0]).abs() < 0.5 && (spot.pos[1] - want[1]).abs() < 0.5, "{spot:?} {want:?}");
         assert!(spot.pos[0] > 400.0, "east of the player, under the box (about 500)");
         assert!(matches!(st.popup.as_ref().map(|p| &p.ask), Some(Ask::Marker(marker::MarkerAsk::Set(at))) if *at == spot), "the question asks of the new place");
-        // No marker there after all: none under the box, no Travel target with no pointer in use.
+        // No marker there after all: none under the box, no Travel target with no pointer in use
+        // (a mouse pointer there while Controller is chosen is not in use: the preparation's
+        // `aiming`, not the raw pointer).
+        st.pointer_now = Some(Vec2::new(300.0, 300.0));
+        st.aiming = false;
+        st.travel_pending = Some(42);
         assert_eq!(st.refit_map(WORLD, moved, cursor, cursor, None, &[41, 42]), None);
+        assert_eq!(st.travel_pending, None, "no marker under the box: not asked");
         assert_eq!(st.cursor_marker, None);
         // Another tab: nothing.
         st.refit_map(QUESTS, moved, Vec2::ZERO, Vec2::ZERO, None, &[]);

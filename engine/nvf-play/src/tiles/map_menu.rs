@@ -351,6 +351,8 @@ pub(crate) struct MarkerShown {
     pub icon: String,
     pub selected: bool,
     pub name: String,
+    /// Its reputation line, the World Map's markers' with one.
+    pub detail: Option<String>,
 }
 
 /// What a quest-marker row stands for: an active quest's target (its reference), or the player's
@@ -414,7 +416,7 @@ impl WorldShown {
             .as_deref()
             .unwrap_or(m.marks())
             .iter()
-            .filter_map(|mk| Some(MarkerShown { form: mk.form, uv: mk.uv?, icon: mk.picture(), selected: mk.highlighted, name: mk.name.clone() }))
+            .filter_map(|mk| Some(MarkerShown { form: mk.form, uv: mk.uv?, icon: mk.picture(), selected: mk.highlighted, name: mk.name.clone(), detail: mk.detail.clone() }))
             .collect();
         let (cursor, label, detail) = m.highlight();
         Some(WorldShown {
@@ -463,9 +465,9 @@ impl WorldShown {
         }
         self.cursor = pick.map_or(want, |i| view.to_window(self.markers[i].uv));
         self.label = pick.map(|i| self.markers[i].name.clone());
-        // A marker's reputation line is the model's; another marker's is not known here.
+        // Another marker picked: its own reputation line (none for one without).
         if picked(self) != before {
-            self.detail = None;
+            self.detail = pick.and_then(|i| self.markers[i].detail.clone());
         }
         self.want = want;
         self.picture = view.picture();
@@ -3131,7 +3133,7 @@ mod tests {
     const WORLD_W: Rect = Rect { min: Vec2::new(40.0, 90.0), max: Vec2::new(895.0, 590.0) };
 
     fn marker(form: u32, uv: [f32; 2], selected: bool) -> MarkerShown {
-        MarkerShown { form, uv, icon: format!("icon_{form}.dds"), selected, name: format!("Place {form}") }
+        MarkerShown { form, uv, icon: format!("icon_{form}.dds"), selected, name: format!("Place {form}"), detail: (form == 21).then(|| "Town 21: Neutral".to_string()) }
     }
 
     /// The World Map at magnification `mag` centred on `centre` in the fixture's window (its
@@ -3379,7 +3381,7 @@ mod tests {
     fn local(outline: Option<Vec2>, mag: f32) -> Shown {
         let p = data::view::LocalProjection { centre: [1000.0, 2000.0], mag, scale: 28.0, origin: [-11000.0, 12000.0], extent: Vec2::new(24000.0, 20000.0) };
         let view = data::MapView::local(WORLD_W, p);
-        let door = |form, x: f32, y: f32, selected| MarkerShown { form, uv: view.local_uv(x, y), icon: "door.dds".into(), selected, name: format!("Door {form}") };
+        let door = |form, x: f32, y: f32, selected| MarkerShown { form, uv: view.local_uv(x, y), icon: "door.dds".into(), selected, name: format!("Door {form}"), detail: None };
         Shown {
             tab: data::LOCAL,
             rows: Vec::new(),
@@ -3569,7 +3571,7 @@ mod tests {
         assert!((w.want - Vec2::new(327.5, 220.0)).length() < 1e-3, "{:?}", w.want);
         assert_eq!(w.markers.iter().map(|m| (m.form, m.selected)).collect::<Vec<_>>(), vec![(20, false), (21, true)]);
         assert!((w.cursor - Vec2::new(327.5, 220.0)).length() < 1e-2, "on marker 21");
-        assert_eq!((w.label.as_deref(), w.detail.as_deref()), (Some("Place 21"), None), "its name; marker 20's reputation line not carried over");
+        assert_eq!((w.label.as_deref(), w.detail.as_deref()), (Some("Place 21"), Some("Town 21: Neutral")), "its name and its own reputation line, not marker 20's");
         // The same window: the pick as it was, the reputation kept.
         let same = refit_to_tree(&tree_changed(with_world), world(1.0, [0.5, 0.5], vec![marker(20, [0.5, 0.5], true), marker(21, [0.5275, 0.52], false)])).world.unwrap();
         assert_eq!((same.label.as_deref(), same.detail.as_deref()), (Some("Place 20"), Some("Town: Liked")));
@@ -3610,7 +3612,7 @@ mod tests {
     #[test]
     fn the_prepared_world_map_is_read_with_its_parts_and_the_local_map_is_not() {
         let view = data::MapView::world(WORLD_W, [0.5, 0.5], Vec2::splat(1000.0), 1.0);
-        let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv };
+        let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv, detail: None };
         let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new(), outline: None, rows: None, want: Vec2::new(5.0, 6.0) };
         let map = data::MapShown::for_test(vec![mark(1, Some([0.1, 0.1])), mark(2, Some([0.2, 0.2])), mark(3, None)], Some(parts), Vec2::new(5.0, 6.0), Some("P2"), None);
         let view_of = |tab, map: data::MapShown| data::View { tab, place: "Here".into(), when: "now".into(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None };
@@ -3619,7 +3621,7 @@ mod tests {
         let w = s.world.expect("the World Map's parts");
         assert_eq!(w.markers.iter().map(|m| (m.form, m.selected)).collect::<Vec<_>>(), vec![(1, false), (2, true)], "a mark without texture coordinates is not the World Map's");
         assert_eq!((w.picture, w.window, w.usable, w.cursor, w.label.as_deref()), (view.picture(), WORLD_W, Vec2::splat(1000.0), Vec2::new(5.0, 6.0), Some("P2")));
-        assert_eq!(w.markers[0].icon, data::MapMark { icon: Some((1, true)), highlighted: false, at: Vec2::ZERO, form: 1, name: String::new(), uv: None }.picture());
+        assert_eq!(w.markers[0].icon, data::MapMark { icon: Some((1, true)), highlighted: false, at: Vec2::ZERO, form: 1, name: String::new(), uv: None, detail: None }.picture());
         assert!(s.rows.is_empty() && s.pane == Pane::None);
         // The question box up: the same page, drawn under it.
         let mut boxed = p(data::WORLD, map.clone());
