@@ -495,14 +495,18 @@ pub struct DataState {
     /// target is kept on the way to the hint only then ([`travel_target`]); a refit reads it as
     /// the preparation did ([`DataState::refit_map`]).
     aiming: bool,
-    /// A fast-travel question asked this frame (a click on a marker, Enter, A), not sent yet: sent
-    /// once the map is drawn ([`flush_travel`]), so a refit or a fallback that moves the highlight
-    /// box onto another marker asks about that one ([`DataState::refit_map`],
-    /// [`refit_hand_built`]).
+    /// A fast-travel question asked this frame (a click on a marker, Enter, A): the marker it was
+    /// asked of, kept as asked until it is sent once the map is drawn ([`flush_travel`]).
     travel_pending: Option<u32>,
+    /// The map was drawn again after the question was asked (a refit, a fallback,
+    /// [`DataState::follow_the_box`]): the question then asks of the Travel target as drawn last,
+    /// or is not asked with none; only the last drawing decides, so a refit onto empty space
+    /// followed by a fallback onto a marker still asks [design].
+    travel_redrawn: bool,
     /// The preparation is the early one (`MapMenu` on, [`prepare`]): only then are the Local Map's
-    /// rows for the page drawn from the file gathered ([`WorldParts::rows`]); with the switch off
-    /// the hand-built page does no more than it did.
+    /// rows, the marks' names and reputation lines for the page drawn from the file gathered
+    /// ([`WorldParts::rows`]). With the switch off the hand-built page gathers none of them; it
+    /// still works out each mark's texture coordinates, a little work it did not do before.
     tile_rows: bool,
     /// The map window as the page drawn from the file laid it out, and the tab it drew (canvas
     /// units, [`DataState::publish_map`]); none from the hand-built drawing, whose window is the
@@ -844,7 +848,8 @@ pub fn draw(
         flush_travel(st, &mut input);
         view
     } else {
-        // `MapMenu` off: prepared and drawn here, the question sent in the same frame as before.
+        // `MapMenu` off: prepared and drawn here, the question sent by this system in the frame it
+        // was asked in, after the page's own preparation (before 2026-11-12 it was sent during it).
         let view = step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images, None);
         flush_travel(st, &mut input);
         match view {
@@ -981,11 +986,23 @@ fn refit_hand_built(st: &mut DataState, tab: usize, game: &Game, pointer: Option
 
 /// Send the fast-travel question asked this frame ([`DataState::travel_pending`]) once the map is
 /// drawn, so it asks about the marker the highlight box is on as drawn [design: one question, the
-/// same frame it was asked in].
+/// frame it was asked in].
 fn flush_travel(st: &mut DataState, input: &mut Input) {
-    if let Some(m) = st.travel_pending.take() {
+    if let Some(m) = take_travel(st) {
         input.ask.write(FastTravelAsk(m));
     }
+}
+
+/// The marker the question asked this frame is about, taken: the one it was asked of, or after
+/// the map was drawn again the Travel target as drawn last (none: not asked, said once).
+fn take_travel(st: &mut DataState) -> Option<u32> {
+    let asked = st.travel_pending.take()?;
+    let redrawn = std::mem::take(&mut st.travel_redrawn);
+    let m = if redrawn { st.travel_marker } else { Some(asked) };
+    if m.is_none() {
+        info!("pipboy data: fast travel to {} not asked: no marker under the highlight box as drawn", FormId(asked));
+    }
+    m
 }
 
 /// What each row of tab `tab`'s list stands for: a quest's, note's or challenge's FormID, a
@@ -1108,7 +1125,7 @@ impl DataState {
             *ask = ask.at(at);
         }
         if tab == WORLD && self.travel_pending.is_some() {
-            self.travel_pending = self.travel_marker;
+            self.travel_redrawn = true;
         }
     }
 
@@ -3946,7 +3963,8 @@ mod tests {
         // And a fast-travel question asked this frame of marker 41, not sent yet.
         st.travel_pending = Some(41);
         let travel = st.refit_map(WORLD, moved, cursor, cursor, Some(42), &[41, 42]);
-        assert_eq!(st.travel_pending, Some(42), "the question asks of the marker the box is on as drawn");
+        assert_eq!((st.travel_pending, st.travel_redrawn), (Some(41), true), "kept as asked, the map drawn again");
+        assert_eq!(take_travel(&mut st), Some(42), "the question asks of the marker the box is on as drawn");
         assert_eq!((map_window(&st, WORLD), st.cursor[WORLD]), (moved.window, Some(cursor)));
         assert_eq!((st.cursor_marker, st.travel_marker, travel), (Some(42), Some(42), Some(42)), "the marker picked again is the Travel target");
         let spot = st.spot[WORLD].expect("Place Marker's place");
@@ -3961,7 +3979,10 @@ mod tests {
         st.aiming = false;
         st.travel_pending = Some(42);
         assert_eq!(st.refit_map(WORLD, moved, cursor, cursor, None, &[41, 42]), None);
-        assert_eq!(st.travel_pending, None, "no marker under the box: not asked");
+        assert_eq!(take_travel(&mut st), None, "no marker under the box: not asked");
+        // Not drawn again: asked of the marker it was asked of.
+        st.travel_pending = Some(41);
+        assert_eq!(take_travel(&mut st), Some(41));
         assert_eq!(st.cursor_marker, None);
         // Another tab: nothing.
         st.refit_map(QUESTS, moved, Vec2::ZERO, Vec2::ZERO, None, &[]);
@@ -3997,6 +4018,40 @@ mod tests {
         let shown = arrow_texels(CURSOR, CURSOR * CURSOR_ASPECT);
         assert!((shown - Vec2::new(40.0 / 1.4, 51.2 / 1.4)).length() < 1e-4, "{shown:?}");
         assert!(shown.x > 24.0 && shown.y > 29.0, "the arrow whole");
+    }
+
+    /// The review's two-stage case: a Travel request (the controller's A) whose tile refit puts the
+    /// box on empty space, and a fallback in the same frame that draws it by hand on a marker: the
+    /// last drawing decides, and the question asks of that marker.
+    #[test]
+    fn a_travel_request_is_decided_by_the_last_drawing() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        let root = WorldMap { root: 1, transform: MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 3], se: [1, 2] };
+        // The player and marker 20 at the picture's middle.
+        let here = [0.0, 3.0 * model::CELL, 0.0];
+        let marker = read::Marker { form: 20, world: 1, pos: here, name: "Place 20".into(), kind: 1, flags: 1, radius: 10.0, reputation: None };
+        let mut st = DataState { maps: [(1, Some(root))].into_iter().collect(), markers: Some(vec![marker]), ..DataState::default() };
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: here, body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let game = state.get_mut(&mut world).unwrap();
+        world_map(&mut st, &game, None, false);
+        assert_eq!(st.travel_marker, Some(20), "the box on marker 20 at the middle");
+        // A asked of marker 20; the tile page's window, moved, puts the box's canvas place (the
+        // hand-built middle, 477.5, 350) 27.5 right and 30 down of its own middle: out of reach.
+        st.travel_pending = Some(20);
+        let moved = MapView::bare(Rect::new(150.0, 120.0, 750.0, 520.0));
+        let view = world_map(&mut st, &game, None, false).world.unwrap().view.with_window(moved.window);
+        let want = Vec2::new(477.5, 350.0) - moved.window.min;
+        assert_eq!(nearest(std::iter::once(view.to_window(view.to_uv(view.mid()))), want), None, "out of reach in the tile window");
+        assert_eq!(st.refit_map(WORLD, view, want, want, None, &[20]), None, "no Travel target in the tile window");
+        // The tile page falls back: drawn by hand, the box back on marker 20.
+        refit_hand_built(&mut st, WORLD, &game, None).expect("gathered again");
+        assert_eq!(st.travel_marker, Some(20));
+        assert_eq!(take_travel(&mut st), Some(20), "asked of the marker under the box as drawn last");
     }
 
     fn shown(tab: usize, f: &HintFacts) -> Vec<(String, bool)> {
