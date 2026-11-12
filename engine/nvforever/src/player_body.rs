@@ -1438,7 +1438,8 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         warn!("player {view:?} rig: {} parts not loaded", stats.parts_missing);
     }
     if let Some(shows) = shows {
-        // Upper-body models show their `Arms` shapes and the Pip-Boy sleeve only.
+        // Upper-body models show their `Arms` shapes and the left forearm sleeve only
+        // (`PipBoyOn…` or `PipBoyOff…`, whichever the player wears).
         for (i, u) in &mut uses {
             if shows[*i] == Show::Arms {
                 let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n)));

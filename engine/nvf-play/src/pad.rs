@@ -1137,6 +1137,33 @@ pub(crate) fn menu_keys(
     mk.held = want;
 }
 
+/// Left and Right pressed this frame for a menu row's value, in order (`true` Right):
+/// the keyboard's own presses, with its repeat while a key is held ([`KeyboardInput`]),
+/// and a press of the key with no keyboard press behind it, which is the controller's
+/// D-pad ([`menu_keys`] presses the arrow keys and sends no keyboard event) [issue #1910:
+/// in the original D-pad left removes a point and right adds one on the level-up skills
+/// page and the SPECIAL page, owner's play on a controller]. A held D-pad does not
+/// repeat [design].
+pub(crate) fn sideways(typed: &[bevy::input::keyboard::KeyboardInput], keys: &ButtonInput<KeyCode>) -> Vec<bool> {
+    use bevy::input::keyboard::Key;
+    let mut out: Vec<bool> = typed
+        .iter()
+        .filter(|k| k.state.is_pressed())
+        .filter_map(|k| match k.logical_key {
+            Key::ArrowRight => Some(true),
+            Key::ArrowLeft => Some(false),
+            _ => None,
+        })
+        .collect();
+    for (code, right) in [(KeyCode::ArrowLeft, false), (KeyCode::ArrowRight, true)] {
+        let typed_now = typed.iter().any(|k| k.state.is_pressed() && !k.repeat && k.key_code == code);
+        if keys.just_pressed(code) && !typed_now {
+            out.push(right);
+        }
+    }
+    out
+}
+
 /// The key a controller button stands in for in a menu ([`menu_keys`]'s tables), when the
 /// controller works the controls: what the menus' own key handlers then see.
 pub(crate) fn menu_key(button: GamepadButton) -> Option<KeyCode> {
@@ -1350,6 +1377,34 @@ impl Plugin for PadPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1910: the D-pad's Left and Right (arrow keys pressed with no keyboard
+    /// event) count once each; a keyboard press is not counted twice, and its repeats
+    /// count.
+    #[test]
+    fn sideways_takes_the_dpad_and_the_keyboard_once_each() {
+        use bevy::input::keyboard::{Key, KeyboardInput};
+        use bevy::input::ButtonState;
+        let typed = |code, key, repeat| KeyboardInput { key_code: code, logical_key: key, state: ButtonState::Pressed, text: None, repeat, window: Entity::PLACEHOLDER };
+        // The D-pad: keys pressed, nothing typed.
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::ArrowRight);
+        assert_eq!(sideways(&[], &keys), vec![true]);
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::ArrowLeft);
+        assert_eq!(sideways(&[], &keys), vec![false]);
+        // The keyboard: its press is both typed and in the key state; counted once.
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::ArrowRight);
+        assert_eq!(sideways(&[typed(KeyCode::ArrowRight, Key::ArrowRight, false)], &keys), vec![true]);
+        // A held key's repeats are typed only.
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::ArrowLeft);
+        keys.clear();
+        assert_eq!(sideways(&[typed(KeyCode::ArrowLeft, Key::ArrowLeft, true)], &keys), vec![false]);
+        // A D-pad held from before presses nothing again.
+        assert!(sideways(&[], &keys).is_empty());
+    }
 
     #[test]
     fn menus_own_buttons_follow_the_files() {

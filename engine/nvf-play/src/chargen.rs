@@ -416,12 +416,9 @@ fn input(
                 }
             }
             if m.attributes() {
-                for k in typed.iter().filter(|k| k.state.is_pressed()) {
-                    match k.logical_key {
-                        Key::ArrowRight => ops.push((Op::Adjust(None, true), "key")),
-                        Key::ArrowLeft => ops.push((Op::Adjust(None, false), "key")),
-                        _ => {}
-                    }
+                // The keyboard's Left and Right and the controller's D-pad (issue #1910).
+                for right in crate::pad::sideways(&typed, &keys) {
+                    ops.push((Op::Adjust(None, right), "key"));
                 }
             }
             for (k, op) in [

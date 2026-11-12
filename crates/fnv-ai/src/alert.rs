@@ -144,6 +144,25 @@ pub const RECENTRE: f32 = 64.0;
 /// far from where it was planned to, or after this long [design].
 pub const CLOSE_REPLAN_DISTANCE: f32 = 96.0;
 pub const CLOSE_REPLAN_SECONDS: f64 = 1.5;
+/// Near its target the way is planned again sooner: once the target has moved this share
+/// of what the actor still has to come (the distance less where it stops), never less
+/// than [`CLOSE_REPLAN_NEAR`] nor more than [`CLOSE_REPLAN_DISTANCE`] ([`replan_slack`])
+/// [design: owner's playtest 2026-11-11, #2163: a player backing away was never hit.
+/// With the 96 units at any distance, a chaser's way ended where its target had stood,
+/// up to 96 units behind it and out of a melee reach; it stopped there and set off
+/// again, in step with its target].
+pub const CLOSE_REPLAN_SHARE: f32 = 0.25;
+pub const CLOSE_REPLAN_NEAR: f32 = 12.0;
+/// A target that moves is closed in on where it will be this many seconds on, at the
+/// speed it moved since the way was last planned, at most [`CHASE_LEAD_MAX`] units
+/// ahead of it; a target slower than [`CHASE_LEAD_MIN_SPEED`] units/s stands
+/// ([`lead`]), while the actor is beyond its distance [design, #2163: the chaser
+/// catches up with a target that keeps going instead of trailing it].
+pub const CHASE_LEAD_SECONDS: f32 = 0.35;
+pub const CHASE_LEAD_MAX: f32 = 96.0;
+pub const CHASE_LEAD_MIN_SPEED: f32 = 40.0;
+/// A chased target's speed is measured over at least this long, seconds ([`Drift`]).
+pub const DRIFT_SECONDS: f32 = 0.05;
 /// Closing in ends this share of the stop distance short of the target, inside it
 /// [design].
 pub const STOP_SHORT: f32 = 0.9;
@@ -184,6 +203,58 @@ pub enum PostFailure {
     StoppedShort,
 }
 
+/// How far a target may move from where the way to it was planned before the way is
+/// planned again, for an actor `away` from it that stops within `stop`
+/// ([`CLOSE_REPLAN_SHARE`]).
+pub fn replan_slack(away: f32, stop: f32) -> f32 {
+    ((away - stop) * CLOSE_REPLAN_SHARE).clamp(CLOSE_REPLAN_NEAR, CLOSE_REPLAN_DISTANCE)
+}
+
+/// Whether an actor closing in keeps its way: planned at `since` for a target then at
+/// `to`, now at `at`, `away` from the actor, which stops within `stop`.
+pub fn keeps_way(to: [f32; 3], since: f64, at: [f32; 3], away: f32, stop: f32, now: f64) -> bool {
+    goal::dist(to, at) < replan_slack(away, stop) && now - since < CLOSE_REPLAN_SECONDS
+}
+
+/// A chased target's speed on the ground as its chaser measures it ([`Search::Closing`]).
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize)]
+pub struct Drift {
+    /// Units/s.
+    pub speed: [f32; 2],
+    /// Where the target stood at the last measurement, and when (`Game::time`).
+    pub from: [f32; 2],
+    pub at: f64,
+}
+
+impl Drift {
+    /// A target first seen at `at`: standing, as far as is known.
+    pub fn begin(at: [f32; 3], now: f64) -> Self {
+        Self { speed: [0.0; 2], from: [at[0], at[1]], at: now }
+    }
+
+    /// Measured again with the target now at `at`: its speed since the last
+    /// measurement, evened half and half with the one before; unchanged within
+    /// [`DRIFT_SECONDS`] of the last (a way planned every frame measures nothing in
+    /// one frame's step).
+    pub fn on(self, at: [f32; 3], now: f64) -> Self {
+        let dt = (now - self.at) as f32;
+        if dt < DRIFT_SECONDS {
+            return self;
+        }
+        Self { speed: [0, 1].map(|i| ((at[i] - self.from[i]) / dt + self.speed[i]) * 0.5), from: [at[0], at[1]], at: now }
+    }
+}
+
+/// Where a target at `at` moving at `drift` is closed in on ([`CHASE_LEAD_SECONDS`]).
+pub fn lead(at: [f32; 3], drift: [f32; 2]) -> [f32; 3] {
+    let speed = drift[0].hypot(drift[1]);
+    if speed < CHASE_LEAD_MIN_SPEED {
+        return at;
+    }
+    let ahead = (speed * CHASE_LEAD_SECONDS).min(CHASE_LEAD_MAX) / speed;
+    [at[0] + drift[0] * ahead, at[1] + drift[1] * ahead, at[2]]
+}
+
 /// Where an actor in a combat state is ([`crate::Agent::search`]).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(tag = "search", rename_all = "snake_case")]
@@ -199,8 +270,8 @@ pub enum Search {
     /// In Normal, giving aggro radius or trespass warnings: standing, facing whom it warns.
     Warning { target: FormId },
     /// In Combat: running up to its target, last planned for where it stood (`to`) at
-    /// `since`.
-    Closing { target: FormId, to: [f32; 3], since: f64 },
+    /// `since`; `drift`: how fast the target moves on the ground.
+    Closing { target: FormId, to: [f32; 3], since: f64, drift: Drift },
     /// In Combat: going to the post the combat AI chose, planned at `since`.
     Posted { kind: PostKind, target: FormId, to: [f32; 3], since: f64 },
     /// In Combat: at its post, facing its target.
@@ -286,6 +357,17 @@ impl Ai {
             let latest = aw.targets.iter().filter(|(_, t)| t.detected.is_some()).max_by(|x, y| x.1.detected.unwrap_or(0.0).total_cmp(&y.1.detected.unwrap_or(0.0)));
             let Some((target, at)) = aw.combat_target().or(latest.map(|(id, t)| (*id, t))).map(|(id, t)| (id, t.at)) else { return true };
             let sees = aw.combat_target().is_some();
+            // A target it detects now is followed where it is, not where it was when
+            // it was last measured [design: owner's playtest 2026-11-11, #2163: a player
+            // backing away was never hit. Detection is measured a few times a second; a
+            // feral ghoul ran to where the player had been measured, stopped there
+            // "119 units away" and set off again a quarter of a second later with the
+            // player 215 away, 19 times in 7 s, without a blow (smoke
+            // `melee-chases-backing-player`)].
+            let at = match goal::place_of_ref(game, target) {
+                Some(p) if sees && p.space == space => p.pos,
+                _ => at,
+            };
             // Unseen only briefly: it counts as seen (`BLIND_CLOSE_AFTER`).
             let last_seen = aw.targets.get(&target).and_then(|t| t.detected);
             let sees = sees || last_seen.is_some_and(|t| now - t < BLIND_CLOSE_AFTER);
@@ -311,14 +393,28 @@ impl Ai {
             // in on, whatever the distance, halving the gap, until it sees it again
             // [design: an actor that stood where it could not see its target went Lost
             // and back to Combat every few seconds at Cook-Cook's camp].
-            let close_in = (!sees && engage.is_some()) || engage.is_some_and(|(stop, resume)| away > if holding { resume } else { stop });
+            // On the way to a target that keeps moving it does not stop at its
+            // distance to set off again a few units later: it keeps on to where its
+            // way ends, [`STOP_SHORT`] of the distance, and so keeps its target's pace
+            // there [design, #2163].
+            let keeps_pace = matches!(a.search, Some(Search::Closing { target: t, drift, .. }) if t == target && drift.speed[0].hypot(drift.speed[1]) >= CHASE_LEAD_MIN_SPEED);
+            let close_in = (!sees && engage.is_some())
+                || engage.is_some_and(|(stop, resume)| away > if holding { resume } else if keeps_pace { stop * STOP_SHORT } else { stop });
             let stop = if sees { engage.map_or(0.0, |e| e.0) } else { away * BLIND_CLOSE_SHARE };
             let going = a.activity == Activity::Travelling;
             match (close_in, a.search) {
                 // On its way, and the way still leads to the target.
-                (true, Some(Search::Closing { target: t, to, since })) if t == target && going && goal::dist(to, at) < CLOSE_REPLAN_DISTANCE && now - since < CLOSE_REPLAN_SECONDS => {}
+                (true, Some(Search::Closing { target: t, to, since, .. })) if t == target && going && keeps_way(to, since, at, away, stop, now) => {}
                 (true, _) => self.close_in(game, nav, actor, target, at, away, stop),
                 (false, Some(Search::Holding { target: t })) if t == target => {}
+                // At the end of its way behind a target that moves: it waits there for
+                // the target's next step, measuring its speed, and holds once the
+                // target has stopped. So too until the target's speed has first been
+                // measured (a short way from standing ends before [`DRIFT_SECONDS`]).
+                (false, Some(Search::Closing { target: t, to, since, drift })) if t == target && (keeps_pace || now - drift.at < f64::from(DRIFT_SECONDS)) => {
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    a.search = Some(Search::Closing { target, to, since, drift: drift.on(at, now) });
+                }
                 (false, _) => {
                     let a = self.agents.get_mut(&actor).expect("listed");
                     a.walker.follower = None;
@@ -465,10 +561,17 @@ impl Ai {
         let now = game.time;
         let a = self.agents.get_mut(&actor).expect("listed");
         let space = a.walker.space;
-        let back = [a.walker.feet[0] - at[0], a.walker.feet[1] - at[1]];
+        // A target on the move: where it will be shortly (`lead`).
+        let drift = match a.search {
+            Some(Search::Closing { target: t, drift, .. }) if t == target => drift.on(at, now),
+            _ => Drift::begin(at, now),
+        };
+        // Led only while it has ground to make up: at its distance it keeps there.
+        let ahead = if away > stop { lead(at, drift.speed) } else { at };
+        let back = [a.walker.feet[0] - ahead[0], a.walker.feet[1] - ahead[1]];
         let len = back[0].hypot(back[1]).max(1e-3);
         let short = (stop * STOP_SHORT).min(len);
-        let goal = [at[0] + back[0] / len * short, at[1] + back[1] / len * short, at[2]];
+        let goal = [ahead[0] + back[0] / len * short, ahead[1] + back[1] / len * short, at[2]];
         let point = nav.nearest(space, goal, 512.0).map(|(_, p)| p);
         a.walker.speed = speed;
         let path = point.and_then(|p| a.walker.go_to(nav, Place { space, pos: p }, &params).ok()).map(|path| path.length);
@@ -478,7 +581,7 @@ impl Ai {
                 a.activity = Activity::Travelling;
                 a.trip_started = now;
                 a.trip_from = a.walker.travelled;
-                a.search = Some(Search::Closing { target, to: at, since: now });
+                a.search = Some(Search::Closing { target, to: at, since: now, drift });
                 if first {
                     self.log(game, actor, AiEvent::Close { target, to: p, away, length, aiming });
                 }

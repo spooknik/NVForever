@@ -49,6 +49,16 @@ else its ACTI base's, in place of the action word ("Open", "Activate"); the seco
 (the name, or a door's destination) stays [hypothesis: the override replaces the verb].
 It does not replace a lock's or key's line, nor an inaccessible door's.
 
+**A nameless activator with a prompt is offered.** An activator, talking activator or
+furniture with no FULL gives no prompt (it is taken for a trigger or marker), unless its
+reference or base has an XATO: then the crosshair takes it and shows the prompt alone, with
+no name line [hypothesis: that the original shows no second line]. The case that needs it:
+VHDMainControlPanel1REF (0x00153FCE, HooverDamIntPowerPlant01b), a reference of the talking
+activator VHDControlPanelTalkActivator (0x0015423A, no FULL) with the XATO "Activate"; its
+script VHDControlOverrideBoxSCRIPT shows the override-chip message from OnActivate, so
+without the prompt the Yes Man and House endings stop there [observed in the records;
+owner's playtest 2026-11-11, #2160]. Primitives stay unoffered whatever they carry.
+
 ## 4. Nothing to build
 
 - **Off Limits** (CELL header bit 17, "Dangerous / Off limits (Interior cell)"

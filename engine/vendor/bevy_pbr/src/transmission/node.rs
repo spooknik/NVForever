@@ -1,6 +1,7 @@
 use crate::{ScreenSpaceTransmission, Transmissive3d, ViewTransmissionTexture};
 
 use bevy_camera::{MainPassResolutionOverride, Viewport};
+use bevy_core_pipeline::core_3d::Transparent3d;
 use bevy_ecs::prelude::*;
 use bevy_image::ToExtents;
 use bevy_render::{
@@ -15,6 +16,32 @@ use core::ops::Range;
 use tracing::error;
 #[cfg(feature = "trace")]
 use tracing::info_span;
+
+/// NVForever one resolve (2026-11-10, engine/vendor/README.md). With multisampling the
+/// opaque, transmissive and transparent passes each resolve the whole main target when
+/// they end, and the transmissive pass copies the resolved picture besides. Only two of
+/// those are read: the picture behind the transmissive shapes, and the last one of the
+/// frame. So when the view's transparent pass is going to run (it has items), the passes
+/// before it keep their samples unresolved ([`ViewTarget::set_resolve_deferred`]), the
+/// transmissive pass resolves straight into the transmission texture instead of copying
+/// ([`main_transmissive_pass_3d`]), and the transparent pass resolves once, as upstream.
+/// A view with a main-pass resolution override (the game's FSR passes read the resolved
+/// picture between these passes) and a view without multisampling keep upstream's path.
+pub fn begin_deferred_resolve(
+    view: ViewQuery<(&ExtractedView, &ViewTarget, Has<MainPassResolutionOverride>)>,
+    transparent_phases: Res<ViewSortedRenderPhases<Transparent3d>>,
+) {
+    let (extracted_view, target, resolution_override) = view.into_inner();
+    let transparent_follows = transparent_phases
+        .get(&extracted_view.retained_view_entity)
+        .is_some_and(|phase| !phase.items.is_empty());
+    target.set_resolve_deferred(transparent_follows && !resolution_override);
+}
+
+/// NVForever one resolve: the passes from here on resolve again ([`begin_deferred_resolve`]).
+pub fn end_deferred_resolve(view: ViewQuery<&ViewTarget>) {
+    view.into_inner().set_resolve_deferred(false);
+}
 
 pub fn main_transmissive_pass_3d(
     world: &World,
@@ -75,12 +102,29 @@ pub fn main_transmissive_pass_3d(
             // `transmissive_phase.items` are depth sorted, so we split them into N = `steps`
             // ranges, rendering them back-to-front in multiple steps, allowing multiple levels of transparency.
             for range in split_range(0..transmissive_phase.items.len(), steps) {
-                // Copy the main texture to the transmission texture
-                ctx.command_encoder().copy_texture_to_texture(
-                    target.main_texture().as_image_copy(),
-                    transmission.texture.as_image_copy(),
-                    physical_target_size.to_extents(),
-                );
+                if target.resolve_deferred() {
+                    // NVForever one resolve: the main texture's samples have not been
+                    // resolved (`begin_deferred_resolve`); a pass that draws nothing
+                    // resolves them into the transmission texture, which takes the
+                    // place of upstream's resolve and copy.
+                    let mut attachment = target.get_color_attachment();
+                    attachment.resolve_target = Some(&transmission.view);
+                    drop(ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
+                        label: Some("resolve_to_transmission_texture"),
+                        color_attachments: &[Some(attachment)],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    }));
+                } else {
+                    // Copy the main texture to the transmission texture
+                    ctx.command_encoder().copy_texture_to_texture(
+                        target.main_texture().as_image_copy(),
+                        transmission.texture.as_image_copy(),
+                        physical_target_size.to_extents(),
+                    );
+                }
 
                 let mut render_pass = ctx.begin_tracked_render_pass(render_pass_descriptor.clone());
                 let pass_span =

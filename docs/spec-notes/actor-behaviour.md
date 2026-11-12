@@ -60,7 +60,7 @@ Paraphrased [all documented: Category:Packages]:
 | No Combat Alert | the actor skips the search behaviour for enemies detected between −20 and 0 (§2.3) and fights only on full detection (> 0) |
 | Weapon Drawn / Weapons Unequipped | weapon out for the package; or no weapon shown although one is equipped |
 | Pretend in Combat | the actor enters combat when the package starts and moves between cover points toward the destination; a real target interrupts the trip until it is dead |
-| Continue During Combat | if combat starts, the package goes on (walking to the destination while firing and using cover) |
+| Continue During Combat | if combat starts, the package goes on (walking to the destination while firing and using cover). What that means differs by package type [documented: "Combat Package Flags"; observed 2026-11-12]: docs/design/alert.md §5.2 |
 | Defensive Combat | the actor attacks no one unless attacked first (normally it attacks those it hates and friends who steal from it); for Accompany, Escort and Follow it still joins when its target is attacked |
 | Fallout behaviour switches | hellos to the player; random conversations (only Sandbox, Guard, Eat and Patrol packages start them); observing nearby combat (moving away from fighters, which interrupts the package); reacting to player actions through the default topics; friendly-fire comments (Hit topic); aggro radius; idle chatter (IdleChatter topic); avoiding radiation |
 | Door flags | lock or unlock all doors in the cell when the package starts, keep them so while at the location (undoing changes by others), or at the end |

@@ -29,7 +29,17 @@
 //!   [hypothesis]. Spent, the package's goal is met (its end script runs) and the actor
 //!   stays in it until it chooses again [design, as a Dialogue package that has
 //!   talked]. A package's use waits while the actor is in combat, as other package
-//!   doings do [design].
+//!   doings do [design]; with the package flag Continue During Combat its other doings
+//!   go on in combat (`Game::continues_during_combat`), and so does its fire, at the
+//!   package's own target from its stand ("Actor will continue to fire and stand at the
+//!   designated position, even during Combat" [documented: GECK wiki Use Weapon
+//!   Package, Flags]; that the target stays the package's, not whoever attacks it, is
+//!   our reading [design]). While the engine's shooter acts on such a use (in place, its
+//!   target a drawn actor or the player) the combat AI's own attacks wait and the actor
+//!   is drawn facing the use's target, not its enemy (#2120). Otherwise the ordinary
+//!   attacks take over and it turns to its enemy ([`WeaponUse::taken`]); its package's
+//!   walk to its stand goes on in combat all the same, so this is not the ordinary combat
+//!   movement (docs/design/use-weapon.md §3).
 //! - **Weapon**: the function equips the named weapon when the actor carries it; the
 //!   page's "or grab one if one was nearby" is not built [design].
 //! - **Melee** (docs/design/use-weapon.md §3.1): with a melee weapon, fists or a
@@ -40,7 +50,7 @@
 //! - Not part of the saved state: a use in progress is lost with a load [design].
 
 use crate::game::Game;
-use crate::package::{PackageType, TargetKind};
+use crate::package::{flags, PackageType, TargetKind};
 use fnv_sim::FormId;
 use serde::Serialize;
 
@@ -94,6 +104,13 @@ pub struct WeaponUse {
     /// beyond which it sets off again, set by the engine from the weapon's reach; `None`
     /// for a gun (module notes).
     pub reach: Option<[f32; 2]>,
+    /// The fight has the actor this frame: in Combat, a package's use the engine's
+    /// shooter has nothing to act on (a marker target, one not drawn, not yet in place),
+    /// so the ordinary attacks take over and the actor turns to its enemy, not the use's
+    /// target. Set each frame by the engine's fight (`Game::weapon_use_taken`), cleared
+    /// at the start of each of its frames, on a new use and at its end; read only while
+    /// the actor is in Combat, so one left set as it leaves Combat means nothing [design].
+    pub taken: bool,
 }
 
 /// How near the "target should be here" reference the target has to be, game units
@@ -136,6 +153,7 @@ impl WeaponUse {
             crouched: false,
             done: shots == 0,
             reach: None,
+            taken: false,
         }
     }
 
@@ -176,6 +194,8 @@ impl Game<'_> {
     pub fn give_weapon_use(&mut self, actor: FormId, mut w: WeaponUse) {
         self.weapon_use_seq += 1;
         w.seq = self.weapon_use_seq;
+        // A new use is the shooter's until the fight says otherwise.
+        w.taken = false;
         self.weapon_uses.insert(actor, w);
     }
 
@@ -216,6 +236,7 @@ impl Game<'_> {
             crouched: false,
             done: false,
             reach: None,
+            taken: false,
         })
     }
 
@@ -225,15 +246,36 @@ impl Game<'_> {
     }
 
     /// An actor's weapon use that is still to be carried out: not spent, and, from a
-    /// package, not waiting for a fight to end (module notes).
+    /// package, not waiting for a fight to end, which a package with Continue During
+    /// Combat does not do (module notes).
     pub fn active_weapon_use(&self, actor: FormId) -> Option<&WeaponUse> {
-        self.weapon_uses.get(&actor).filter(|w| !w.done && (w.source == Source::Script || !self.awareness.state(actor).in_combat()))
+        self.weapon_uses.get(&actor).filter(|w| {
+            !w.done
+                && match w.source {
+                    Source::Script => true,
+                    Source::Package(p) => !self.awareness.state(actor).in_combat() || self.package_def(&p).is_some_and(|d| d.has(flags::CONTINUE_DURING_COMBAT)),
+                }
+        })
     }
 
     /// The actor is where its weapon use wants it.
     pub fn weapon_use_in_place(&mut self, actor: FormId) {
         if let Some(w) = self.weapon_uses.get_mut(&actor) {
             w.in_place = true;
+        }
+    }
+
+    /// The fight took `actor`'s weapon use over this frame ([`WeaponUse::taken`]).
+    pub fn weapon_use_taken(&mut self, actor: FormId) {
+        if let Some(w) = self.weapon_uses.get_mut(&actor) {
+            w.taken = true;
+        }
+    }
+
+    /// A new frame of the fight: no use is taken over until it says so again.
+    pub fn weapon_uses_untaken(&mut self) {
+        for w in self.weapon_uses.values_mut() {
+            w.taken = false;
         }
     }
 
@@ -244,6 +286,7 @@ impl Game<'_> {
         let Some(w) = self.weapon_uses.get_mut(&actor) else { return };
         w.done = true;
         w.crouched = false;
+        w.taken = false;
         match w.source {
             Source::Script => {
                 self.weapon_uses.remove(&actor);

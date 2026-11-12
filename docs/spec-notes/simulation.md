@@ -401,7 +401,9 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   be captured]. Removal takes plain items first, then unequipped items with extra data in
   arrival order, equipped items last; items leaving an inventory are unequipped; extra
   data travels with transferred and dropped items, and a drop makes one reference per
-  group [hypothesis].
+  group [hypothesis]. A live planted explosive is a group of its own (`live`, saved as
+  `"live": true`) that no removal, transfer, drop or equip takes; only its blast does
+  [design, #1640; pickpocket.md §5].
 - **Per-item extra data in the data** [observed, six masters]: COED (owner FormID, a u32
   whose meaning depends on the owner type, condition f32 [documented: xEdit]) appears
   1,661 times, always directly after a CNTO (1,419 on NPC_, 122 on CONT, 120 on CREA);

@@ -1,0 +1,3867 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "cdc_leash",
+ "title": "Issue #2155 (2026-11-11): how far actors on Continue During Combat packages move in combat. On the Searchlight Airport runway (save nvfairport), one actor at a time is spawned 500, 1,000 or 2,000 units up the runway from the standing player (god mode), given its package there by AddScriptPackage at sample 60 (so 'near current location' is that spot), set on the player with StartCombat at sample 300 and stopped with StopCombat at sample 1400 (about 15 samples a second). The leash is the actor's greatest distance from the spot where it got the package. Melee troopers (a knife), rifle troopers (control), a coyote, and V22FemaleMantis on its own flagged package; '_none' sessions are the baseline with no package given; Every session raises the player's Health and restores it twice a second, so a restart without god mode cannot kill the player. '_away' sessions teleport the player 1,500 units down the runway at sample 900. Sessions added after the first results (a Guard of radius 512 stood, a Guard of radius 0 chased): the player nearer the post; Guard packages near the editor location, which for a spawned actor is where PlaceAtMe put it ('_walk' sessions: the player walks away from that fixed post); creatures with the player moved off mid-fight ('_then_1000'). A scan of depth 1 reaches the player's own cell only, so sessions in which the player leaves the cell scan at depth 2.",
+ "save": "nvfairport",
+ "defaults": {
+  "fields": "full",
+  "every": 2,
+  "depth": 1,
+  "settle_frames": 120
+ },
+ "sessions": [
+  {
+   "name": "arrive",
+   "hours": 0.02,
+   "console_first": [
+    "CloseAllMenus",
+    "tgm",
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    },
+    "killall"
+   ],
+   "note": "arrival: god mode on (it stays on for the run), the runway cleared"
+  },
+  {
+   "name": "knife_guard512_500",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      483,
+      129,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper 500 units up the runway on DefaultGuardinCombatInterior (Guard, near current location, radius 512, Continue During Combat only)"
+  },
+  {
+   "name": "knife_guard512_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper 1000 units up the runway on DefaultGuardinCombatInterior (Guard, near current location, radius 512, Continue During Combat only)"
+  },
+  {
+   "name": "knife_guard512_2000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1932,
+      518,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper 2000 units up the runway on DefaultGuardinCombatInterior (Guard, near current location, radius 512, Continue During Combat only)"
+  },
+  {
+   "name": "knife_travel0_500",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      483,
+      129,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "VFSOrrisThugGetShotPackage"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper 500 units off on VFSOrrisThugGetShotPackage (Travel, near current location, radius 0, Continue During Combat, Weapon Drawn, Skip Fallout Behavior): the kind of package Lanius is on"
+  },
+  {
+   "name": "knife_travel0_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "VFSOrrisThugGetShotPackage"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper 1000 units off on VFSOrrisThugGetShotPackage (Travel, near current location, radius 0, Continue During Combat, Weapon Drawn, Skip Fallout Behavior): the kind of package Lanius is on"
+  },
+  {
+   "name": "knife_travel0_2000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1932,
+      518,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "VFSOrrisThugGetShotPackage"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper 2000 units off on VFSOrrisThugGetShotPackage (Travel, near current location, radius 0, Continue During Combat, Weapon Drawn, Skip Fallout Behavior): the kind of package Lanius is on"
+  },
+  {
+   "name": "knife_guard0_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "FFEU03NPCGuard"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper 1,000 units off on FFEU03NPCGuard (Guard, near current location, radius 0; two conditions, given by AddScriptPackage): a second radius, to tell radius x 1.5 from the 384 minimum"
+  },
+  {
+   "name": "knife_guard512_500_away",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      483,
+      129,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 900,
+     "do": [
+      "player.MoveTo {0} -598 -160 40",
+      "0x0013DA13"
+     ]
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "as knife_guard512_500, the player teleported 1,500 units down the runway mid-fight (2,000 from the post): does the trooper follow or go back?",
+   "depth": 2
+  },
+  {
+   "name": "knife_none_2000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1932,
+      518,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "baseline: the same melee trooper with no package given (its own list), 2,000 units off"
+  },
+  {
+   "name": "knife_none_500_away",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      483,
+      129,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 900,
+     "do": [
+      "player.MoveTo {0} -598 -160 40",
+      "0x0013DA13"
+     ]
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "baseline for the teleport: no package given",
+   "depth": 2
+  },
+  {
+   "name": "rifle_guard512_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ],
+     "arm": "WeapNVServiceRifle",
+     "ammo": "Ammo556mm"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "control: a rifle trooper on DefaultGuardinCombatInterior, 1000 units off"
+  },
+  {
+   "name": "rifle_travel0_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ],
+     "arm": "WeapNVServiceRifle",
+     "ammo": "Ammo556mm"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "VFSOrrisThugGetShotPackage"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "control: a rifle trooper on VFSOrrisThugGetShotPackage, 1000 units off"
+  },
+  {
+   "name": "rifle_guard512_2000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1932,
+      518,
+      0
+     ],
+     "arm": "WeapNVServiceRifle",
+     "ammo": "Ammo556mm"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "control: a rifle trooper on DefaultGuardinCombatInterior, 2000 units off"
+  },
+  {
+   "name": "rifle_travel0_2000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1932,
+      518,
+      0
+     ],
+     "arm": "WeapNVServiceRifle",
+     "ammo": "Ammo556mm"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "VFSOrrisThugGetShotPackage"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "control: a rifle trooper on VFSOrrisThugGetShotPackage, 2000 units off"
+  },
+  {
+   "name": "rifle_none_2000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      1932,
+      518,
+      0
+     ],
+     "arm": "WeapNVServiceRifle",
+     "ammo": "Ammo556mm"
+    }
+   ],
+   "timed": [
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "baseline: a rifle trooper with no package given, 2,000 units off"
+  },
+  {
+   "name": "coyote_guard512_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "0x0014F428",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ]
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee creature (coyote 0x0014F428) on DefaultGuardinCombatInterior, 1,000 units off"
+  },
+  {
+   "name": "coyote_travel0_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "0x0014F428",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ]
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "VFSOrrisThugGetShotPackage"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee creature (coyote) on VFSOrrisThugGetShotPackage, 1,000 units off"
+  },
+  {
+   "name": "coyote_none_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "0x0014F428",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ]
+    }
+   ],
+   "timed": [
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "baseline: the coyote with no package given"
+  },
+  {
+   "name": "mantis_own_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "V22FemaleMantis",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ]
+    }
+   ],
+   "timed": [
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "V22FemaleMantis, whose only package is V22MantisFemaleEggGuardPackage (Guard on its linked reference, Continue During Combat), spawned 1,000 units off: a creature base that carries the flag in the data"
+  },
+  {
+   "name": "knife_guard512_300",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardinCombatInterior, the player 300 units from its post: inside the package radius"
+  },
+  {
+   "name": "knife_guard512_300_to_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      290,
+      78,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 800,
+     "do": [
+      "player.MoveTo {0} 175 47 40",
+      "0x0013DA13"
+     ]
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "as knife_guard512_300, the player moved at sample 800 to the far side, 1,000 units from the post: where does the trooper stop?",
+   "depth": 2
+  },
+  {
+   "name": "knife_guard512_150",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      145,
+      39,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardinCombatInterior, the player 150 units from its post"
+  },
+  {
+   "name": "knife_guarded128_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardStayAtPosition01 (Guard, near editor location, radius 128, Weapon Drawn, Continue During Combat, No Warn/Attack Behavior; LvlRaiderGunGuard's and the Great Khans' package), 1,000 units off. Where a spawned actor's editor location is was not known beforehand: the post is where it stands when combat starts"
+  },
+  {
+   "name": "knife_guarded0_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "offset": [
+      966,
+      259,
+      0
+     ],
+     "arm": "WeapKnife"
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "BuzzardPointStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on BuzzardPointStayAtPosition01 (Guard, near editor location, radius 0, the same flags), 1,000 units off"
+  },
+  {
+   "name": "coyote_guard512_then_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "0x0014F428",
+     "count": 1,
+     "distance": 200
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardinCombatInterior"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 800,
+     "do": [
+      "player.MoveTo {0} 1817 487 40",
+      "0x0013DA13"
+     ]
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "the coyote attacks the player as soon as it is spawned (the first run's coyote sessions: the offset move skips an actor in combat), so here it is spawned beside the player, given its package while it fights (DefaultGuardinCombatInterior), and the player is moved 1,000 units up the runway at sample 800: does it follow?",
+   "depth": 2
+  },
+  {
+   "name": "coyote_travel0_then_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "0x0014F428",
+     "count": 1,
+     "distance": 200
+    }
+   ],
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "VFSOrrisThugGetShotPackage"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 800,
+     "do": [
+      "player.MoveTo {0} 1817 487 40",
+      "0x0013DA13"
+     ]
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "the coyote attacks the player as soon as it is spawned (the first run's coyote sessions: the offset move skips an actor in combat), so here it is spawned beside the player, given its package while it fights (VFSOrrisThugGetShotPackage), and the player is moved 1,000 units up the runway at sample 800: does it follow?",
+   "depth": 2
+  },
+  {
+   "name": "coyote_none_then_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "0x0014F428",
+     "count": 1,
+     "distance": 200
+    }
+   ],
+   "timed": [
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 800,
+     "do": [
+      "player.MoveTo {0} 1817 487 40",
+      "0x0013DA13"
+     ]
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "the coyote attacks the player as soon as it is spawned (the first run's coyote sessions: the offset move skips an actor in combat), so here it is spawned beside the player, given its package while it fights (no package given (baseline)), and the player is moved 1,000 units up the runway at sample 800: does it follow?",
+   "depth": 2
+  },
+  {
+   "name": "knife_ed128_walk150",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 2231,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardStayAtPosition01 (Guard, near editor location, radius 128, Continue During Combat). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 150 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed128_walk300",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 2081,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardStayAtPosition01 (Guard, near editor location, radius 128, Continue During Combat). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 300 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed128_walk500",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 1881,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardStayAtPosition01 (Guard, near editor location, radius 128, Continue During Combat). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 500 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed400_walk300",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 2081,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardLinkedRef512StayAtEdLoc400"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardLinkedRef512StayAtEdLoc400 (Guard, near editor location, radius 400, Continue During Combat). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 300 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed400_walk500",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 1881,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardLinkedRef512StayAtEdLoc400"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardLinkedRef512StayAtEdLoc400 (Guard, near editor location, radius 400, Continue During Combat). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 500 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed400_walk750",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 1631,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardLinkedRef512StayAtEdLoc400"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardLinkedRef512StayAtEdLoc400 (Guard, near editor location, radius 400, Continue During Combat). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 750 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed0_walk300",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 2081,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "EvergreenMillsSniperStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on EvergreenMillsSniperStayAtPosition01 (Guard, near editor location, radius 0, Continue During Combat). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 300 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed0_walk750",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 1631,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "EvergreenMillsSniperStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on EvergreenMillsSniperStayAtPosition01 (Guard, near editor location, radius 0, Continue During Combat). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 750 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_none_walk750",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 1631,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "baseline: no package given. Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 750 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed0plain_walk300",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 2081,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "RHSAmbusherGuard"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on RHSAmbusherGuard (Guard, near editor location, radius 0, Continue During Combat, type-specific flags 0, as most Guard packages with the flag have; the Guards that were not held had bit 2 of those flags set, the ones that were held bit 1 only). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 300 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed0plain_walk750",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 1631,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "RHSAmbusherGuard"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on RHSAmbusherGuard (Guard, near editor location, radius 0, Continue During Combat, type-specific flags 0, as most Guard packages with the flag have; the Guards that were not held had bit 2 of those flags set, the ones that were held bit 1 only). Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 750 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed0_walk450",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 1931,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "EvergreenMillsSniperStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on EvergreenMillsSniperStayAtPosition01 (radius 0): between the 167 units it engaged at and the 654 it was held at, around the 384 the GECK wiki gives. Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 450 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed0_walk550",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2300 616 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 1831,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "EvergreenMillsSniperStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on EvergreenMillsSniperStayAtPosition01 (radius 0): between the 167 units it engaged at and the 654 it was held at, around the 384 the GECK wiki gives. Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 550 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "knife_ed128_walk1900",
+   "hours": 1.4,
+   "depth": 2,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 2783 746 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 200,
+     "arm": "WeapKnife"
+    }
+   ],
+   "walk": {
+    "to": "0x0013DA13",
+    "within": 981,
+    "approach": 0,
+    "max_frames": 1200
+   },
+   "timed": [
+    {
+     "after": 60,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.AddScriptPackage {0}",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [
+       "DefaultGuardStayAtPosition01"
+      ],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 450,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 2",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "melee trooper on DefaultGuardStayAtPosition01 (radius 128, type flags 6), which was not held at 621 units: 1,900 units. Fixed post, no teleport: the trooper is spawned beside the player (that spot is its editor location), 1,500 units further up the runway than the other sessions so that nobody leaves the cell (a scan of depth 1 reaches the player's own cell only [observed]: in the first try of these sessions, and in the knife_ed*_back* sessions, the player had crossed into the next cell and the timed steps no longer found the trooper), and the player walks 1900 units down the runway from the start of the observation; combat starts at sample 450."
+  },
+  {
+   "name": "mantis_own_then_1000",
+   "hours": 1.4,
+   "console_first": [
+    "killall"
+   ],
+   "do_first": [
+    [
+     "player.MoveTo {0} 851 228 40",
+     "0x0013DA13"
+    ],
+    {
+     "frames": 120
+    }
+   ],
+   "place": [
+    {
+     "base": "V22FemaleMantis",
+     "count": 1,
+     "distance": 200
+    }
+   ],
+   "timed": [
+    {
+     "after": 300,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StartCombat player",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    },
+    {
+     "after": 800,
+     "do": [
+      "player.MoveTo {0} 1817 487 40",
+      "0x0013DA13"
+     ]
+    },
+    {
+     "after": 1400,
+     "script": {
+      "lines": [
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      rA.StopCombat",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop"
+      ],
+      "names": [],
+      "decls": [
+       "ref rA"
+      ]
+     }
+    }
+   ],
+   "note": "V22FemaleMantis on its own flagged Guard package (its linked reference is its target; a spawned one has none), spawned beside the player; the player is moved 1,000 units up the runway at sample 800",
+   "depth": 2
+  }
+ ]
+}

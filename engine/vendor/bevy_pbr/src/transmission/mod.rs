@@ -14,7 +14,7 @@ use bevy_render::{
     render_phase::{sort_phase_system, AddRenderCommand, DrawFunctions, ViewSortedRenderPhases},
     ExtractSchedule, Render, RenderApp, RenderSystems,
 };
-pub use node::main_transmissive_pass_3d;
+pub use node::{begin_deferred_resolve, end_deferred_resolve, main_transmissive_pass_3d};
 pub use phase::Transmissive3d;
 pub use texture::ViewTransmissionTexture;
 
@@ -48,8 +48,13 @@ impl Plugin for ScreenSpaceTransmissionPlugin {
             )
             .add_systems(
                 Core3d,
-                main_transmissive_pass_3d
-                    .after(main_opaque_pass_3d)
+                (
+                    // NVForever one resolve (node.rs): no resolve from the opaque pass
+                    // to the transmissive pass; the transparent pass does the one.
+                    begin_deferred_resolve.before(main_opaque_pass_3d),
+                    main_transmissive_pass_3d.after(main_opaque_pass_3d),
+                    end_deferred_resolve.after(main_transmissive_pass_3d),
+                )
                     .before(main_transparent_pass_3d)
                     .in_set(Core3dSystems::MainPass),
             );

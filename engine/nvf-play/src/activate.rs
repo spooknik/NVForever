@@ -110,7 +110,9 @@ impl HudMessage {
 /// Name and action of a reference the player can activate now: present in the
 /// simulation and of an activatable type. Activators and furniture need a display name
 /// (FULL) [hypothesis: unnamed activators are trigger volumes and markers the player is
-/// not meant to use; not captured]. So does a door, unless its reference has a teleport
+/// not meant to use; not captured], or an Activation Prompt (XATO) of the reference or
+/// the base: then the prompt is offered with no name under it [hypothesis: #2160, Hoover
+/// Dam's nameless control panel must be usable; cells-refs.md §3]. So does a door, unless its reference has a teleport
 /// destination (XTEL) or an Activation Prompt (XATO): a nameless door with neither gives
 /// no prompt [hypothesis: #1598, Mick & Ralph's OffDoorHidden01; a nameless door the
 /// player may need to go through, a travel door or one given a prompt, stays offered so
@@ -168,10 +170,15 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
         }),
         BaseData::Actor(_) => Action::Talk,
         BaseData::Activator if &base.sig == b"TERM" => Action::Access,
-        BaseData::Activator | BaseData::Furniture => {
-            base.name.as_ref()?;
-            Action::Activate
+        // A nameless activator the level designer gave an Activation Prompt is for the
+        // player: offered by its prompt alone, no name line (#2160: Hoover Dam's control
+        // panel, VHDMainControlPanel1REF, a talking activator with no FULL and the XATO
+        // "Activate", where the override chip goes).
+        BaseData::Activator | BaseData::Furniture if base.name.is_none() => {
+            placed.and_then(|p| p.prompt.as_ref()).or(base.prompt.as_ref())?;
+            return Some((String::new(), Action::Activate));
         }
+        BaseData::Activator | BaseData::Furniture => Action::Activate,
         BaseData::LeveledItem(_) | BaseData::Projectile { item: None, .. } => return None,
         BaseData::Projectile { item: Some(_), .. } => Action::Disarm,
     };

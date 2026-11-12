@@ -1471,6 +1471,65 @@ fn a_broken_weapon_is_not_equipped() {
     w.equip(p, id(SUIT)).unwrap();
 }
 
+/// A live unit (a planted explosive, `Extra::live`, #1640) stays with its holder: no
+/// equip, removal, drop or transfer takes it, while the ordinary units of the same item
+/// are used as usual; it is kept in snapshots.
+#[test]
+fn a_live_unit_is_not_equipped_removed_dropped_or_moved() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    let mine = id(MINE);
+    w.add_item(p, mine, 2).unwrap();
+    assert!(w.inventory_mut(p).unwrap().mark_live(mine));
+    // The ordinary unit is equipped, then removed; the live one is neither.
+    w.equip(p, mine).unwrap();
+    assert!(w.unequip(p, mine).unwrap());
+    assert_eq!(w.remove_item(p, mine, 5).unwrap(), 1);
+    assert_eq!(w.item_count(p, mine).unwrap(), 1);
+    assert_eq!(w.equip(p, mine), Err(SimError::NotCarried { actor: p, item: mine }));
+    assert!(w.drop_item(p, mine, 1).unwrap().is_empty());
+    assert!(w.player_drop_item(mine, 1).unwrap().is_empty());
+    assert_eq!(w.transfer(p, id(SAFE_REF), mine, 1).unwrap(), 0);
+    assert!(!w.transfer_all(p, id(SAFE_REF)).unwrap().iter().any(|s| s.0 == mine));
+    w.add_item(p, id(STIMPAK), 1).unwrap();
+    let removed = w.remove_all_items(p).unwrap();
+    assert!(removed.iter().any(|s| s.0 == id(STIMPAK)) && !removed.iter().any(|s| s.0 == mine), "{removed:?}");
+    let inv = w.peek(p).unwrap().inventory.clone().unwrap();
+    assert_eq!((inv.count(mine), inv.live_count(mine), inv.free_count(mine)), (1, 1, 0));
+    // A second, ordinary, unit goes where any would.
+    w.add_item(p, mine, 1).unwrap();
+    assert_eq!(w.transfer(p, id(SAFE_REF), mine, 5).unwrap(), 1);
+    assert_eq!(w.item_count(id(SAFE_REF), mine).unwrap(), 1);
+    // Kept through a snapshot.
+    let snap = serde_json::to_string(&w.snapshot()).unwrap();
+    let back = World::restore(&f.forms, &f.refs, &serde_json::from_str(&snap).unwrap()).unwrap();
+    assert_eq!(back.peek(p).unwrap().inventory.as_ref().unwrap().live_count(mine), 1);
+}
+
+/// A rebuilt inventory (ResetInventory, a resurrection's empty pick) keeps the live units
+/// of planted explosives (#1640): their plants still find them.
+#[test]
+fn a_reset_inventory_keeps_live_units() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    let mine = id(MINE);
+    assert_eq!(w.item_count(g, mine).unwrap(), 2);
+    assert!(w.inventory_mut(g).unwrap().mark_live(mine));
+    w.add_item(g, id(CAPS), 5).unwrap();
+    assert!(w.reset_inventory(g).unwrap());
+    let inv = w.peek(g).unwrap().inventory.clone().unwrap();
+    assert_eq!((inv.count(mine), inv.live_count(mine), inv.count(id(CAPS))), (3, 1, 0), "rolled again, the live one kept");
+    w.clear_inventory_but_live(g).unwrap();
+    let inv = w.peek(g).unwrap().inventory.clone().unwrap();
+    assert_eq!((inv.len(), inv.count(mine), inv.live_count(mine)), (1, 1, 1));
+    // Without a live unit it is no inventory at all, as before.
+    assert!(w.inventory_mut(g).unwrap().take_live(mine));
+    w.clear_inventory_but_live(g).unwrap();
+    assert!(w.peek(g).unwrap().inventory.is_none());
+}
+
 /// A menu row whose units are no longer carried fails before anything is taken off
 /// (#1083): the clashing armour, and the item itself, stay worn.
 #[test]

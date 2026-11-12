@@ -41,7 +41,7 @@ use bevy_reflect::{std_traits::ReflectDefault, Reflect};
 use bevy_transform::components::GlobalTransform;
 use core::{
     ops::Range,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use wgpu::{
     BufferUsages, Color as WgpuColor, RenderPassColorAttachment, RenderPassDepthStencilAttachment,
@@ -790,6 +790,9 @@ pub struct ViewTarget {
     main_texture: Arc<AtomicUsize>,
     /// The final output attachment this view will present to, if available.
     out_texture: Option<OutputColorAttachment>,
+    /// NVForever one resolve: while set, [`ViewTarget::get_color_attachment`] hands out the
+    /// multisampled texture without its resolve target (see `set_resolve_deferred`).
+    resolve_deferred: Arc<AtomicBool>,
 }
 
 /// Contains [`OutputColorAttachment`] used for each target present on any view in the current
@@ -905,11 +908,34 @@ pub struct NoIndirectDrawing;
 impl ViewTarget {
     /// Retrieve this target's main texture's color attachment.
     pub fn get_color_attachment(&self) -> RenderPassColorAttachment<'_> {
-        if self.main_texture.load(Ordering::SeqCst) == 0 {
+        let mut attachment = if self.main_texture.load(Ordering::SeqCst) == 0 {
             self.main_textures.a.get_attachment()
         } else {
             self.main_textures.b.get_attachment()
+        };
+        // NVForever one resolve: see `set_resolve_deferred`.
+        if self.resolve_deferred.load(Ordering::Relaxed) {
+            attachment.resolve_target = None;
         }
+        attachment
+    }
+
+    /// NVForever one resolve (2026-11-10, engine/vendor/README.md). With multisampling,
+    /// every render pass that takes [`ViewTarget::get_color_attachment`] resolves the
+    /// whole target when it ends: the opaque, transmissive and transparent passes each
+    /// do, though only the last resolve is read. While this is set the attachment comes
+    /// without its resolve target, so the samples are kept and nothing is resolved; the
+    /// caller must clear it before the last pass of the frame that draws to the
+    /// multisampled texture, which then resolves as upstream does. Without
+    /// multisampling it changes nothing. A new [`ViewTarget`] starts with it off.
+    pub fn set_resolve_deferred(&self, deferred: bool) {
+        self.resolve_deferred.store(deferred, Ordering::Relaxed);
+    }
+
+    /// Whether resolves are held back just now ([`ViewTarget::set_resolve_deferred`]) on
+    /// a multisampled target.
+    pub fn resolve_deferred(&self) -> bool {
+        self.resolve_deferred.load(Ordering::Relaxed) && self.sampled_main_texture().is_some()
     }
 
     /// Retrieve this target's "unsampled" main texture's color attachment.
@@ -1522,6 +1548,7 @@ pub fn prepare_view_targets(
             main_textures,
             main_texture_format,
             out_texture: out_attachment.cloned(),
+            resolve_deferred: Arc::new(AtomicBool::new(false)),
         });
     }
 }

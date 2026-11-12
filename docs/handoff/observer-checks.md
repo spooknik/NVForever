@@ -234,6 +234,18 @@ engine if needed, and delete the item here.
    So the spawned troopers' 0 in o14_detect was the trooper, not the readout. Not yet
    enough for the light, FOV or flashlight rules: next, sneak at noon vs midnight from
    the same spot and distances, by settler, with the flashlight on.
+   Added 2026-11-11 (#2121), what scripts read once the target is out of sight. Ours:
+   GetIsAlerted 0 in a fight (SetAlert's alone); GetCombatTarget keeps the target it
+   fought, unseen, through Combat and Lost, until the target dies or is forgotten, StopCombat,
+   a new target or Normal (our Lost lasts until its alarms run out, `Timers::alarm`, 20 s); Lost reads procedure 13
+   and package 5; an Alert that never fought reads procedure 36, package 29, no target
+   (alert.md §6). To check, on a lone hostile with no other actor near (a bighorner took
+   the gecko's attention in Goodsprings, #2121's comment): (a) how long GetCombatTarget
+   stays the player with GetDetected player 0 before it reads 0, and whether IsInCombat
+   drops with it (73 stretches of under 10 to 293 real s are recorded, 8 that ended unseen
+   after 1.1-11.9 real s; no rule yet, #2010); (b) an Alert without combat, a hostile
+   given a sound with no sight line at all (npc-behaviour-compare.md §11): its
+   GetIsAlerted, procedure, package and combat target.
 7. **Casino payouts.**
    - Slots: ours pays back about 1.35 per chip, so max winnings come fast. Check the
      reading of "= BET × N", the cherry rule and the middle row.
@@ -1429,7 +1441,17 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     (`GetDetected` on it, then hostility after the blast)? (e) The panic on a creature that
     can be pickpocketed (a giant rat): does it play anything, does it stop, or does it go
     on walking? (f) Seen by a third NPC halfway through the fuse, then hidden at the blast:
-    does that NPC turn hostile? NVForever counts it as a witness.
+    does that NPC turn hostile? NVForever counts it as a witness. (g) The live item
+    (#1640 item 5): plant one Frag Grenade on an NPC who already carries Frag Grenades,
+    then reopen the pocket before the blast. Is the planted one a row of its own, and what
+    does that row say? Does the count of the victim's own row change? Can the player take
+    the planted one back, and does that roll? NVForever: a separate "(Armed)" row, refused,
+    no roll. (h) During the fuse, run `<victim>.RemoveItem <grenade> 1`, `<victim>.Drop
+    <grenade> 1` and `<victim>.EquipItem <grenade>` from the console, then
+    `GetItemCount`: which unit goes, the planted one or the victim's own? Does the blast
+    still happen? NVForever: only the victim's own units move; the blast takes the planted
+    unit. (i) The same NPC with the planted grenade its only grenade, in combat with
+    someone else during the fuse: does it throw the planted one? NVForever: no.
 
 ## Added 2026-11-06 (the power fist's hand, issue #1586)
 
@@ -1514,3 +1536,250 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
+
+## Added 2026-11-11 (Mr. House's screen, issue #2150)
+
+105. **Does Mr. House's screen enter combat, and does it ever turn?** (P3; packages.md
+     §7.1b.) NVForever keeps an Immobile creature with a Turning Speed of 0 at its placed
+     heading always [hypothesis for the rule; the owner saw the original's screen stay
+     still]. Not observed: whether the original's `Lucky38MrHouseREF` (0x001264C5) takes
+     a combat target at all when a fight starts in the penthouse or it is shot
+     (`IsInCombat`, `GetCombatTarget`), and its `GetAngle Z` through a conversation, a
+     goodbye line and a fight. Here it can still be in combat, only without turning.
+
+## Added 2026-11-11 (a regenerating weapon's ammo counter)
+
+106. **What do the HUD counter's two figures show with a Recharger Rifle out?** (P3;
+    hud.md §5, #2170.) NVForever shows the weapon's charge as the first figure and the
+    carried count of its ammo type, with nothing taken off, as the second [hypothesis].
+    Equip a Recharger Rifle, screenshot the counter at full charge, after three shots and
+    again once it has recharged; the same with a Recharger Pistol and the MF Hyperbreeder
+    Alpha. Note whether the second figure is 0, the clip size or something else, and
+    whether an ammo label stands left of the counter.
+
+## Added 2026-11-12 (Continue During Combat in combat, issue #2155)
+
+Asked by #2155: NVForever read the package flag as "the actor stays on its package in
+every combat state", so a melee fighter on such a package never reached its enemy. What
+does the original do? Measured 2026-11-11 and 12 with the AI observer
+(`tools/capture/observe/cdc_leash.campaign.json`, `cdc_lanius.campaign.json`; private
+outputs `obs_cdc_leash_*`, `obs_cdc_lanius_*`). Distances are game units, flat (X, Y).
+The rule the engine fix should follow is in alert.md §5.
+
+How the leash sessions work: on the Searchlight Airport runway (save `nvfairport`) one
+`LvlNCRTrooper` at a time is spawned 500, 1,000 or 2,000 units from the standing player
+(god mode), armed with a knife or a service rifle, and given its package there by
+AddScriptPackage, so the place of a "near current location" package (its **post**
+below) is that spot. Eight seconds later it is set on the player with StartCombat, and
+37 s after that stopped with StopCombat. Sampled 30 times a second. A script package
+and a forced StartCombat are not an NPC's own package list and its own hostility: where
+that could matter it is said.
+
+The packages [observed: `fnvtool ai show` over FalloutNV.esm]:
+`VFSOrrisThugGetShotPackage` (Travel, near current location, radius 0; Skip Fallout
+Behavior, Weapon Drawn, Continue During Combat; no conditions), the kind Lanius is on;
+`DefaultGuardinCombatInterior` (Guard, near current location, radius 512; Continue
+During Combat only); `FFEU03NPCGuard` (Guard, near current location, radius 0; Skip
+Fallout Behavior, Weapon Drawn, Continue During Combat).
+
+107. **Legate Lanius in the final battle: does he leave his marker?** (P1; alert.md §5,
+    issue #2155.) **Answered [observed, 2026-11-12, campaign `cdc_lanius` from the
+    owner's save `nvfLanius`]: yes. He runs to a player he detects, fights there, and
+    goes back to his marker when the fight ends. No leash showed, up to 2,557 units.**
+    - *The data* [observed: `fnvtool ai show`, `esm decode`]. His list, in order:
+      `VHDLegionOliverFightLegateWalkOut` and `VHDLegatePlayerDialogPackage` (Dialogue),
+      `VHDLegatePreConversationPackage` (Travel, editor location, before the battle),
+      `VHDLegateShowdownWaitPackage01` (Travel to `VLegateWaitPlayerMarker`, radius 0,
+      **without** the flag; conditions `VLegateShowdown.ShowdownStart == 1` and
+      `vHDBattleController.iBattleState == 1`, the NCR ending),
+      `VHDLegateShowdownWaitPackage` (the same Travel **with** Continue During Combat,
+      also Must Reach Location, Must Complete, Always Run, Allow Falls; `iBattleState >=
+      3`, the House and Independent endings), `DefaultStayAtEditorLocation`. His scripts
+      add script packages: `VLegateRunToRanger01` (Travel to the same marker, radius 256,
+      the flag), `VLegateWaitPlayerSpot` (radius 32, the flag), `VLegateHide01` / `02`
+      (Travel to his two healing spots, the flag) and `VLegateShowdownGreet` (Dialogue).
+      Combat style `CSNVLegateLanius`: combat radius 10,000, cover search radius 2,048,
+      no weapon restriction, attack chance 90, rushing attack chance 45 at 1.5 times the
+      distance. Speed multiplier 180, Aggressive, Foolhardy.
+    - *The save* (`cdc_lanius_state`): the real battle of an Independent ending,
+      `iBattleState` 4, `ShowdownStart` 1, `LegateRuns` 1, `LegateFightsPlayer` 0; he
+      stands 20 units from the marker on `VLegateRunToRanger01`, procedure DONE, the
+      player 1,461 units from him. So no staging was needed. What the capture adds: god
+      mode, and his hostility by the lines of his own OnHit block (`AddToFaction
+      VCaesarsLegionFaction 0`, `StartCombat player`), since it can neither answer his
+      talk nor hit him; `LegateFightsPlayer` stays 0, so no reinforcement wave comes, and
+      the player never strikes, so his healing and fury stages do not run. About 13
+      samples a second there.
+    - *Player 1,461 units off, as saved* (`as_saved_1461`): 1.2 s after turning hostile
+      he was 630 units from the marker, after 3.8 s within 86 units of the player. He
+      fought there for the two minutes the session gave him (1,311 of 1,560 samples in
+      an attack phase), 1,295 to 1,660 units from the marker. Calmed (out of the
+      faction, StopCombat), he had `VHDLegateShowdownWaitPackage` at the next sample,
+      procedure TRAVEL, and stood 16 units from the marker 4.7 s later.
+    - *Player 760 units off* (`at_760`): the same; he fought 575 to 830 units from the
+      marker and was back within 19 units 3.2 s after the fight ended.
+    - *Player 2,360 and 3,482 units off, down in the lower camp* (`at_2360`, `at_3482`):
+      he never detected the player there (GetDetected 0 throughout). In combat he walked,
+      not ran, 1,659 and 1,661 units from the marker (the same spot both times, about
+      350 units from where the first session's fight had been), left combat by himself
+      10 s after it began and was back on the marker 5 to 7 s later. A target he could
+      not find, not a leash.
+    - *Player teleported from 760 to 3,482 units mid-fight* (`at_760_then_3482`): he lost
+      his target at that sample, was out of combat 0.5 s later and on the marker (14
+      units) 3.3 s after that; he did not follow a player he no longer detected.
+    - *Made hostile on his way back to the marker* (`en_route`: put 3,482 units from it,
+      the player 2,360 units from the marker to one side, hostile when he was 1,225
+      units from the marker and did not detect the player): for 10 s he kept on toward
+      the marker, to within 201 units, away from the player; he dropped out of combat
+      once and came back into it, then went for the player, detected it at 651 units and
+      fought it 2,235 to 2,557 units from the marker until calmed 65 s later, when he
+      set off for the marker again. Whether those first 10 s were his Travel going on
+      (what the GECK wiki says of the flag) or a search for a target he did not see is
+      not told apart [hypothesis either way].
+    - **Not measured**: the fight begun by his talk or by the player's blow, with the
+      reinforcement waves; a detected player further than 2,557 units from the marker;
+      the NCR ending (his package there has no flag) and the House ending (the same
+      package as here).
+
+108. **A melee NPC on a Guard or Travel package with the flag, an enemy at 500, 1,000 and
+    2,000 units.** (P1; alert.md §5.) **Answered [observed, 2026-11-11 and 12, campaign `cdc_leash`, sessions
+    `knife_*`]: on Travel it closes in and attacks at every distance, with no leash. On
+    Guard it depends on the package: two held the trooper when the enemy was outside
+    the guard radius the GECK wiki gives, three did not hold it at all.**
+    - *Travel* (`VFSOrrisThugGetShotPackage`; picked because it is a plain stand-in-place
+      Travel like Lanius's, with no condition, no script and a place a spawned actor can
+      have). The trooper stood on its post, procedure DONE. Set on the player 500, 1,000
+      and 2,000 units off, it ran in and struck first after 3.2, 5.1 and 8.3 s, and fought
+      40 to 220 units from the player to the end (609, 645 and 585 of 1,101 samples in an
+      attack phase), up to 863, 1,226 and 2,043 units from its post. It never stopped or
+      turned back: no leash, and no different from the trooper with no package (check
+      111). A script package does not come back after the fight, so "does it return" is
+      answered by Lanius (check 107), not here.
+    - *Guard on a fixed post* (near editor location: a spawned actor's editor location
+      is where PlaceAtMe put it, as `knife_guarded128_1000` showed: sent 1,000 units off,
+      it walked back there. In the `knife_ed*_walk*` sessions the trooper is spawned
+      beside the player and the player walks away down the runway before the fight; the
+      distances are the player's from that post when combat began):
+      - `EvergreenMillsSniperStayAtPosition01` (radius 0; Weapon Drawn, No Warn/Attack
+        Behavior). Player **167** units off: it closed in and fought, up to 412 units
+        from the post, and stood 9 units from the post again after the fight. Player
+        **654** units off: in combat for the whole 35 s with the player as its target and
+        detected, it **stood on its post (0 units) and never attacked**.
+      - `DefaultGuardStayAtPosition01` (radius 128; Weapon Drawn, No Warn/Attack Behavior;
+        LvlRaiderGunGuard's and the Great Khans' package). Player 366, 456 and 621 units
+        off: it closed in and fought every time, up to 596, 735 and 899 units from the
+        post, and was 12 to 180 units from it after the fight.
+      - `DefaultGuardLinkedRef512StayAtEdLoc400` (radius 400; also Defensive Combat).
+        Player 212, 587 and 932 units off: it closed in and fought every time, up to 549,
+        897 and 1,250 units from the post, and was 86 to 474 units from it afterwards.
+      - The trooper with no package, player 943 units off (`knife_none_walk750`): closed
+        in, fought up to 1,144 units from where it stood, and stayed where the fight
+        ended.
+    - *Guard near the current location* (the post is where the trooper got the package;
+      not a fixed point, it seems: after a fight the trooper stayed where it was):
+      - `DefaultGuardinCombatInterior` (radius 512; the flag and nothing else). Before
+        the fight the trooper wandered up to about 770 units from its post. With the
+        player **1,001, 1,005 and 2,000 units from the post** (3 sessions) it was in
+        combat with the player as its target, detected, for the whole 37 s (80 s in one),
+        **stood where it was and never attacked**, the player 810 to 1,898 units from
+        it. With the player **154, 301, 301, 501 and 502 units from the post** (5
+        sessions) it closed in from 419 to 831 units away and fought, staying within 472
+        to 769 units of the post. In one more session with the player 501 units from
+        the post it stood, 763 units from the player, and did not attack [not
+        explained].
+      - `FFEU03NPCGuard` (radius 0; Skip Fallout Behavior, Weapon Drawn): from 1,000
+        units it struck first after 4.2 s and fought up to 1,180 units from its post.
+    - *Reading.* The two packages that held their trooper match the GECK wiki's rule for
+      a Guard with the flag ("will not move outside the guard radius in order to pursue
+      the target", the radius being the package radius × 1.5 or 384, whichever is
+      higher): 384 lies between 167 and 654, 768 between 502 and 1,001. What decides is
+      where the **target** is, measured from the post; a held actor does not walk to the
+      edge, it stands. The three packages that did not hold theirs at 1.6 to 4.9 times
+      that radius all have bit 2 (value 4) of the Guard type-specific flags set, and the
+      two that held have not (raw values 6, 6, 4 against 2, 2) [observed over these five
+      packages; that the bit is the cause is a hypothesis: xEdit names no Guard flag
+      there, and the packages differ in other fields too].
+    - **Run without their walk** (2026-11-12, the last run): in `knife_ed0plain_walk300`
+      and `_walk750` (`RHSAmbusherGuard`: radius 0, type-specific flags 0, as most
+      Guard packages with the flag have), `knife_ed0_walk450` and `_walk550` and
+      `knife_ed128_walk1900` the player's walk did not happen (the drive ended at its
+      frame limit, the Forward key having no effect in that run), so the player stood
+      166 to 259 units from the post and all five troopers closed in and fought, as a
+      near enemy let every Guard do. They settle nothing more: whether a Guard with no
+      type-specific flags holds its actor, where between 167 and 654 units the radius-0
+      line is, and whether the radius-128 Guard is held further out than 621 units,
+      are open. Run them again with the game window in front.
+    - **Not measured**: an engaged guard whose target then leaves the radius on foot
+      (the teleport sessions end the fight for any trooper, check 111); a Guard near a
+      reference or the linked reference; an NPC hostile by its own faction instead of
+      StartCombat.
+
+109. **Control: does a ranged NPC on the same packages hold its place and shoot?** (P2;
+    alert.md §5.) **Answered [observed, 2026-11-11, sessions `rifle_*`]:** it shoots, and
+    it does not hold its place: it moves as a rifleman with no package does.
+    - On the Guard package (radius 512), the player 1,000 and 2,000 units from the post:
+      first shot 2.4 s after combat began, firing through the 37 s (742 and 748 of 1,101
+      samples in an attack phase) from 928 to 1,065 and from 1,331 to 1,494 units, while
+      it moved from 138 to 1,059 and from 647 to 1,212 units from its post.
+    - On the Travel package (radius 0), 1,000 and 2,000 units: first shot after 2.2 s,
+      from 892 to 1,056 and from 1,895 to 2,040 units, moving up to 547 and 1,346 units
+      from its post.
+    - No package given, 2,000 units: first shot after 2.4 s, from 1,882 to 1,995 units,
+      moving up to 565 units from where it stood.
+    So the flag does not pin a gunman either; our "sniper posts stay put" reading rests
+    on the flag's name only. Not measured: a gunman whose target is out of its weapon's
+    range, and one on a Guard package whose target is outside the guard radius of a fixed
+    post (the troopers' posts here were "near current location").
+
+110. **A melee creature on a package with the flag.** (P2; alert.md §5.) The data has
+    them: 85 creature bases carry at least one such package [observed: `fnvtool ai show`
+    over every CREA of FalloutNV.esm; of the 399 packages 251 are on some actor's list,
+    291 NPC bases and 85 creature bases]. Most are Fallout 3's; New Vegas's own melee
+    ones are `V22FemaleMantis` (its only package: `V22MantisFemaleEggGuardPackage`, Guard
+    on its linked reference, the flag alone), `Lily` and `Rex` (their wait and go-home
+    packages) and `VStreetCrBrahmin` (the brahmin rush). **Answered in part [observed,
+    2026-11-11 and 12, sessions `coyote_*`, `mantis_own_*`]:** a coyote given the Guard
+    (radius 512) or the Travel package, and a spawned `V22FemaleMantis` on its own
+    package, attacked the player at once and fought in melee, 81 to 264 units away, as
+    the coyote with no package did; the package made no difference at that distance.
+    **Not measured: how far they go.** A creature spawned beside the player attacks before
+    it can be put anywhere, and moving the player 1,000 units off mid-fight ended the
+    fight within 0.6 s for all three coyotes, the one with no package too (it stood
+    1,009 units from the player for two minutes): the teleport, not a leash. Afterwards
+    only the one on the Travel package found the player again and attacked; one run each,
+    so that is no rule. To settle it: a creature placed in the data with such a package
+    (the Vault 22 mantis mothers), the player walking up and backing off on foot.
+
+111. **Baseline: how far does the same melee NPC chase with no such package?** (P2.)
+    **Answered [observed, 2026-11-11, `knife_none_2000`]:** the knife trooper with no
+    package given (its own list) ran 2,000 units to the player, struck first 8 s after
+    combat began and fought 40 to 125 units from it for the rest of the 37 s (590 of
+    1,101 samples in an attack phase), 2,178 units from where it started. The trooper on
+    the flagged Travel package did the same from the same distance (`knife_travel0_2000`:
+    first blow after 8.3 s, 585 samples, 2,043 units from its post).
+    A limit of these sessions: when the player was teleported 1,500 units away mid-fight,
+    the trooper lost its target at that sample and was out of combat 2 s later, with no
+    package (`knife_none_500_away`) as with the Guard package
+    (`knife_guard512_500_away`), and did not follow. The troopers are not hostile to
+    the player by themselves, so a teleport ends a StartCombat fight; it measures no
+    leash.
+
+## Added 2026-11-11 (a Use Weapon package with Continue During Combat, issue #2120)
+
+112. **Attacked, does a Use Weapon package's actor with Continue During Combat keep firing at
+    its package's target, or turn on its attacker?** (P3; use-weapon.md §3, spec note.) The
+    GECK wiki's Use Weapon Package page says the actor "will continue to fire and stand at the
+    designated position, even during Combat" [documented], not at whom. NVForever keeps it at
+    its stand firing the package's volleys at the package's target, ignoring its attacker,
+    while the use is one the shooter can act on (in place, its target among the drawn
+    standing actors); when it is not (a marker target, a target not drawn, not yet at its
+    stand) it fights its attacker with the ordinary attacks while its package still moves
+    it
+    [design, #2145]; the other reading is that it holds its stand and fights its attacker
+    (owner-review item 57). Pick a package with the flag whose target 2 is an actor and whose
+    conditions hold from a save (`fnvtool ai packages` lists the flag), watch the actor fire at
+    its target, then attack it from the side: (a) does it keep firing
+    at the package's target, turn to the player and fight from its stand, or leave its stand;
+    (b) for a Repeat Fire package, does that last, or does it go back to the package's target
+    after a while? A package aiming at a marker (the Ultra-Luxe kitchen's) is worth the same
+    look: does it fire at the marker in combat at all?

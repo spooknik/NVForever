@@ -83,8 +83,20 @@ const HINT_GAP: f32 = 5.0;
 /// symbol. None is in the masters; they are read by name from the game strings table
 /// ([`Words`]).
 const BUTTONS: [&str; 3] = ["sNext", "sPrevious", "sCloseButton"];
-const HINTS: [&str; 3] = ["sPCMenuHintA", "sPCMenuHintS", "sPCMenuHintE"];
 const MANUAL: &str = "sVDSGManual";
+/// The keys behind Next, Previous and Close (the file's `_PCButton_A`, `_S`, `_E`; Esc
+/// closes it too).
+const HINT_KEYS: [&[KeyCode]; 3] = [&[KeyCode::KeyA], &[KeyCode::KeyS], &[KeyCode::KeyE, KeyCode::Escape]];
+
+/// The key hints after Next, Previous and Close, in the menus' usual button style and
+/// following the input device: "A)", "S)", "E)" with the keyboard, the controller's
+/// buttons ("RT)", "LT)", "B)") with a controller [observed, issue #1904: the original
+/// shows "Close E)" with the keyboard and "Close B)" with a controller; Next and Previous
+/// in the same style: design]. The file's `&-sPCMenuHint*;` strings are in no plugin and
+/// were NVForever's own "[A]" labels (§2 of docs/spec-notes/tutorial-menu.md).
+pub fn hints(l: crate::pad::Labels) -> [String; 3] {
+    HINT_KEYS.map(|keys| crate::pad::hint_as(keys, crate::pad::at_menu(fnv_game::game::menus::TUTORIAL), l))
+}
 
 /// The menu's words: the load order's string settings over NVForever's own labels
 /// (`fnv_game::ui_loading::game_string`, `fnv_ui::strings::BUILT_IN`; menu-xml.md §2.4)
@@ -93,7 +105,7 @@ const MANUAL: &str = "sVDSGManual";
 pub struct Words {
     /// Next, Previous, Close.
     pub buttons: [String; 3],
-    /// Their PC key hints.
+    /// Their key hints ([`hints`]).
     pub hints: [String; 3],
     pub manual: String,
 }
@@ -105,7 +117,7 @@ impl Words {
             Some(g) => fnv_game::ui_loading::game_string(g, name),
             None => fnv_ui::strings::built_in(name).unwrap_or_default().to_owned(),
         };
-        Words { buttons: BUTTONS.map(word), hints: HINTS.map(word), manual: word(MANUAL) }
+        Words { buttons: BUTTONS.map(word), hints: hints(crate::pad::labels()), manual: word(MANUAL) }
     }
 }
 /// The background's darkness: the menus' (`crate::interface::MENU_BACKING`) [design: the
@@ -308,10 +320,11 @@ impl TutorialView {
 #[derive(Component)]
 struct TutorialRoot;
 
-/// What was drawn last: the pages, the view, the screen's size in units and whether the
-/// menu is drawn from its tiles (the scroll and the hover are then not this drawing's).
+/// What was drawn last: the pages, the view, the screen's size in units, whether the
+/// menu is drawn from its tiles (the scroll and the hover are then not this drawing's) and
+/// the key hints (a change of input device draws it again).
 #[derive(Default, PartialEq)]
-struct Shown(Vec<Page>, usize, i32, Option<TmButton>, (i32, i32), bool);
+struct Shown(Vec<Page>, usize, i32, Option<TmButton>, (i32, i32), bool, [String; 3]);
 
 pub struct TutorialMenuPlugin;
 
@@ -430,7 +443,7 @@ fn draw(
     let screen = windows.single().map_or(Vec2::new(1280.0, 960.0), |w| Vec2::new(960.0 * w.width() / w.height().max(1.0), 960.0));
     let page = view.page.min(pages.len().saturating_sub(1));
     let (scroll, hover) = if tiled { (0, None) } else { (view.scroll.round() as i32, view.hover) };
-    let now = Shown(pages.clone(), page, scroll, hover, (screen.x.round() as i32, screen.y.round() as i32), tiled);
+    let now = Shown(pages.clone(), page, scroll, hover, (screen.x.round() as i32, screen.y.round() as i32), tiled, words.hints.clone());
     if now == *shown {
         return;
     }
@@ -438,6 +451,11 @@ fn draw(
         if let Some(p) = pages.get(page) {
             info!("tutorial menu: page {}/{} {:?} ({})", page + 1, pages.len(), p.title, p.message);
         }
+    }
+    if !tiled && !pages.is_empty() && (now.6 != shown.6 || shown.0.is_empty()) {
+        let [next, previous, close] = &words.hints;
+        let [n, pr, cl] = &words.buttons;
+        info!("tutorial menu: hints {n} {next}, {pr} {previous}, {cl} {close}");
     }
     let scroll_moved = now.2 != shown.2;
     *shown = now;
@@ -566,6 +584,16 @@ fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, w
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1904: the hints are in the usual button style and name the controller's
+    /// buttons with a controller (RT Next, LT Previous, B Close).
+    #[test]
+    fn hints_follow_the_input_device() {
+        use crate::pad::Labels;
+        assert_eq!(hints(Labels::Keys), ["A)", "S)", "E)"]);
+        assert_eq!(hints(Labels::Xbox), ["RT)", "LT)", "B)"]);
+        assert_eq!(hints(Labels::PlayStation), ["R2)", "L2)", "Circle)"]);
+    }
 
     #[test]
     fn the_marks_become_paragraphs() {

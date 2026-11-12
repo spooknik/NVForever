@@ -257,7 +257,9 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - **Condition**: the equipped weapon's condition, 0 to 1 (`combat-rules.md` §17). With
   bare hands the label and bar are not shown [hypothesis].
 - **Ammo**: the magazine and what is carried besides, of the ammo type in use
-  (`combat.rs`). A thrown weapon shows its own count and 0. A weapon that uses no ammo
+  (`combat.rs`). A thrown weapon shows its own count and 0. A regenerating weapon (the
+  Recharger Rifle) shows its charge and what is carried of its ammo type, with nothing
+  taken off [hypothesis: observer check 106]. A weapon that uses no ammo
   shows nothing [hypothesis: the screenshot shows "0/0"; with which weapon is not
   known].
 

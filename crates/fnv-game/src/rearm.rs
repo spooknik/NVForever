@@ -266,8 +266,9 @@ impl Game<'_> {
         let units: Vec<(FormId, f32)> = {
             let inv = self.world.peek(actor).and_then(|s| s.inventory.as_ref())?;
             let mut best: BTreeMap<FormId, f32> = BTreeMap::new();
+            // A live unit (a planted explosive, `Extra::live`) is not its to hold (#1640).
             for (item, extra, n) in inv.groups() {
-                if n > 0 && !extra.broken() {
+                if n > 0 && !extra.broken() && !extra.live {
                     let c = best.entry(item).or_insert(0.0);
                     *c = c.max(extra.condition_or_whole());
                 }
@@ -310,7 +311,7 @@ impl Game<'_> {
     fn best_carried_unit(&mut self, actor: FormId, weapon: FormId) -> Option<(f32, Rank)> {
         let condition = {
             let inv = self.world.peek(actor).and_then(|s| s.inventory.as_ref())?;
-            inv.groups().filter(|(i, e, n)| *i == weapon && *n > 0 && !e.broken()).map(|(_, e, _)| e.condition_or_whole()).fold(None, |m: Option<f32>, c| Some(m.map_or(c, |m| m.max(c))))?
+            inv.groups().filter(|(i, e, n)| *i == weapon && *n > 0 && !e.broken() && !e.live).map(|(_, e, _)| e.condition_or_whole()).fold(None, |m: Option<f32>, c| Some(m.map_or(c, |m| m.max(c))))?
         };
         let ammo = self.accepted_ammo(weapon);
         let found = ammo.is_empty() || self.carries_any(actor, &ammo);
@@ -365,7 +366,7 @@ impl Game<'_> {
         };
         let carried: Vec<FormId> = {
             let inv = self.world.peek(actor).and_then(|s| s.inventory.as_ref())?;
-            inv.iter().filter(|(i, n)| *n > 0 && *i != held).map(|(i, _)| i).collect()
+            inv.free_iter().filter(|(i, n)| *n > 0 && *i != held).map(|(i, _)| i).collect()
         };
         let mut best: Option<(FormId, f32, Rank)> = None;
         for w in carried {

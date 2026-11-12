@@ -25,7 +25,9 @@
 //!   when its explosion hurts that kind of victim ([`Game::explosive_harms`]). Not on a
 //!   child or an essential actor (it stays an ordinary item). Judged as a kill seen by
 //!   whoever detected the player while it was live, credited to the weapon the player
-//!   holds (docs/spec-notes/pickpocket.md §5).
+//!   holds (docs/spec-notes/pickpocket.md §5). Each live plant reserves one unit of the
+//!   item in the pocket (`fnv_sim::inventory::Extra::live`), which nothing but its blast
+//!   takes (#1640 item 5).
 
 use crate::crime::{Kind, Note, Ownership};
 use crate::functions::{actor, base_of};
@@ -268,7 +270,38 @@ impl Game<'_> {
         }
         let at = self.time;
         self.pickpocket.planted.push(Planted { victim, item, at, blast, seen_by: Vec::new() });
+        self.reserve_live(victim, item);
         Ok(())
+    }
+
+    /// Make as many of `victim`'s units of `item` live (`Extra::live`) as live plants of
+    /// it are on `victim`, as far as it carries them: each plant reserves one unit, which
+    /// the victim cannot equip, use, drop or give away, until its blast takes it
+    /// [design, #1640; hypothesis: "the victim can't use it or drop it", Fallout Wiki,
+    /// Fallout 3 Pickpocket]. A plant whose unit is not carried still goes off. Only a
+    /// materialised holder is touched. Returns how many are live.
+    fn reserve_live(&mut self, victim: FormId, item: FormId) -> i32 {
+        let want = self.pickpocket.planted.iter().filter(|p| p.victim == victim && p.item == item).count() as i32;
+        if self.world.peek(victim).and_then(|s| s.inventory.as_ref()).is_none() {
+            return 0;
+        }
+        self.world.inventory_mut(victim).map_or(0, |inv| inv.set_live_count(item, want))
+    }
+
+    /// After a load: every holder's live units agree with the saved plants, one per plant
+    /// as far as the holder carries the item. A save from before live units (#1640) gets
+    /// its plants' units reserved; a live unit without a plant (its plant dropped as its
+    /// plugin is gone) is an ordinary unit again.
+    pub fn reconcile_live_explosives(&mut self) {
+        let mut pairs: std::collections::BTreeSet<(FormId, FormId)> = self.pickpocket.planted.iter().map(|p| (p.victim, p.item)).collect();
+        for (holder, s) in self.world.changed() {
+            if let Some(inv) = s.inventory.as_ref() {
+                pairs.extend(inv.groups().filter(|g| g.1.live).map(|g| (holder, g.0)));
+            }
+        }
+        for (victim, item) in pairs {
+            self.reserve_live(victim, item);
+        }
     }
 
     /// GetPlantedExplosive: a live explosive was planted on `r` at least
@@ -322,7 +355,8 @@ impl Game<'_> {
     /// witnesses at each tick]. What the victim's own OnDeath does (Caesar's, Lucius's and
     /// Crocker's set quest stages that make enemies or give infamy) happens whoever saw
     /// [observed: FalloutNV.esm]. A victim that died or left before is let off
-    /// [hypothesis].
+    /// [hypothesis]: its explosive is an ordinary item again. The blast takes the unit its
+    /// plant reserved (`Extra::live`), exactly one, never an ordinary unit of the item.
     pub fn tick_planted(&mut self) -> Vec<Blast> {
         if self.pickpocket.planted.is_empty() {
             return Vec::new();
@@ -342,9 +376,14 @@ impl Game<'_> {
         let mut out = Vec::new();
         for p in due {
             if self.is_dead(p.victim) {
+                self.reserve_live(p.victim, p.item);
                 continue;
             }
-            let _ = self.world.remove_item(p.victim, p.item, 1);
+            if self.world.peek(p.victim).and_then(|s| s.inventory.as_ref()).is_some() {
+                if let Ok(inv) = self.world.inventory_mut(p.victim) {
+                    inv.take_live(p.item);
+                }
+            }
             self.count_stat(crate::misc_stats::PANTS_EXPLODED, 1.0);
             let killed = self.explosive_harms(p.victim, &p.blast);
             if killed {

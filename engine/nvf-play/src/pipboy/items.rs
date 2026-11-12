@@ -794,6 +794,7 @@ mod tests {
             mods_value: 0,
             folder: None,
             reference: None,
+            live: false,
         };
         assert_eq!(row_text(&r), "Stimpak (9)");
         r.count = 1;
@@ -801,7 +802,7 @@ mod tests {
     }
 
     fn row(kind: Option<fnv_sim::forms::ItemKind>) -> Row {
-        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: None, reference: None }
+        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false }
     }
 
     fn shown(h: &[Hint]) -> Vec<(String, bool)> {

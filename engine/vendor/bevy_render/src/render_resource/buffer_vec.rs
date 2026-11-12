@@ -45,9 +45,34 @@ pub struct RawBufferVec<T: NoUninit> {
     buffer_usage: BufferUsages,
     label: Option<String>,
     changed: bool,
+    // NVForever unchanged uploads: what `write_buffer_if_changed` last wrote, and where.
+    last_written: Vec<u8>,
+    last_buffer: Option<crate::render_resource::BufferId>,
 }
 
 impl<T: NoUninit> RawBufferVec<T> {
+    /// NVForever unchanged uploads: [`RawBufferVec::write_buffer`], but nothing is queued
+    /// when the same bytes were last written into the same GPU buffer. For buffers only the
+    /// CPU writes. Each `queue.write_buffer` is a copy with its own barrier at the start of
+    /// the frame's submission, and the GPU waits for idle at each.
+    pub fn write_buffer_if_changed(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        if self.values.is_empty() {
+            return;
+        }
+        self.reserve(self.values.len(), device);
+        let Some(buffer) = &self.buffer else {
+            return;
+        };
+        let bytes: &[u8] = &must_cast_slice(&self.values)[..self.item_size * self.values.len()];
+        if self.last_buffer == Some(buffer.id()) && self.last_written == bytes && same_writes_skipped() {
+            return;
+        }
+        queue.write_buffer(buffer, 0, bytes);
+        self.last_written.clear();
+        self.last_written.extend_from_slice(bytes);
+        self.last_buffer = Some(buffer.id());
+    }
+
     /// Creates a new [`RawBufferVec`] with the given [`BufferUsages`].
     pub const fn new(buffer_usage: BufferUsages) -> Self {
         Self {
@@ -58,6 +83,8 @@ impl<T: NoUninit> RawBufferVec<T> {
             buffer_usage,
             label: None,
             changed: false,
+            last_written: Vec::new(),
+            last_buffer: None,
         }
     }
 
@@ -1020,4 +1047,10 @@ mod tests {
         let buffer = UninitBufferVec::<Padded>::new(BufferUsages::STORAGE);
         assert_eq!(buffer.item_size, 16);
     }
+}
+
+/// NVForever unchanged uploads: test aid `NVF_PLAY_TEST_SAME_WRITES=1` writes every frame.
+fn same_writes_skipped() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_SAME_WRITES").map_or(true, |v| v != "1"))
 }

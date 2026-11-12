@@ -45,6 +45,16 @@ home's `NVForever.ini`). Settings, saves, logs and crash reports go to
 Run `nvf-viewer` through its launcher (or pass `--esm-schema` and `--nif-schema`): its
 built-in schema defaults point at the build machine's checkout.
 
+## Reports
+
+The first start asks once whether NVForever may send a report after each session (the
+build, your PC's hardware and settings, your mod list, how it ran, the game's log and any
+crash). Nothing is sent unless you choose **Send reports**. Each report is written first to
+`Documents\My Games\NVForever\reports` and sent at the next start; no personal details and
+no saves are sent. Settings → Gameplay → Reports turns it off or deletes what was sent;
+`NVF_REPORTS=0` turns it off for one run. Details: `docs/design/player-reports.md` in the
+repository.
+
 ## Mods
 
 - **Mod Organizer 2:** add `nvforever.exe` to MO2's executables (the drop-down beside

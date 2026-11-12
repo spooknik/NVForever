@@ -36,7 +36,7 @@ use crate::sim::SimState;
 use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
-use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
@@ -267,13 +267,10 @@ fn input(
                 ops.push((op, "key"));
             }
         }
-        // Left and Right with the keyboard's own repeat while held.
-        for k in typed.iter().filter(|k| k.state.is_pressed()) {
-            match k.logical_key {
-                Key::ArrowRight => ops.push((Op::Raise(None), "key")),
-                Key::ArrowLeft => ops.push((Op::Lower(None), "key")),
-                _ => {}
-            }
+        // Left and Right: the keyboard's, with its own repeat while held, and the
+        // controller's D-pad (issue #1910).
+        for right in crate::pad::sideways(&typed, &keys) {
+            ops.push((if right { Op::Raise(None) } else { Op::Lower(None) }, "key"));
         }
         if wheel.abs() >= 1.0 {
             ops.push((Op::Scroll(-wheel.round() as i32), "wheel"));

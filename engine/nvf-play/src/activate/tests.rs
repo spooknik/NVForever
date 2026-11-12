@@ -109,6 +109,9 @@ fn sim() -> SimState {
     let hidden = placed(0x7779, HIDDEN_DOOR, CELL_EXT);
     let hidden_travel = PlacedRef { teleport: Some(tp), ..placed(0x777A, HIDDEN_DOOR, CELL_EXT) };
     let hidden_prompted = PlacedRef { prompt: Some("Enter Hatch".into()), ..placed(0x777B, HIDDEN_DOOR, CELL_EXT) };
+    // A nameless activator with a prompt (#2160: Hoover Dam's control panel).
+    let panel = PlacedRef { prompt: Some("Activate".into()), ..placed(0x777C, TRIGGER, CELL_EXT) };
+    refs.refs.insert(panel.id, panel);
     let box_trigger = PlacedRef { primitive: Some(fnv_sim::refs::Primitive { sphere: false, bounds: [30.0, 25.0, 31.0] }), ..placed(LEVER_TRIGGER_REF, LEVER, CELL_EXT) };
     for r in [stim, safe, door, sealed, prompted, hidden, hidden_travel, hidden_prompted, box_trigger, placed(LEVER_REF, LEVER, CELL_EXT), placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT)] {
         refs.refs.insert(r.id, r);
@@ -229,6 +232,11 @@ fn describe_by_type_lock_and_destination() {
     assert_eq!(describe(&sim, ix, SAFE_REF), Some(("Chest".into(), Action::Locked { level: 50 })));
     assert_eq!(describe(&sim, ix, DOOR_REF), Some(("Door".into(), Action::Travel { to: Some("Doc Mitchell's House".into()) })));
     assert_eq!(describe(&sim, ix, TRIGGER_REF), None, "unnamed activators are not offered");
+    // With an Activation Prompt it is offered, by the prompt alone (#2160).
+    assert_eq!(describe(&sim, ix, 0x777C), Some((String::new(), Action::Activate)));
+    let t = Targeted { form_id: 0x777C, name: String::new(), action: Action::Activate, distance: 50.0, source: pick::Source::Bounds, crime: false, empty: false };
+    let p = crate::reticle::Prompt::of(&t, &sim);
+    assert_eq!((p.action.as_str(), p.name.as_str()), ("Activate", ""));
     assert_eq!(describe(&sim, ix, 0x7779), None, "nor an unnamed door leading nowhere (#1598)");
     assert!(
         matches!(describe(&sim, ix, 0x777A), Some((_, Action::Travel { .. }))),

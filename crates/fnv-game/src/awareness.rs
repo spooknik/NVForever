@@ -1180,20 +1180,46 @@ pub fn is_in_combat(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String>
     yes(g.awareness.state(r).in_combat())
 }
 
-/// `actor.GetCombatTarget`: the actor it fights, the detected target with the highest
-/// value [engineering choice: no source says how the original picks among several]; 0
-/// outside Combat.
+/// `actor.GetCombatTarget`: the actor it fights ([`Game::combat_target_of`]): the
+/// detected target with the highest value [engineering choice: no source says how the
+/// original picks among several], kept while it is out of sight; 0 outside Combat and
+/// Lost.
 pub fn get_combat_target(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     Ok(g.combat_target_of(r).map(|t| Value::Ref(t.0)).unwrap_or(Value::NONE))
 }
 
 impl Game<'_> {
-    /// The actor `r` fights in Combat ([`get_combat_target`]); also what a condition
-    /// run on "Combat Target" runs on (docs/spec-notes/packages.md §7.5).
+    /// The actor `r` fights, as scripts read it ([`get_combat_target`]); also what a
+    /// condition run on "Combat Target" runs on (docs/spec-notes/packages.md §7.5) and
+    /// what the extender queries that ask for it read.
+    ///
+    /// In Combat or Lost: ITR's ForceCombatTarget first, then the detected target
+    /// [`Awareness::combat_target`] picks, and while it detects none, the one it fought last
+    /// ([`Awareness::fighting`]) as long as that is alive and still on its target list or
+    /// alert list. An actor of the original fighting the player kept the player as its
+    /// combat target, procedure COMBAT, while GetDetected player read 0, for stretches
+    /// of under 10 real s up to 293 s [observed: npc-behaviour-compare.md §11, 73
+    /// stretches]. When it lets go is our own rule [design, #2121]: when the target dies
+    /// or is forgotten (dead, gone, no longer hostile, `Awareness::forget`, or off both
+    /// lists by their timers), when it turns to another, at StopCombat and on going back
+    /// to Normal; no timer of its own (how long the original keeps it: #2010).
     pub fn combat_target_of(&self, r: FormId) -> Option<FormId> {
-        let a = self.awareness.get(r).filter(|a| a.state == State::Combat)?;
+        let a = self.awareness.get(r).filter(|a| matches!(a.state, State::Combat | State::Lost))?;
         // ITR's ForceCombatTarget over the actor's own choice (`crate::nvse_itr2`).
+        if let Some(t) = self.itr_forced_target(r) {
+            return Some(t);
+        }
+        a.combat_target().map(|(t, _)| t).or_else(|| a.fighting.filter(|&f| !self.is_dead(f) && (a.targets.contains_key(&f) || a.alarms.iter().any(|x| x.owner == f))))
+    }
+
+    /// The actor `r` fights now, as its combat AI sees it: in Combat, ITR's
+    /// ForceCombatTarget, else the detected target [`Awareness::combat_target`] picks;
+    /// none once it detects none. What [`Game::combat_target_of`] read before #2121; kept
+    /// for the player reports' snapshot (`nvforever` `reports/snapshot.rs`), whose
+    /// `combat_target` field keeps its meaning.
+    pub fn fighting_target_of(&self, r: FormId) -> Option<FormId> {
+        let a = self.awareness.get(r).filter(|a| a.state == State::Combat)?;
         if let Some(t) = self.itr_forced_target(r) {
             return Some(t);
         }
@@ -1225,30 +1251,43 @@ pub fn set_alert(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
-/// `actor.GetIsAlerted`: 1 in the alerted animation state [documented: catalogue notes]:
-/// set with SetAlert, or while the actor is in a combat state [hypothesis: Alert is
-/// "weapon out", Category:Detection, which is the alerted animation state]. Not while it
-/// warns (`Game::warning_to`): a young gecko warning the player read 0 [observed:
-/// capture `warnings`, young_gecko, 2026-10-24]; what it draws then is
-/// [`Game::draws_weapon`].
+/// `actor.GetIsAlerted`: 1 in the alerted animation state [documented: catalogue notes;
+/// GECK wiki SetAlert, "purely an animation state"], set with SetAlert or ITR's
+/// SetAlertNS ([`Game::is_alerted`]); a combat state does not set it. In the original
+/// GetIsAlerted read 0 in every sample of about 480,000 living actors, 14,312 of them
+/// in combat [observed: npc-behaviour-compare.md §11; owner-decision-captures.md §3].
+/// Not while it warns (`Game::warning_to`) either: a young gecko warning the player read
+/// 0 [observed: capture `warnings`, young_gecko, 2026-10-24]. What an actor draws is
+/// [`Game::draws_weapon`], which still counts the combat states.
 pub fn get_is_alerted(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     yes(g.is_alerted(r))
 }
 
 impl Game<'_> {
-    /// Whether `actor` has its weapon out for alertness: SetAlert or a combat state
-    /// ([`get_is_alerted`]).
+    /// Whether `actor` is alerted as scripts read it ([`get_is_alerted`]): SetAlert's
+    /// flag or ITR's SetAlertNS, nothing else [design, #2121].
     pub fn is_alerted(&self, actor: FormId) -> bool {
-        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.awareness.state(actor).in_combat() || self.itr_alert(actor)
+        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.itr_alert(actor)
     }
 
-    /// Whether `actor` draws its weapon (a creature its unarmed stance): alerted, or
-    /// warning the player (`Game::warning_to`) [observed: the young gecko's GetAnimAction
-    /// read 0, "equip weapon", from its first warning until it fought, IsWeaponOut 0 until
-    /// then (capture `warnings`, 2026-10-24); owner 2026-10-24: warning guards draw].
+    /// Whether `actor` stands in its alerted stance: alerted ([`Game::is_alerted`]) or in
+    /// a combat state (Alert, Combat, Lost) [hypothesis: Alert is "weapon out",
+    /// Category:Detection]. What [`Game::is_alerted`] read before #2121: the weapon
+    /// drawing ([`Game::draws_weapon`]) and the creatures' stance (`nvforever`
+    /// `creature_stance.rs`) keep it, so drawn weapons and stances are as before; the
+    /// IDLE tree's conditions read GetIsAlerted as scripts do (docs/design/alert.md §6).
+    pub fn alert_stance(&self, actor: FormId) -> bool {
+        self.is_alerted(actor) || self.awareness.state(actor).in_combat()
+    }
+
+    /// Whether `actor` draws its weapon (a creature its unarmed stance): in its alerted
+    /// stance ([`Game::alert_stance`]), or warning the player (`Game::warning_to`)
+    /// [observed: the young gecko's GetAnimAction read 0, "equip weapon", from its first
+    /// warning until it fought, IsWeaponOut 0 until then (capture `warnings`,
+    /// 2026-10-24); owner 2026-10-24: warning guards draw].
     pub fn draws_weapon(&self, actor: FormId) -> bool {
-        self.is_alerted(actor) || self.warning_to(actor).is_some()
+        self.alert_stance(actor) || self.warning_to(actor).is_some()
     }
 
     fn player_pos(&self) -> Option<[f32; 3]> {

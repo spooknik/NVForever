@@ -1,0 +1,614 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "cdc_lanius",
+ "title": "Issue #2155: Legate Lanius in the final battle, from the owner's save nvfLanius (what it holds: cdc_lanius_state). He is on a Travel package to VLegateWaitPlayerMarker with Continue During Combat. One session per player spot: the player stands at a camp marker 760 to 3,482 units from his marker, Lanius is put back on the marker, made hostile at sample 240 and calmed at sample 1500 (about 30 samples a second). God mode, and the player's Health raised and restored; the player never attacks, so his healing and fury script stages do not run.",
+ "save": "nvfLanius",
+ "defaults": {
+  "fields": "full",
+  "every": 2,
+  "depth": 2,
+  "settle_frames": 120,
+  "track": [
+   "VLegionLegateLaniusREF"
+  ],
+  "extra_header": [
+   [
+    "battle_state",
+    "num",
+    "player.GetAV Variable01"
+   ],
+   [
+    "showdown_start",
+    "num",
+    "player.GetAV Variable02"
+   ],
+   [
+    "fights_player",
+    "num",
+    "player.GetAV Variable03"
+   ],
+   [
+    "legate_runs",
+    "num",
+    "player.GetAV Variable04"
+   ],
+   [
+    "legate_attacks",
+    "num",
+    "player.GetAV Variable05"
+   ],
+   [
+    "start_convo",
+    "num",
+    "player.GetAV Variable06"
+   ],
+   [
+    "menu",
+    "num",
+    "MenuMode"
+   ]
+  ]
+ },
+ "sessions": [
+  {
+   "name": "as_saved_1461",
+   "hours": 1.4,
+   "console_first": [
+    "tgm"
+   ],
+   "do_first": [
+    [
+     "player.ForceAV Health 99999"
+    ],
+    [
+     "SetVariable \"StartConvo\" 1 {0}",
+     "VLegionLegateLaniusREF"
+    ]
+   ],
+   "timed": [
+    {
+     "after": 10,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fV"
+      ],
+      "names": [
+       "vHDBattleController",
+       "VLegateShowdown",
+       "VLegionLegateLaniusREF"
+      ],
+      "lines": [
+       "let fV := GetVariable \"iBattleState\" {0}",
+       "player.SetAV Variable01 fV",
+       "let fV := GetVariable \"ShowdownStart\" {1}",
+       "player.SetAV Variable02 fV",
+       "let fV := GetVariable \"LegateFightsPlayer\" {1}",
+       "player.SetAV Variable03 fV",
+       "let fV := GetVariable \"LegateRuns\" {1}",
+       "player.SetAV Variable04 fV",
+       "let fV := GetVariable \"LegateAttacks\" {2}",
+       "player.SetAV Variable05 fV",
+       "let fV := GetVariable \"StartConvo\" {2}",
+       "player.SetAV Variable06 fV"
+      ]
+     }
+    },
+    {
+     "after": 240,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.AddToFaction {1} 0",
+       "{0}.StartCombat player"
+      ]
+     }
+    },
+    {
+     "after": 1800,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.RemoveFromFaction {1}",
+       "{0}.StopCombat player"
+      ]
+     }
+    },
+    {
+     "after": 15,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 99999"
+     ]
+    }
+   ],
+   "note": "the save as it is: the final battle of an Independent ending (iBattleState 4, ShowdownStart 1, LegateRuns 1, LegateFightsPlayer 0), Lanius standing on VLegateWaitPlayerMarker on VLegateRunToRanger01 (a script package: Travel to that marker, radius 256, Continue During Combat), the player 1,461 units from him in LegateCampArena. His StartConvo is set so his script does not open the talk (the capture cannot answer it), then he is made hostile as his OnHit block does (AddToFaction VCaesarsLegionFaction 0, StartCombat player) at sample 240 and calmed (RemoveFromFaction, StopCombat) at sample 1800. LegateFightsPlayer stays 0, so no reinforcement wave comes."
+  },
+  {
+   "name": "at_760",
+   "hours": 1.0,
+   "do_first": [
+    [
+     "player.ForceAV Health 99999"
+    ],
+    [
+     "SetVariable \"StartConvo\" 1 {0}",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.StopCombat player",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.MoveTo {1}",
+     "VLegionLegateLaniusREF",
+     "VLegateWaitPlayerMarker"
+    ],
+    [
+     "player.MoveTo {0}",
+     "VLegateCampLegateRuleMarker02REF"
+    ],
+    {
+     "frames": 240
+    }
+   ],
+   "timed": [
+    {
+     "after": 10,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fV"
+      ],
+      "names": [
+       "vHDBattleController",
+       "VLegateShowdown",
+       "VLegionLegateLaniusREF"
+      ],
+      "lines": [
+       "let fV := GetVariable \"iBattleState\" {0}",
+       "player.SetAV Variable01 fV",
+       "let fV := GetVariable \"ShowdownStart\" {1}",
+       "player.SetAV Variable02 fV",
+       "let fV := GetVariable \"LegateFightsPlayer\" {1}",
+       "player.SetAV Variable03 fV",
+       "let fV := GetVariable \"LegateRuns\" {1}",
+       "player.SetAV Variable04 fV",
+       "let fV := GetVariable \"LegateAttacks\" {2}",
+       "player.SetAV Variable05 fV",
+       "let fV := GetVariable \"StartConvo\" {2}",
+       "player.SetAV Variable06 fV"
+      ]
+     }
+    },
+    {
+     "after": 240,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.AddToFaction {1} 0",
+       "{0}.StartCombat player"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.RemoveFromFaction {1}",
+       "{0}.StopCombat player"
+      ]
+     }
+    },
+    {
+     "after": 15,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 99999"
+     ]
+    }
+   ],
+   "note": "the player 760 units from VLegateWaitPlayerMarker (VLegateCampLegateRuleMarker02REF)"
+  },
+  {
+   "name": "at_2360",
+   "hours": 1.0,
+   "do_first": [
+    [
+     "player.ForceAV Health 99999"
+    ],
+    [
+     "SetVariable \"StartConvo\" 1 {0}",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.StopCombat player",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.MoveTo {1}",
+     "VLegionLegateLaniusREF",
+     "VLegateWaitPlayerMarker"
+    ],
+    [
+     "player.MoveTo {0}",
+     "VLegateHide01MarkerREF"
+    ],
+    {
+     "frames": 240
+    }
+   ],
+   "timed": [
+    {
+     "after": 10,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fV"
+      ],
+      "names": [
+       "vHDBattleController",
+       "VLegateShowdown",
+       "VLegionLegateLaniusREF"
+      ],
+      "lines": [
+       "let fV := GetVariable \"iBattleState\" {0}",
+       "player.SetAV Variable01 fV",
+       "let fV := GetVariable \"ShowdownStart\" {1}",
+       "player.SetAV Variable02 fV",
+       "let fV := GetVariable \"LegateFightsPlayer\" {1}",
+       "player.SetAV Variable03 fV",
+       "let fV := GetVariable \"LegateRuns\" {1}",
+       "player.SetAV Variable04 fV",
+       "let fV := GetVariable \"LegateAttacks\" {2}",
+       "player.SetAV Variable05 fV",
+       "let fV := GetVariable \"StartConvo\" {2}",
+       "player.SetAV Variable06 fV"
+      ]
+     }
+    },
+    {
+     "after": 240,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.AddToFaction {1} 0",
+       "{0}.StartCombat player"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.RemoveFromFaction {1}",
+       "{0}.StopCombat player"
+      ]
+     }
+    },
+    {
+     "after": 15,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 99999"
+     ]
+    }
+   ],
+   "note": "the player 2360 units from VLegateWaitPlayerMarker (VLegateHide01MarkerREF)"
+  },
+  {
+   "name": "at_3482",
+   "hours": 1.0,
+   "do_first": [
+    [
+     "player.ForceAV Health 99999"
+    ],
+    [
+     "SetVariable \"StartConvo\" 1 {0}",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.StopCombat player",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.MoveTo {1}",
+     "VLegionLegateLaniusREF",
+     "VLegateWaitPlayerMarker"
+    ],
+    [
+     "player.MoveTo {0}",
+     "VLegateHide02MarkerREF"
+    ],
+    {
+     "frames": 240
+    }
+   ],
+   "timed": [
+    {
+     "after": 10,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fV"
+      ],
+      "names": [
+       "vHDBattleController",
+       "VLegateShowdown",
+       "VLegionLegateLaniusREF"
+      ],
+      "lines": [
+       "let fV := GetVariable \"iBattleState\" {0}",
+       "player.SetAV Variable01 fV",
+       "let fV := GetVariable \"ShowdownStart\" {1}",
+       "player.SetAV Variable02 fV",
+       "let fV := GetVariable \"LegateFightsPlayer\" {1}",
+       "player.SetAV Variable03 fV",
+       "let fV := GetVariable \"LegateRuns\" {1}",
+       "player.SetAV Variable04 fV",
+       "let fV := GetVariable \"LegateAttacks\" {2}",
+       "player.SetAV Variable05 fV",
+       "let fV := GetVariable \"StartConvo\" {2}",
+       "player.SetAV Variable06 fV"
+      ]
+     }
+    },
+    {
+     "after": 240,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.AddToFaction {1} 0",
+       "{0}.StartCombat player"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.RemoveFromFaction {1}",
+       "{0}.StopCombat player"
+      ]
+     }
+    },
+    {
+     "after": 15,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 99999"
+     ]
+    }
+   ],
+   "note": "the player 3482 units from VLegateWaitPlayerMarker (VLegateHide02MarkerREF)"
+  },
+  {
+   "name": "at_760_then_3482",
+   "hours": 1.4,
+   "do_first": [
+    [
+     "player.ForceAV Health 99999"
+    ],
+    [
+     "SetVariable \"StartConvo\" 1 {0}",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.StopCombat player",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.MoveTo {1}",
+     "VLegionLegateLaniusREF",
+     "VLegateWaitPlayerMarker"
+    ],
+    [
+     "player.MoveTo {0}",
+     "VLegateCampLegateRuleMarker02REF"
+    ],
+    {
+     "frames": 240
+    }
+   ],
+   "timed": [
+    {
+     "after": 10,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fV"
+      ],
+      "names": [
+       "vHDBattleController",
+       "VLegateShowdown",
+       "VLegionLegateLaniusREF"
+      ],
+      "lines": [
+       "let fV := GetVariable \"iBattleState\" {0}",
+       "player.SetAV Variable01 fV",
+       "let fV := GetVariable \"ShowdownStart\" {1}",
+       "player.SetAV Variable02 fV",
+       "let fV := GetVariable \"LegateFightsPlayer\" {1}",
+       "player.SetAV Variable03 fV",
+       "let fV := GetVariable \"LegateRuns\" {1}",
+       "player.SetAV Variable04 fV",
+       "let fV := GetVariable \"LegateAttacks\" {2}",
+       "player.SetAV Variable05 fV",
+       "let fV := GetVariable \"StartConvo\" {2}",
+       "player.SetAV Variable06 fV"
+      ]
+     }
+    },
+    {
+     "after": 240,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.AddToFaction {1} 0",
+       "{0}.StartCombat player"
+      ]
+     }
+    },
+    {
+     "after": 900,
+     "do": [
+      "player.MoveTo {0}",
+      "VLegateHide02MarkerREF"
+     ]
+    },
+    {
+     "after": 2100,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.RemoveFromFaction {1}",
+       "{0}.StopCombat player"
+      ]
+     }
+    },
+    {
+     "after": 15,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 99999"
+     ]
+    }
+   ],
+   "note": "the player 760 units from VLegateWaitPlayerMarker (then teleported to VLegateHide02MarkerREF, 3,482 units off, at sample 900: does he follow, or go back to the marker?)"
+  },
+  {
+   "name": "en_route",
+   "hours": 1.0,
+   "do_first": [
+    [
+     "player.ForceAV Health 99999"
+    ],
+    [
+     "SetVariable \"StartConvo\" 1 {0}",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.StopCombat player",
+     "VLegionLegateLaniusREF"
+    ],
+    [
+     "{0}.MoveTo {1}",
+     "VLegionLegateLaniusREF",
+     "VLegateWaitPlayerMarker"
+    ],
+    [
+     "player.MoveTo {0}",
+     "VLegateHide01MarkerREF"
+    ],
+    {
+     "frames": 240
+    }
+   ],
+   "timed": [
+    {
+     "after": 10,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fV"
+      ],
+      "names": [
+       "vHDBattleController",
+       "VLegateShowdown",
+       "VLegionLegateLaniusREF"
+      ],
+      "lines": [
+       "let fV := GetVariable \"iBattleState\" {0}",
+       "player.SetAV Variable01 fV",
+       "let fV := GetVariable \"ShowdownStart\" {1}",
+       "player.SetAV Variable02 fV",
+       "let fV := GetVariable \"LegateFightsPlayer\" {1}",
+       "player.SetAV Variable03 fV",
+       "let fV := GetVariable \"LegateRuns\" {1}",
+       "player.SetAV Variable04 fV",
+       "let fV := GetVariable \"LegateAttacks\" {2}",
+       "player.SetAV Variable05 fV",
+       "let fV := GetVariable \"StartConvo\" {2}",
+       "player.SetAV Variable06 fV"
+      ]
+     }
+    },
+    {
+     "after": 60,
+     "do": [
+      "{0}.MoveTo {1}",
+      "VLegionLegateLaniusREF",
+      "VLegateHide02MarkerREF"
+     ]
+    },
+    {
+     "after": 150,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.AddToFaction {1} 0",
+       "{0}.StartCombat player"
+      ]
+     }
+    },
+    {
+     "after": 1500,
+     "script": {
+      "names": [
+       "VLegionLegateLaniusREF",
+       "VCaesarsLegionFaction"
+      ],
+      "lines": [
+       "{0}.RemoveFromFaction {1}",
+       "{0}.StopCombat player"
+      ]
+     }
+    },
+    {
+     "after": 15,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 99999"
+     ]
+    }
+   ],
+   "note": "combat begun while he is on his way: Lanius is moved to VLegateHide02MarkerREF (3,482 units from his marker) at sample 60 and made hostile at sample 150, the player standing at VLegateHide01MarkerREF (2,776 units from him, 2,360 from the marker, about 40 degrees off his way). Does he finish the walk to the marker first (what the GECK wiki says of a Travel package with the flag), or turn to the player?"
+  }
+ ]
+}

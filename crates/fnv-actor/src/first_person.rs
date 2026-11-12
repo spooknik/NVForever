@@ -15,9 +15,12 @@
 //!   and `Arms:1`]. Hand parts are drawn whole.
 //! - With a Pip-Boy on, the outfit's `PipBoyOn…` sleeve is drawn too [owner statement
 //!   2026-10-10, with two in-game screenshots: "we see a sleeve on the arm with a
-//!   pipboy, it is rendered over the outfit using the pipboy on node"]. Whether the
-//!   actor wears one is decided where the parts are assembled
-//!   ([`crate::mesh::hidden_for_pipboy`]), which leaves that sleeve out otherwise.
+//!   pipboy, it is rendered over the outfit using the pipboy on node"]. Without one the
+//!   `PipBoyOff…` sleeve is drawn in its place [hypothesis: it is the same stretch of the
+//!   left forearm; the original's player always wears a Pip-Boy. #2173: left on the
+//!   third-person body, it floated in front of the view while that body's arms were
+//!   hidden]. Which of the two an actor wears is decided where the parts are assembled
+//!   ([`crate::mesh::hidden_for_pipboy`]), which leaves the other out.
 
 use crate::resolve::{slot, Appearance, Part};
 use crate::ActorForms;
@@ -47,9 +50,10 @@ pub fn is_arms_shape(name: &str) -> bool {
 }
 
 /// Whether a shape of an upper-body model is drawn in first person: the `Arms…` shapes
-/// and the sleeve worn with a Pip-Boy (`PipBoyOn…`).
+/// and the left forearm sleeves (`PipBoyOn…` worn with a Pip-Boy, `PipBoyOff…` without;
+/// [`crate::mesh::hidden_for_pipboy`] leaves out the one not worn).
 pub fn is_first_person_shape(name: &str) -> bool {
-    is_arms_shape(name) || crate::mesh::pipboy_sleeve(name) == Some(true)
+    is_arms_shape(name) || crate::mesh::pipboy_sleeve(name).is_some()
 }
 
 /// How part `p` appears in first person, if at all.
@@ -126,11 +130,24 @@ mod tests {
         for n in ["UpperBody", "PipBoyOn", "MeatCapLimbs", "body:0", "RightGlove:0"] {
             assert!(!is_arms_shape(n), "{n:?}");
         }
-        for n in ["Arms", "Arms\t", "PipBoyOn", "PipBoyOn:0", "PipBoy0n:0"] {
+        for n in ["Arms", "Arms\t", "PipBoyOn", "PipBoyOn:0", "PipBoy0n:0", "PipBoyOff", "PipBoyOff:0", "pipboyoffmm_ncr:0"] {
             assert!(is_first_person_shape(n), "{n:?}");
         }
-        for n in ["UpperBody", "PipBoyOff", "PipBoyOff:0", "MeatCapLimbs"] {
+        for n in ["UpperBody", "MeatCapLimbs", "PipBoyArm:0", "PipboyLightEffect:0"] {
             assert!(!is_first_person_shape(n), "{n:?}");
+        }
+    }
+
+    /// The left forearm sleeve goes with the arms whether a Pip-Boy is worn or not: one
+    /// of the two is drawn by the arms rig, and so hidden on the third-person body under
+    /// it, never left behind in the air (#2173).
+    #[test]
+    fn the_forearm_sleeve_is_an_arm_shape_with_and_without_a_pipboy() {
+        let sleeves = ["PipBoyOn", "PipBoyOff"];
+        for wears in [true, false] {
+            let drawn: Vec<&str> = sleeves.iter().copied().filter(|n| !crate::mesh::hidden_for_pipboy(n, wears)).collect();
+            assert_eq!(drawn, [if wears { "PipBoyOn" } else { "PipBoyOff" }]);
+            assert!(drawn.iter().all(|n| shape_shows(Some(Show::Arms), Some(n))), "wears {wears}");
         }
     }
 
@@ -140,6 +157,7 @@ mod tests {
         assert!(shape_shows(Some(Show::Whole), Some("RightGlove:0")));
         assert!(shape_shows(Some(Show::Arms), Some("Arms:0")));
         assert!(shape_shows(Some(Show::Arms), Some("PipBoyOn")));
+        assert!(shape_shows(Some(Show::Arms), Some("PipBoyOff:0")));
         assert!(!shape_shows(Some(Show::Arms), Some("UpperBody")));
         assert!(!shape_shows(Some(Show::Arms), None));
         assert!(!shape_shows(None, Some("Arms:0")));

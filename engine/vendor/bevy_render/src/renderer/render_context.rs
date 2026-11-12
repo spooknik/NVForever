@@ -301,6 +301,8 @@ fn finish_parallel(
 #[derive(Default)]
 struct RenderContextStateInner {
     command_encoder: Option<CommandEncoder>,
+    // NVForever encoder spans: a GPU time span is open on `command_encoder`.
+    span_open: bool,
     commands: Vec<PendingCommandBuffer>,
     render_device: Option<RenderDevice>,
 }
@@ -397,6 +399,22 @@ impl SystemBuffer for RenderContextState {
         }
 
         inner.render_device = None;
+        inner.span_open = false;
+    }
+}
+
+/// NVForever encoder spans (measurement aid, `NVF_PLAY_TEST_PROFILE_ENCODERS=1`): a GPU
+/// time span around everything each render system records, named `enc:<system>`, so the
+/// work between and after the passes' own spans (copies, resolves, passes without a
+/// span) is timed too. The passes' spans nest inside it.
+fn encoder_spans_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_PROFILE_ENCODERS").is_ok_and(|v| v == "1"))
+}
+
+impl Drop for RenderContext<'_, '_> {
+    fn drop(&mut self) {
+        self.end_encoder_span();
     }
 }
 
@@ -431,7 +449,38 @@ impl<'w, 's> RenderContext<'w, 's> {
     /// Returns the current command encoder, creating one if it does not already exist.
     pub fn command_encoder(&mut self) -> &mut CommandEncoder {
         self.ensure_device();
+        self.begin_encoder_span();
         self.state.command_encoder(self.system_name.as_str())
+    }
+
+    // NVForever encoder spans: see `encoder_spans_on`.
+    fn begin_encoder_span(&mut self) {
+        if self.state.0.command_encoder.is_some() || !encoder_spans_on() {
+            return;
+        }
+        let Some(recorder) = self.diagnostics_recorder.as_deref() else {
+            return;
+        };
+        let name = self.system_name.as_str();
+        let short = name.split('<').next().unwrap_or(name);
+        let short = short.rsplit("::").next().unwrap_or(short);
+        let span_name = alloc::format!("enc:{short}");
+        let encoder = self.state.command_encoder(name);
+        crate::diagnostic::RecordDiagnostics::begin_time_span(recorder, encoder, span_name.into());
+        self.state.0.span_open = true;
+    }
+
+    fn end_encoder_span(&mut self) {
+        if !self.state.0.span_open {
+            return;
+        }
+        self.state.0.span_open = false;
+        if let (Some(recorder), Some(encoder)) = (
+            self.diagnostics_recorder.as_deref(),
+            self.state.0.command_encoder.as_mut(),
+        ) {
+            crate::diagnostic::RecordDiagnostics::end_time_span(recorder, encoder);
+        }
     }
 
     /// Begins a tracked render pass with the given descriptor.
@@ -440,6 +489,7 @@ impl<'w, 's> RenderContext<'w, 's> {
         descriptor: RenderPassDescriptor<'_>,
     ) -> TrackedRenderPass<'a> {
         self.ensure_device();
+        self.begin_encoder_span();
 
         let command_encoder = self.state.0.command_encoder.get_or_insert_with(|| {
             self.render_device
@@ -454,6 +504,7 @@ impl<'w, 's> RenderContext<'w, 's> {
 
     /// Adds a finished command buffer to be submitted later.
     pub fn add_command_buffer(&mut self, command_buffer: CommandBuffer) {
+        self.end_encoder_span();
         self.state.flush_encoder();
         self.state
             .0

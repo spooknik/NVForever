@@ -330,13 +330,27 @@ impl<'a> Game<'a> {
     /// a Must Complete or Must Reach Location package may now be replaced, and, when
     /// the AI runs packages, its end script and OnPackageDone run [documented: GECK
     /// wiki, Category:Packages].
+    ///
+    /// A package type with no done state (`PackageType::has_done_state`: Sandbox, Sleep,
+    /// Eat, Guard, Wander, Follow, Accompany) never meets its goal: arriving changes
+    /// nothing, a script package of that type stays until it is removed or replaced, and
+    /// Must Complete keeps holding it (issue #2012).
     pub fn package_goal_met(&mut self, actor: FormId) {
+        let Some(p) = self.extra.get(&actor).and_then(|e| e.current_package.filter(|_| !e.package_goal_met)) else { return };
+        if !self.package_has_done_state(p) {
+            return;
+        }
         let Some(e) = self.extra.get_mut(&actor) else { return };
-        let Some(p) = e.current_package.filter(|_| !e.package_goal_met) else { return };
         e.package_goal_met = true;
         if self.runs_packages() {
             self.package_event(actor, p, 1);
         }
+    }
+
+    /// Whether `package`'s type has a done state (`PackageType::has_done_state`); a
+    /// package with no record counts as having one.
+    pub fn package_has_done_state(&self, package: FormId) -> bool {
+        self.package_def(&package).is_none_or(|d| d.ty.has_done_state())
     }
 
     /// For the layer that carries packages out: whether ResetAI asked for `actor`'s
@@ -451,11 +465,19 @@ impl<'a> Game<'a> {
             // owner-decision-captures.md §4 and §7, the Goodsprings geckos' Once Per Day
             // FindFood (2 h) and patrol (3 h) ran 4.7 to 13 h when they never finished,
             // and a FindFood that reached DONE ended 2 h after it began].
-            if self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule && !e.package_goal_met) {
+            // A type with no done state never meets its goal: its schedule duration ends
+            // it on time, with no end script, and a script package of that type is let
+            // go then (issue #2012) [design].
+            let p = self.extra.get(&a).and_then(|e| e.current_package);
+            let done_state = p.is_none_or(|p| self.package_has_done_state(p));
+            if done_state && self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule && !e.package_goal_met) {
                 continue;
             }
-            self.extra.entry(a).or_default().package_ends = None;
-            let p = self.extra.get(&a).and_then(|e| e.current_package);
+            let e = self.extra.entry(a).or_default();
+            e.package_ends = None;
+            if !done_state && e.script_package == p {
+                e.script_package = None;
+            }
             self.package_goal_met(a);
             if p.is_some_and(|p| self.extra.get(&a).is_some_and(|e| e.script_package != Some(p))) {
                 self.set_package(a, None);

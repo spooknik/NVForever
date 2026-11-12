@@ -122,7 +122,7 @@ their reach and field of view.
 |---|---|---|
 | StartCombat | the actor fights the target from now on, hostile whatever its records say, until StopCombat; it counts as detecting the target at once (Combat) | [documented: catalogue notes]; the target's combat group: not built |
 | StopCombat | the actor leaves its combat state; StartCombat's hostility is undone | [documented] |
-| IsInCombat, GetCombatTarget | as alert.md §6 | |
+| IsInCombat, GetCombatTarget, GetIsAlerted, GetCurrentAIProcedure / Package | as alert.md §6: a fight reads GetIsAlerted 0 (SetAlert's alone); GetCombatTarget keeps the target it fought while it is out of sight, through Lost; Lost reads procedure COMBAT 13 and package COMBAT 5 (#2121) | |
 | StopCombatAlarmOnActor | every actor fighting or hunting the calling actor stops (StopCombat) | [documented: GECK wiki StopCombatAlarmOnActor] |
 | GetFriendHit | the friendly hits of the target on the actor that still count (§10.1) | [documented: GECK wiki GetFriendHit, Friendly Fire] |
 | GetAttacked | 1 once anyone attacked the actor, cleared when it leaves combat | [documented: GECK wiki GetAttacked] |
@@ -304,8 +304,10 @@ share FiendsFactionNV with her (Assistance 2), so they now join her fights.
 
 CSTY is read (CSTD, CSAD, CSSD) [documented: layout xEdit wbDefinitionsFNV.pas CSTY;
 meanings GECK wiki Combat Style]; FalloutNV.esm has 84 [observed]. An actor's style is
-its ZNAM, from the template that supplies its AI data [hypothesis], else
-`DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
+its ZNAM, from the template that supplies its traits, as the death item is
+[documented: GECK wiki Traits Tab - NPC and Traits Tab - Creatures list Combat Style
+among the tab's fields, AI Data Tab has none; Template Data, "Use Traits: Use the traits
+of the ActorBase"; #2138], else `DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
 
 - **Weapon Restrictions** Melee Only: a gun held is not fired; the actor fights with
   its fists. Ranged Only changes nothing yet (there is no weapon choice).
@@ -462,9 +464,9 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Confidence | Frenzied actors never flee | missing | with fleeing (next) |
 | Combat Flee | Door, cover or run away; at the flee spot wait, more confident when hurt or cornered | missing | next (fleeing); `would flee` logged |
 | Combat Package Flags | No Combat Alert | have | alert.md §2 |
-| Combat Package Flags | Continue During Combat | partial | alert.md §5: the package goes on and the actor fights as any other; no cover on the way |
+| Combat Package Flags | Continue During Combat | wrong | built as "the package goes on in every combat state", which pins melee fighters (#2155). The original, by package type [documented, and observed 2026-11-12]: Travel holds only on the way, Guard only while the target is outside the guard radius; the rule to build is alert.md §5.2. No cover on the way; a Use Weapon package fires its own volleys at its own target instead of the ordinary attacks (use-weapon.md §3, #2120) |
 | Combat Package Flags | Pretend In Combat | missing | next |
-| Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next |
+| Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next, with #2155: Guard radius = package radius × 1.5, at least 384, measured from the post to the target [documented; observed for two Guard packages, not for three with type-flag bit 2]; Follow radius × 3, at least 512 [documented]; alert.md §5.2 |
 | Combat Search | Alert and Lost actors search | partial | alert.md §5: each alone, not the combat group splitting the navmesh |
 | Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount; the hidden-target timers | missing | next (search parties); our timers are alert.md §2's |
 | Weapons | Sight FOV 0 disables iron sights | have | §10.6 |
@@ -925,7 +927,7 @@ Smoke scenarios (`tools/smoke/scenarios.toml`), observed on this branch 2026-10-
 | Combat Style | Cover: search radius, take-cover chance, wait / wait-to-fire / fire timers | have (§12.6) |
 | Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount | have, by sectors (§12.5); fCombatSearchTargetHiddenRemoveTime/MaxTime: alert.md §2's timers stand in |
 | Combat Search | Almost detected: the search centres midway | have (§12.5) |
-| Combat Package Flags | Continue During Combat: "using cover along the way" | partial: no cover on the way |
+| Combat Package Flags | Continue During Combat: "using cover along the way" | wrong reading built (#2155; the rule to build: alert.md §5.2); no cover on the way |
 | Combat Tab | Flee line | have (§12.2); the other combat barks: missing |
 
 Left for later: grenades and threats, blocking, dodging and power attacks, combat barks
@@ -1041,11 +1043,11 @@ Each ACBS template flag now decides where its group is read (factions.md §7):
 
 | Flag | Read from the template's source now | Before |
 |---|---|---|
-| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity | the placed base |
+| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity; combat style (#2138; before it, from the AI Data source) | the placed base |
 | Stats | health, attributes, skills, level, fatigue, speed; a creature's attack, GetIsCreatureType [hypothesis: the type sits in CREA DATA with the stats] | the same (type: the base) |
 | Factions | factions | the same |
 | Actor Effect List | not read by the game layer | — |
-| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius, combat style | the same |
+| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius | the same |
 | AI Packages | the package list | the same |
 | Model/Animation | the drawn model, skeleton and animations (`fnv_actor::resolve`) | the same |
 | Base Data | the name shown (prompt, loot menu, conversation, hit messages); Essential, Respawn, No Low Level Processing, Invulnerable | the base's (Respawn: the same) |

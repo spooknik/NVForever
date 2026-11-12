@@ -39,6 +39,7 @@ serde_json = "1"
 # bevy_diagnostic already uses).
 uuid = { version = "1", features = ["v4"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+png = "0.18"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # Only for the window icon type (window_icon.rs); the version Bevy already uses.
 winit = { version = "0.30", default-features = false }

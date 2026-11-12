@@ -80,8 +80,10 @@
 //!   checked every [`FIDGET_CHECK_SECONDS`] for an idle from the tree's branch that
 //!   names GetIsAlerted (the gecko's hiss and side hops, the mirelurk's and sentry bot's
 //!   warnings); the tree's own conditions decide: the gecko's want alerted, combat or
-//!   flee, so a gecko hisses standing in a fight and not while it warns (GetIsAlerted 0,
-//!   procedure 44 then, as observed in the original). It ends when the creature moves
+//!   flee, so a gecko hisses standing in a fight (procedure 13, Lost too) and not while
+//!   it warns (GetIsAlerted 0, procedure 44 then, as observed in the original). The
+//!   warnings that want GetIsAlerted alone play only for an actor SetAlert alerted: a
+//!   fight does not set GetIsAlerted (#2121, `Game::is_alerted`). It ends when the creature moves
 //!   or is calm again; an attack stops it as it stops any idle (`attack_anims.rs`).
 //!   People keep their drawn-weapon fidgets [design].
 //!

@@ -26,7 +26,13 @@ set_calls_quest_by_variable = 0
 
 [summary.scripts]
 total = 3488
-touched = 1199
+# 1199 -> 1194 (blocks.run 1652 -> 1647, lines.said 2490 -> 2477, actors.touched 268 -> 267):
+# issue 2157 takes back what issue 1606 added (b1a391568: +5, +5, +13, +1). A chosen Goodbye
+# line holds the player again, so game time stands still while it is said and the five quest
+# scripts (VMS04, VMS50, NVDLC01MQ02a, NVDLC04 Ulysses' barks and the Temple's marked men)
+# no longer run a block in that time, nor do Mobius, Ulysses, Colonel Moore, the Scribe
+# teacher and Dog say the extra lines. Every chain's own mq-* scenario passes.
+touched = 1194
 
 [summary.blocks]
 total = 5690
@@ -37,15 +43,18 @@ total = 5690
 # script's Say/SayTo say a fixed speaker's line when no line passes the speaker check, so
 # the Dead Money narrator and the Old World Blues intercoms say Elijah's (+2), Borous's
 # (+4) and Mobius's (+3) lines, and NVDLC03MobiusIntercomSCRIPT runs one more block.
-run = 1652
+run = 1647
 
 [summary.lines]
 total = 28896
-said = 2490
+# 2477 -> 2476 (2490 -> 2489 before #2158 merged): #2156 says DeathResponse at most once per 20 s. tops-ambush kills the four
+# goons back to back; Lucky38Marilyn answered more than one of them and now answers the
+# first only (0x001751AF, a Random DeathResponse line of GenericAdultCombat, is no longer said).
+said = 2476
 
 [summary.actors]
 with_lines = 704
-touched = 268
+touched = 267
 
 [summary.results.info]
 total = 8639

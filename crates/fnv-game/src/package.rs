@@ -54,6 +54,27 @@ impl PackageType {
         PackageType::UseWeapon,
     ];
 
+    /// Whether a package of this type has a done state: its goal can be met, its
+    /// procedure reads 17 DONE, and its end script and OnPackageDone run then. Sandbox,
+    /// Sleep, Eat, Guard, Wander, Follow and Accompany never read DONE [observed:
+    /// packages.md section 4; issue #2012, a script-added Sandbox package kept for 1.5
+    /// game hours with no OnPackageDone]; "On End idle only works for packages which have
+    /// a 'done' state" [documented: GECK wiki, Category:Packages].
+    pub fn has_done_state(self) -> bool {
+        matches!(
+            self,
+            PackageType::Travel
+                | PackageType::Patrol
+                | PackageType::Dialogue
+                | PackageType::UseItemAt
+                | PackageType::FleeNotCombat
+                | PackageType::Find
+                | PackageType::Escort
+                | PackageType::Ambush
+                | PackageType::UseWeapon
+        )
+    }
+
     pub fn from_code(c: u8) -> PackageType {
         match c {
             0 => PackageType::Find,

@@ -139,7 +139,7 @@ pub fn build(g: &mut fnv_game::game::Game, defaults: &[(FormId, f32)], cells: Va
             "health": (health * 10.0).round() / 10.0,
             "dead": x.is_some_and(|x| x.dead), "unconscious": x.is_some_and(|x| x.unconscious),
             "package": x.and_then(|x| x.current_package).map(hex),
-            "combat_target": g.combat_target_of(id).map(hex),
+            "combat_target": g.fighting_target_of(id).map(hex),
         }));
     }
     json!({

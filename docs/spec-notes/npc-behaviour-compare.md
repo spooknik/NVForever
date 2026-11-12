@@ -663,6 +663,14 @@ one sample in every recording; a capture that should show an Alert has to give a
 sound with no sight line at all (the shots of `alert_noise` came after the Fiends had seen
 the player). No new run is planned for it in this round.
 
+**Built since** (#2121, 2026-11-11; docs/design/alert.md §6): what scripts read of a fight
+follows these samples: GetIsAlerted is SetAlert's alone (0 in a fight); an actor in Combat
+or Lost keeps the target it fought as GetCombatTarget while it is out of sight; Lost reads
+procedure COMBAT 13 and package type COMBAT 5, no longer SEARCH 36 / SEARCH_FOR_ATTACKER 29.
+Alert alone (never fought) still reads SEARCH, uncaptured. How long the target is kept is
+our own rule (until it dies or is forgotten, StopCombat or Normal) [design]; the original's
+is the open question of #2010 and observer check 6.
+
 ## 12. The next round of observer campaigns (2026-10-19; run the same day, §13)
 
 Written on the desktop; run on the other machine (owner's request), one at a time with both

@@ -114,11 +114,10 @@ impl Game<'_> {
         }
         let source = self.data.template_source_at(base, roll_seed(r, rolls), self.leveled_at(r), |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base);
         self.world.set_inventory_source(r, source);
-        // A source with no carried items: it carries nothing.
+        // A source with no carried items: it carries nothing (but a planted explosive's
+        // live unit, `Extra::live`, #1640).
         if !self.world.reset_inventory(r).unwrap_or(true) {
-            if let Ok(s) = self.world.get(r) {
-                s.inventory = None;
-            }
+            let _ = self.world.clear_inventory_but_live(r);
         }
     }
 

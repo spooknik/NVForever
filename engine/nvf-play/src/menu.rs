@@ -807,6 +807,7 @@ fn apply_input(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     (mut taken, mut stolen): (MessageWriter<crate::crime::ItemsTaken>, MessageWriter<crate::pickpocket::Pickpocketed>),
     mut held: ResMut<PromptKeys>,
+    combat: Option<Res<crate::combat::Combat>>,
 ) {
     let mut script = script.map(|s| s.into_inner());
     // The commands left of a guard that failed ([`Command::Expect`]).
@@ -860,10 +861,19 @@ fn apply_input(
                 rt.game.count_stat(fnv_game::misc_stats::BARTER_AMOUNT_TRADED, f64::from(a.traded));
             }
         }
-        // Picking a pocket: the pickpocket rules judge it (`crate::pickpocket`).
+        // Picking a pocket: the pickpocket rules judge it (`crate::pickpocket`). A live
+        // explosive placed is armed now, and the pocket listed again, before the next
+        // command reads its rows (#1640).
         if let Some(victim) = m.steal.as_ref().map(|s| s.victim) {
+            let mut placed = Vec::new();
+            if !a.given.is_empty() {
+                if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    let c = combat.as_deref();
+                    placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut *m), |item| c.and_then(|c| crate::pickpocket::explosive_of(c, item)), victim, &a.given);
+                }
+            }
             if !a.taken.is_empty() || !a.given.is_empty() || a.caught.is_some() {
-                stolen.write(crate::pickpocket::Pickpocketed { victim, taken: a.taken.clone(), given: a.given.clone(), caught: a.caught });
+                stolen.write(crate::pickpocket::Pickpocketed { victim, taken: a.taken.clone(), given: a.given.clone(), placed, caught: a.caught });
             }
         } else if let (Mode::Container(c), false) = (m.mode, a.taken.is_empty()) {
             // Taking owned items is theft (`crate::crime`).

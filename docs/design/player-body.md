@@ -34,7 +34,8 @@ controls.md (bindings).
 - **First person**: the game's arms rig, `characters\_1stperson\skeleton.nif`, with its
   own clips (`characters\_1stperson\`). It draws the hands (their `…1st.nif` meshes) and
   only the `Arms…` shapes of the upper body and of worn upper-body armour, with the
-  outfit's `PipBoyOn…` sleeve (gloves and the Pip-Boy whole; no head, hair or other
+  outfit's left forearm sleeve, `PipBoyOn…` or without a Pip-Boy `PipBoyOff…` (#2173)
+  (gloves and the Pip-Boy whole; no head, hair or other
   armour; skin tinted as in third person; `fnv_actor::first_person`), and the weapon's
   first-person model (WEAP `WNAM`, a STAT). `Bip01 Looking` turns with the view's pitch,
   so arms and weapon stay in front of the camera, which sits at the rig's `Camera1st`

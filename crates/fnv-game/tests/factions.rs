@@ -1464,6 +1464,135 @@ fn a_saved_plant_retains_witnesses_who_no_longer_see_the_player() {
     assert!(h.pickpocket.blast_witnesses.is_empty());
 }
 
+/// The victim's units of `item`: (all, live, ordinary).
+fn units(g: &Game, victim: FormId, item: FormId) -> (i32, i32, i32) {
+    g.world.peek(victim).and_then(|s| s.inventory.as_ref()).map_or((0, 0, 0), |inv| (inv.count(item), inv.live_count(item), inv.free_count(item)))
+}
+
+#[test]
+fn each_plant_reserves_one_unit_that_its_blast_takes() {
+    // #1640 item 5: the live explosive is a unit apart from the victim's own of the same
+    // item; the victim cannot equip, use, drop or give it away; the blast takes exactly it.
+    let f = fixture();
+    let mut g = game(&f);
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    g.world.add_item(victim, item, 3).unwrap();
+    let start = g.time;
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    assert_eq!(units(&g, victim, item), (3, 1, 2));
+    g.time = start + 0.5;
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    assert_eq!(units(&g, victim, item), (3, 2, 1));
+    // The victim's own unit goes; the live ones stay.
+    assert_eq!(g.world.remove_item(victim, item, 3).unwrap(), 1);
+    assert!(g.world.drop_item(victim, item, 1).unwrap().is_empty());
+    assert_eq!(g.world.transfer(victim, FormId::PLAYER_REF, item, 1).unwrap(), 0);
+    assert_eq!(units(&g, victim, item), (2, 2, 0));
+    // The first blast takes one live unit, not more.
+    g.time = start + 2.01;
+    let b = g.tick_planted();
+    assert_eq!(b.len(), 1);
+    assert!(b[0].killed && g.is_dead(victim));
+    assert_eq!(units(&g, victim, item), (1, 1, 0));
+    // The second plant's victim died before it went off: let off, its unit ordinary.
+    g.time = start + 2.51;
+    assert!(g.tick_planted().is_empty());
+    assert_eq!(units(&g, victim, item), (1, 0, 1));
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::PANTS_EXPLODED), 1.0);
+}
+
+#[test]
+fn a_plant_on_an_essential_actor_stays_an_ordinary_item() {
+    use fnv_game::pickpocket::NotLive;
+    let f = fixture();
+    let mut g = game(&f);
+    let (essential, item) = (FormId(WATCHMAN_REF), FormId(PELT));
+    g.extra.entry(essential).or_default().essential = Some(true);
+    g.world.add_item(essential, item, 1).unwrap();
+    assert_eq!(g.plant_explosive(essential, item, FRAG), Err(NotLive::Essential));
+    assert_eq!(units(&g, essential, item), (1, 0, 1));
+}
+
+#[test]
+fn live_units_follow_the_saved_plants() {
+    let f = fixture();
+    let (victim, other, item) = (FormId(OWN_REF), FormId(LOAFER_REF), FormId(PELT));
+    let mut g = game(&f);
+    g.world.add_item(victim, item, 2).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    // Saved and loaded: one live unit, one ordinary.
+    let h = restore_plants(&f, &g);
+    assert_eq!(units(&h, victim, item), (2, 1, 1));
+
+    // A save from before live units: its plant's unit is reserved on load.
+    let mut snap = g.snapshot();
+    let inv = snap.sim.refs.get_mut(&victim).unwrap().inventory.as_mut().unwrap();
+    assert_eq!(inv.set_live_count(item, 0), 0);
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(units(&h, victim, item), (2, 1, 1));
+    h.time += 10.0;
+    assert_eq!(h.tick_planted().len(), 1);
+    assert_eq!(units(&h, victim, item), (1, 0, 1), "exactly the reserved unit");
+
+    // A live unit without its plant (the plant dropped) is ordinary again on load.
+    let mut snap = g.snapshot();
+    snap.planted.clear();
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(units(&h, victim, item), (2, 0, 2));
+    // A plant whose unit is not carried still loads, reserving nothing.
+    let mut g = game(&f);
+    g.plant_explosive(other, item, FRAG).unwrap();
+    let h = restore_plants(&f, &g);
+    assert_eq!(h.pickpocket.planted.len(), 1);
+    assert_eq!(units(&h, other, item).1, 0);
+}
+
+#[test]
+fn an_old_save_reserves_a_planted_grenade_its_victim_had_put_on() {
+    // Before live units the victim could equip the planted grenade: a save with the plant
+    // and its only unit equipped gets that unit taken off and reserved on load, and the
+    // blast takes it.
+    let f = fixture();
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    let mut g = game(&f);
+    g.world.add_item(victim, item, 1).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    let mut snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let inv = snap.sim.refs.get_mut(&victim).unwrap().inventory.as_mut().unwrap();
+    assert_eq!(inv.set_live_count(item, 0), 0);
+    assert!(inv.set_equipped(item));
+    assert!(!serde_json::to_string(&*inv).unwrap().contains("live"), "the old format");
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(units(&h, victim, item), (1, 1, 0));
+    assert!(!h.world.peek(victim).unwrap().inventory.as_ref().unwrap().is_equipped(item), "taken off");
+    h.time += 10.0;
+    assert!(h.tick_planted()[0].killed);
+    assert_eq!(units(&h, victim, item), (0, 0, 0), "the blast took it");
+}
+
+#[test]
+fn reset_inventory_keeps_a_planted_explosive() {
+    // ResetInventory during the fuse rolls the victim's own items again; the planted unit
+    // stays, and the blast takes it.
+    const RESET_INVENTORY: u16 = 0x11ED;
+    let f = fixture();
+    let (victim, item) = (FormId(OWN_REF), FormId(PELT));
+    let mut g = game(&f);
+    // Its carried items are the Wolf's (one Pelt), so the reset rolls something.
+    g.world.set_inventory_source(victim, Some(FormId(WOLF)));
+    g.world.add_item(victim, item, 3).unwrap();
+    g.plant_explosive(victim, item, FRAG).unwrap();
+    assert_eq!(units(&g, victim, item), (3, 1, 2));
+    call(&mut g, RESET_INVENTORY, OWN_REF, &[]);
+    assert_eq!(units(&g, victim, item), (2, 1, 1), "its own two went for the roll's one; the planted one stayed");
+    g.time += 10.0;
+    assert_eq!(g.tick_planted().len(), 1);
+    assert_eq!(units(&g, victim, item), (1, 0, 1), "the blast took the planted one");
+}
+
 #[test]
 fn an_old_save_has_no_live_plants_and_empty_plants_are_omitted() {
     let f = fixture();

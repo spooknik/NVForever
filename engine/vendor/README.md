@@ -43,6 +43,24 @@ by a comment starting `NVForever FSR integration`:
 Without the override both do what upstream does. This is a new patch for Bevy 0.20.1, not
 the dropped 0.19.1 one below.
 
+Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/transmission/`,
+each part marked `NVForever one resolve`, with `ViewTarget::set_resolve_deferred` in
+bevy_render below:
+
+- `node.rs`: `begin_deferred_resolve` (before the opaque pass) and `end_deferred_resolve`
+  (after the transmissive pass, before the transparent pass) hold back the multisample
+  resolve of a view whose transparent pass is going to run and which has no main-pass
+  resolution override (the game's FSR passes read the resolved picture in between).
+  `main_transmissive_pass_3d` then resolves the samples straight into the transmission
+  texture with a pass that draws nothing, instead of copying the resolved picture.
+- `texture.rs`: the transmission texture is also a render attachment, to be resolved into.
+- `mod.rs`: the two systems, ordered around the opaque and transmissive passes.
+
+Upstream resolves the whole target at the end of the opaque, transmissive and transparent
+passes and copies it once: three resolves and a copy where one resolve to the transmission
+texture and one to the main texture are read. Without multisampling, with a resolution
+override, or when the transparent phase is empty, upstream's path runs unchanged.
+
 Both FSR changes are already in Bevy's `main`, written almost the same way: bevyengine/bevy#26235
 (transmission, merged 2026-10-26) and bevyengine/bevy#26236 (cluster lookup, merged
 2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first
@@ -75,6 +93,13 @@ not `Send`).
 (Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
 among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
 
+Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/view/mod.rs`,
+marked `NVForever one resolve`: `ViewTarget::set_resolve_deferred` and
+`ViewTarget::resolve_deferred`. While set, `get_color_attachment` hands out the multisampled
+texture without its resolve target, so a pass keeps its samples and resolves nothing. A new
+`ViewTarget` (each frame) starts with it off, and nothing in Bevy sets it: bevy_pbr's
+transmission systems above do.
+
 Second change (#1887, docs/design/frame-rate-audit.md, the indirect-parameter build jobs),
 in `src/batching/gpu_preprocessing.rs`, `coalesce_batch_ranges` (comment starting
 `NVForever coalesced build jobs`): `prepare_indirect_parameters_build_jobs` merges each
@@ -87,6 +112,22 @@ upstream merges the jobs.
 [observed 2026-11-08, Nsight Graphics GPU Trace, Goodsprings 12:00, 2560x1440, 4x MSAA,
 no actors] Compute dispatches a frame 2,518 → 904, compute-active time 16 → 9 % of the
 frame; interleaved runs of one build with and without it: 9.0 → 8.5 ms a frame.
+
+Another change (#2064, docs/design/frame-rate-audit.md §10), marked `NVForever unchanged
+uploads`: `RawBufferVec::write_buffer_if_changed` (`src/render_resource/buffer_vec.rs`)
+queues nothing when the same bytes were last written into the same GPU buffer, and
+`batching/gpu_preprocessing.rs` uses it for each multi-drawn batch set's three buffers that
+only the CPU writes (`render_binned_mesh_instance_buffer`, `bin_metadata_buffer`,
+`bin_index_to_bin_metadata_index_buffer`, read-only in `allocate_uniforms.wesl` and
+`unpack_bins.wesl`). Upstream writes all three every frame: about 300 of a Goodsprings
+frame's 400 `queue.write_buffer` calls, each a copy with its own barrier before the frame's
+first pass. Test aid `NVF_PLAY_TEST_SAME_WRITES=1` writes every frame again.
+
+A measuring aid for the encoder spans (`NVF_PLAY_TEST_PROFILE_ENCODERS=1`, `enc:<system>`, #2060),
+in `src/diagnostic/internal.rs` (marked `NVForever encoder gaps`), adds
+`zz:wall` (the frame's first encoder to its last), `zz:gaps` (time inside that no encoder
+covers, with the four largest gaps by name) and `zz:between_frames` (the previous frame's
+last encoder to this frame's first) to the `profile gpu:` line.
 
 Third change (#1868), in `src/diagnostic/mod.rs`, each part marked by a comment starting
 `NVForever recorder gate`: `begin_diagnostics_frame`, `resolve_encoder` and
@@ -106,6 +147,15 @@ the frame's recording time) in a new main-world resource, `RenderDiagnosticsReco
 store's measurements keep upstream's import time (frame telemetry exports it as such,
 docs/design/frame-telemetry.md). `nvforever/src/perf_overlay/split.rs` uses the pairs to
 read only the measurements of frames recorded in its window and since its row began to show.
+
+Another change (a measuring aid, docs/design/frame-rate-audit.md §9), in
+`src/renderer/render_context.rs`, marked `NVForever encoder spans`: with
+`NVF_PLAY_TEST_PROFILE_ENCODERS=1` and a diagnostics recorder (the `profile` build's
+`NVF_PLAY_TEST_PROFILE`), every render system's command encoder is wrapped in a GPU time
+span `enc:<system>`, opened when the encoder is made and closed when the system's
+`RenderContext` is dropped. The passes' own spans nest inside it, so the difference is the
+GPU time of what a system records outside its passes: image copies, multisample resolves,
+passes without a span. Without the variable nothing is recorded.
 
 Fourth change (#1778, docs/design/latency-reduction.md): Bevy's `raw_vulkan_init` feature,
 which the engine turns on so `anti_lag.rs` can add a device extension, no longer changes which

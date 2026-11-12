@@ -65,10 +65,15 @@ original unless it carries a tag.
    when the player falls short [documented: Category:Dialogue "AV/Perk"; where the two
    numbers come from is the runtime's hypothesis, dialogue.md §3.3]; the frame of one
    the player falls short of is red (dialogue-menu.md §3).
-4. **The end.** A Goodbye choice ends the conversation at once and the actor finishes
-   the line [observed: owner's playtest 2026-11-05, against the original: choosing a
-   Goodbye closes the menu at once and the actor finishes the line as the player walks
-   away; the runtime's rule, `Game::choose`, dialogue.md §5; issue #1606]. The screen
+4. **The end.** A chosen line with the Goodbye flag is said on the dialogue screen like
+   the lines before it, the player held, and ends the conversation when it is over
+   [owner statement 2026-11-11, issue #2157: the last line of a conversation must hold
+   the player; said in the world, a quest's line can be interrupted in play]. The
+   runtime keeps the rule of #1606 behind a switch that is off and that nothing here
+   sets (`GameConfig::goodbye_at_once`, dialogue.md §5): with it a Goodbye choice ends
+   the conversation at once and the actor finishes the line [observed: owner's playtest
+   2026-11-05, against the original: choosing a Goodbye closes the menu at once and the
+   actor finishes the line as the player walks away]. Then the screen
    goes as the line starts, the player is free and the game runs again; the line is
    heard where the actor stands and its subtitle drawn as a SayTo line's [design: a line
    said in the world], and its end script runs when it is over [hypothesis,
@@ -88,7 +93,7 @@ original unless it carries a tag.
 | | Up / Down, W / S, mouse wheel | move the selection |
 | | Enter, Space, Activate (E) | pick the selected choice |
 | | left click on a choice (hovering selects it) | picks it |
-| | Tab | says goodbye: picks the offered Goodbye choice; the conversation ends at once and the actor finishes its goodbye line in the world (§1 item 4); at a topic list (the top level) without one, leaves it (#1595); refused at a line's own choices without one; refused when no Goodbye choice is offered |
+| | Tab | says goodbye: picks the offered Goodbye choice; the actor says its goodbye line and the conversation ends when it is over (§1 item 4); at a topic list (the top level) without one, leaves it (#1595); refused at a line's own choices without one; refused when no Goodbye choice is offered |
 | Any time | Esc | the pause menu (Resume goes back to the conversation) |
 
 - The original leaves a conversation with Tab [hypothesis: the coordinator's brief of
@@ -835,7 +840,8 @@ nobody (Say).
 
 For each line being said outside a conversation with the player that has a listener
 (SayTo, a hello to the player, a Goodbye greeting at the player, the rest of a Goodbye
-line the player chose (§1 item 4), a line of a conversation between actors):
+line the player chose when the runtime's switch is on (§1 item 4), a line of a
+conversation between actors):
 
 - the **speaker** turns its head and body to the listener [owner decision 2026-10-11];
 - the **listener** looks at the speaker [documented for SayTo, §9.1]: head only for a

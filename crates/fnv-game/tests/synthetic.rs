@@ -1894,6 +1894,73 @@ fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_
 }
 
 #[test]
+fn a_templated_actors_combat_style_follows_the_traits_flag() {
+    // Issue #2138: the combat style (ZNAM) is on the Traits tab [documented: GECK wiki
+    // Traits Tab - NPC, Traits Tab - Creatures], so a templated actor takes it from its
+    // template under "Use Traits", as the death item, not under "Use AI Data".
+    const OWN: u32 = 0xA20;
+    const PARENT: u32 = 0xA21;
+    const TOP: u32 = 0xA22;
+    const PACKAGE: u32 = 0xA23;
+    const SCRIPTED: u32 = 0xA24;
+    const MID: u32 = 0xA25;
+    const LIST: u32 = 0xA26;
+    let me = FormId(NPC_REF);
+    // NPC (own style OWN) templated on NPC_AUTO (style PARENT), with the given flags.
+    let with = |traits: bool, ai: bool| {
+        let mut f = fixture();
+        for s in [OWN, PARENT, TOP, PACKAGE, SCRIPTED] {
+            f.data.combat_styles.insert(FormId(s), fnv_game::data::CombatStyleDef::default());
+        }
+        f.data.actors.get_mut(&FormId(NPC_AUTO)).unwrap().combat_style = Some(FormId(PARENT));
+        let npc = f.data.actors.get_mut(&FormId(NPC)).unwrap();
+        npc.combat_style = Some(FormId(OWN));
+        npc.template = Some(FormId(NPC_AUTO));
+        npc.template_traits = traits;
+        npc.template_ai = ai;
+        f
+    };
+    // Traits only: the template's; AI Data only: its own; neither: its own; both: the
+    // template's.
+    for (traits, ai, style) in [(true, false, PARENT), (false, true, OWN), (false, false, OWN), (true, true, PARENT)] {
+        let f = with(traits, ai);
+        let g = game(&f);
+        assert_eq!(g.combat_style_id(me), Some(FormId(style)), "traits {traits}, AI data {ai}");
+    }
+    // A chain: NPC → NPC_AUTO → MID, each with Traits, takes MID's; NPC_AUTO without the
+    // flag stops at its own.
+    for (mid_traits, style) in [(true, TOP), (false, PARENT)] {
+        let mut f = with(true, false);
+        let mut mid = f.data.actors[&FormId(NPC_AUTO)].clone();
+        mid.combat_style = Some(FormId(TOP));
+        f.data.actors.insert(FormId(MID), mid);
+        let parent = f.data.actors.get_mut(&FormId(NPC_AUTO)).unwrap();
+        parent.template = Some(FormId(MID));
+        parent.template_traits = mid_traits;
+        let g = game(&f);
+        assert_eq!(g.combat_style_id(me), Some(FormId(style)), "parent's Traits flag {mid_traits}");
+    }
+    // A leveled list template stands for its picked entry.
+    let mut f = with(true, false);
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
+    let g = game(&f);
+    assert_eq!(g.combat_style_id(me), Some(FormId(PARENT)));
+    // The precedence is unchanged: the running package's style, then SetCombatStyle's,
+    // then the record's from its Traits source.
+    let mut f = with(true, false);
+    f.data.package_defs.get_mut(&FormId(PACK_IDLE)).unwrap().combat_style = Some(FormId(PACKAGE));
+    let mut g = game(&f);
+    g.extra.entry(me).or_default().combat_style = Some(FormId(SCRIPTED));
+    assert_eq!(g.combat_style_id(me), Some(FormId(SCRIPTED)));
+    g.extra.entry(me).or_default().current_package = Some(FormId(PACK_IDLE));
+    assert_eq!(g.combat_style_id(me), Some(FormId(PACKAGE)));
+    g.extra.entry(me).or_default().current_package = None;
+    g.extra.entry(me).or_default().combat_style = None;
+    assert_eq!(g.combat_style_id(me), Some(FormId(PARENT)));
+}
+
+#[test]
 fn the_player_speaks_with_the_default_objects_voice_of_her_or_his_sex() {
     // Issue #2088: the player record names PlayerVoiceMale; a female player's Hit,
     // PowerAttack and Death lines are in PlayerVoiceFemale's folder. The DefaultObjectManager

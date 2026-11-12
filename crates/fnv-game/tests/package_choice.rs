@@ -113,6 +113,7 @@ const P_WEEKEND: u32 = 0x82B;
 const P_FIND_2H: u32 = 0x82C;
 const P_PATROL_3H: u32 = 0x82D;
 const P_SCRIPT_3H: u32 = 0x82E;
+const P_MUST_SANDBOX: u32 = 0x82F;
 // Actor bases and references.
 const NPC_A: u32 = 0x840;
 const NPC_B: u32 = 0x841;
@@ -172,6 +173,7 @@ fn plugin_bytes() -> Vec<u8> {
         p(P_FIND_2H, "FindOnceADay2h", flags::ONCE_PER_DAY, 0, NEAR_EDITOR, -1, 2, -1, None),
         p(P_PATROL_3H, "SandboxOnceADay3h", flags::ONCE_PER_DAY, SANDBOX, NEAR_EDITOR, -1, 3, -1, None),
         p(P_SCRIPT_3H, "MustTravel3h", flags::MUST_COMPLETE, TRAVEL, NEAR_EDITOR, -1, 3, -1, None),
+        p(P_MUST_SANDBOX, "MustSandbox", flags::MUST_COMPLETE, SANDBOX, NEAR_EDITOR, -1, 0, -1, None),
     ]
     .concat();
     let npcs = [
@@ -540,6 +542,68 @@ fn a_script_package_whose_goal_was_met_is_removed_at_the_next_choice() {
     g.evaluate_package(a);
     assert!(g.extra[&a].script_package.is_none());
     assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (36.0, 45.0));
+}
+
+/// A package type with no done state (Sandbox, Sleep, Eat, Guard, Wander, Follow,
+/// Accompany) does not meet its goal on arrival: no end event, the procedure never reads
+/// 17 DONE, a script package of that type stays through the choices, and Must Complete
+/// keeps holding it (issue #2012: the original's GSChetRef kept a script-added
+/// DefaultSandboxEditorLocation256 for 1.5 game hours with no OnPackageDone).
+#[test]
+fn a_package_with_no_done_state_does_not_end_on_arrival() {
+    use fnv_game::functions::Ctx;
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut g = game(&f, None);
+    let a = id(REF_A);
+    let call = |g: &mut Game, op: u16, args: &[ArgValue]| -> f64 {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(a), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args).num()
+    };
+    let procedure = 0x108F;
+    call(&mut g, 0x1097, &[ArgValue::Value(Value::Ref(P_DEFAULT))]);
+    assert!(!g.package_has_done_state(id(P_DEFAULT)) && g.package_has_done_state(id(P_MORNING)));
+    let from = g.events.len();
+    g.package_goal_met(a);
+    assert!(!g.extra[&a].package_goal_met);
+    assert_ne!(call(&mut g, procedure, &[]), 17.0);
+    for _ in 0..3 {
+        assert_eq!(g.evaluate_package(a), Some(id(P_DEFAULT)));
+    }
+    assert_eq!(g.extra[&a].script_package, Some(id(P_DEFAULT)));
+    assert!(!g.events[from..].iter().any(|e| matches!(e.kind, EventKind::PackageChosen { .. })), "no change after arrival");
+    // Must Complete: still held after arriving.
+    call(&mut g, 0x1097, &[ArgValue::Value(Value::Ref(P_MUST_SANDBOX))]);
+    g.package_goal_met(a);
+    assert_eq!(g.package_held(a), Some("must complete"));
+    // A type with a done state still ends at its goal.
+    call(&mut g, 0x1097, &[ArgValue::Value(Value::Ref(P_MORNING))]);
+    g.package_goal_met(a);
+    assert!(g.extra[&a].package_goal_met);
+    assert_eq!(call(&mut g, procedure, &[]), 17.0);
+}
+
+/// A script package with no done state and a schedule duration ends when that runs out,
+/// though its goal is never met (issue #2012).
+#[test]
+fn a_timed_script_package_with_no_done_state_ends_on_time() {
+    use fnv_game::functions::Ctx;
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut g = game(&f, Some(10.0));
+    let a = id(REF_A);
+    g.tick();
+    let ctx = Ctx { unit: "test".into(), opcode: 0x1097, on: Some(a), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(P_PATROL_3H))]);
+    assert_eq!(g.extra[&a].current_package, Some(id(P_PATROL_3H)));
+    g.package_goal_met(a);
+    set(&mut g, G_DAYS_PASSED, 5.1);
+    g.tick();
+    assert_eq!(g.extra[&a].current_package, Some(id(P_PATROL_3H)), "within its 3 hours");
+    set(&mut g, G_DAYS_PASSED, 5.13);
+    g.tick();
+    assert!(g.extra[&a].script_package.is_none());
+    assert_eq!(g.extra[&a].current_package, Some(id(P_DEFAULT)));
 }
 
 /// A script package with a schedule duration (no starting hour) stays after its goal is

@@ -302,6 +302,26 @@ SetServiceFlag TestNPC 16 0");
 }
 
 #[test]
+fn get_combat_style_of_a_base_follows_its_traits_template() {
+    // Issue #2138: the combat style is on the Traits tab [documented: GECK wiki Traits Tab
+    // - NPC], so a base form's GetCombatStyle reads its "Use Traits" template's ZNAM.
+    const TEMPLATE: u32 = 0x930;
+    const OTHER_STYLE: u32 = 0x931;
+    for (traits, ai, style) in [(true, false, OTHER_STYLE), (false, true, CSTY)] {
+        let mut f = fixture();
+        let mut template = f.data.actors[&FormId(NPC)].clone();
+        template.combat_style = Some(FormId(OTHER_STYLE));
+        f.data.actors.insert(FormId(TEMPLATE), template);
+        let npc = f.data.actors.get_mut(&FormId(NPC)).unwrap();
+        npc.template = Some(FormId(TEMPLATE));
+        npc.template_traits = traits;
+        npc.template_ai = ai;
+        let mut g = game(&f);
+        assert_eq!(n(&mut g, "GetCombatStyle TestNPC"), f64::from(style), "traits {traits}, AI data {ai}");
+    }
+}
+
+#[test]
 fn record_getters_and_setters() {
     let f = fixture();
     let mut g = game(&f);

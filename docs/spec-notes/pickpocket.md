@@ -163,9 +163,41 @@ FalloutNV.esm: timer 2.0 s, freak-out 0.1 s [observed].
   none) before it dies, so the challenges' weapon filters (challenges.md) count that
   weapon, not the grenade and not an earlier hit's weapon.
 - GetPlantedExplosive is 1 from the freak-out time until it goes off.
-- Not built: the "Detonates" variant (DetonatePlacedExplosives); the item shown as "Live"
-  in the pocket; the victim not using or dropping it; the victim looking around during
-  the panic and spotting a player nearby (#1640 item 5).
+- **The live item** (#1640 item 5, first part). While it is live the item is "marked
+  'Live' in the pocket and the victim can't use it or drop it" [hypothesis for New Vegas,
+  from Fallout 3's behaviour: Fallout Wiki, Fallout 3 Pickpocket page]. NVForever's rule
+  [design, #1640]:
+  - Each plant that goes live reserves one unit of the item in the victim's inventory at
+    once (before the freak-out time): a unit apart from the victim's own units of the same
+    item, kept as the extra data `live` (`fnv_sim::inventory::Extra::live`). Ordinary
+    units of the item stay the victim's to use; the item type is not locked. The menu
+    arms it as the command that placed it is applied (`pickpocket::arm_given`, called by
+    `menu::apply_input`), and lists the open pocket again before the next command, so the
+    pocket shows the reserved row at once. A take on a row whose units the simulation
+    would not move (`Inventory::count_at` 0) is refused before the roll.
+  - An inventory rebuilt in place (ResetInventory, a cell respawn, a resurrection's new
+    pick, a merchant restock, `World::give_items_of`) keeps its live units
+    (`Inventory::keep_live_of`), so the plant still finds its unit.
+  - No action takes a live unit: no equip or use (`World::equip_at`), removal
+    (`RemoveItem`, `RemoveAllItems`, which leaves it as it leaves non-playable items),
+    drop, transfer (the container menu, `RemoveAllItems` with a target) or trade; an
+    actor choosing a weapon to hold or a grenade to throw counts only its ordinary units
+    (`Inventory::free_count` / `free_iter`; `rearm`, `npc_combat`'s grenades). The player
+    cannot take it back out of the pocket either, and that costs no roll
+    (owner-review.md). GetItemCount still counts it: it is in the pocket.
+  - The pocket lists it as a row of its own, the item's name followed by "(Armed)".
+    FalloutNV.esm has no game setting for this word [observed: none of its GMSTs names a
+    live or armed item; read with `fnvtool esm inventory`], and the word "Live" is seen
+    only on the original's screen, so the word is NVForever's own (LEGAL.md;
+    owner-review.md).
+  - The blast takes exactly that unit (`Inventory::take_live`), never an ordinary one.
+    When the victim died before the blast, the plant is let off and its unit is an
+    ordinary item again (lootable). On a child or an essential actor nothing goes live
+    and the item stays ordinary. A plant whose item is not in the pocket (a script took
+    it before it could be reserved) still goes off, reserving nothing.
+  - Not built (#1640 item 5, second part, still open): the victim looking around during
+    the panic and spotting a player standing nearby.
+- Not built: the "Detonates" variant (DetonatePlacedExplosives).
 
 [design] Active plants cross saves as the default-empty, omitted-when-empty `planted`
 field of `GameSnapshot` (`crates/fnv-game/src/game.rs`, `snapshot`/`restore`). Each plant
@@ -185,6 +217,16 @@ JSON field changes none of the container version 1, `nvf.save.body/1`,
 `nvf.engine.state/1` or `fnv.game.state/1` identifiers (`engine/nvf-play/src/save.rs`,
 `crates/fnv-save/src/lib.rs`, `crates/fnv-game/src/game.rs`).
 
+[design, #1640] The live units are saved with the inventory (`"live": true` on the unit's
+group, omitted when false, so older saves read unchanged). After a load,
+`Game::reconcile_live_explosives` makes each holder's live units of an item equal to its
+saved plants of that item, as far as it carries the item: a save from before live units
+gets its plants' units reserved, and a live unit whose plant was dropped (its plugin gone,
+`drop_gone`) is an ordinary unit again. A save from before live units whose victim had
+put the planted grenade on (its only unit equipped) gets that unit taken off and reserved
+(`Inventory::mark_live` takes an equipped unit last). No other migration is needed; the
+field is additive like `planted`, and changes none of the identifiers above.
+
 ## 6. Checks
 
 Unit tests: `fnv_game::pickpocket::tests::chance_follows_the_wiki`; in
@@ -193,8 +235,22 @@ Unit tests: `fnv_game::pickpocket::tests::chance_follows_the_wiki`; in
 `a_planted_explosive_does_not_go_live_on_an_essential_actor`; in
 `crates/fnv-game/tests/functions.rs`: `a_planted_explosive_stays_an_item_on_a_child`;
 `a_planted_kill_is_seen_by_whoever_saw_the_player_while_it_was_live`,
-`a_planted_kill_counts_for_the_weapon_the_player_holds`; in
+`a_planted_kill_counts_for_the_weapon_the_player_holds`,
+`each_plant_reserves_one_unit_that_its_blast_takes`,
+`a_plant_on_an_essential_actor_stays_an_ordinary_item`,
+`live_units_follow_the_saved_plants`,
+`an_old_save_reserves_a_planted_grenade_its_victim_had_put_on`,
+`reset_inventory_keeps_a_planted_explosive`; in `fnv_sim::inventory::tests`:
+`a_live_unit_is_reserved_from_every_pick`, `the_live_count_is_set_from_the_plants`,
+`an_equipped_unit_is_reserved_last_and_taken_off`; in
+`crates/fnv-sim/tests/synthetic.rs`: `a_live_unit_is_not_equipped_removed_dropped_or_moved`,
+`a_reset_inventory_keeps_live_units`; in `engine/nvf-play/src/menu/model/tests.rs`:
+`a_live_explosive_is_a_row_of_its_own_that_stays`,
+`an_explosive_armed_in_the_open_pocket_is_listed_and_refused_at_once`,
+`a_pocket_row_listed_before_its_arming_is_not_rolled_for`; in
 `crates/fnv-game/tests/idles.rs`: `the_panic_idle_is_the_root_naming_get_planted_explosive`. Smoke:
+`pickpocket-live-item` (the planted Dynamite's unit is reserved; Chet's scripted
+EquipItem, Drop and RemoveItem leave it; its blast takes it);
 `pickpocket-steal` (sneaking, E on Goodsprings' Sunny Smiles opens her pocket; one take
 is logged as unseen or caught); `pickpocket-plant-dynamite` (Dynamite placed on Chet while sneaking goes live, he plays `PanicGrenadePlant`, it goes off and kills him, and no faction turns: a Frag Grenade is worth 150 caps, which leaves a 16% chance, so the seeded roll would catch it).
 

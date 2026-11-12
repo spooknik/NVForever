@@ -30,6 +30,7 @@
 pub mod anomaly;
 pub mod snapshot;
 mod delete;
+mod form;
 pub mod summary;
 pub mod upload;
 mod warnings;
@@ -65,6 +66,8 @@ pub struct Active {
 }
 
 static ACTIVE: OnceLock<Option<Active>> = OnceLock::new();
+/// `--data` / `NVFOREVER_DATA` was given (a developer or smoke run; [`decide`]).
+static DEVELOPER_DATA: OnceLock<bool> = OnceLock::new();
 
 /// Folders hidden in everything a report sends, besides the home folder that
 /// `crash::redact` hides: the Data folder, the game folder and NVForever's own folder (a
@@ -188,6 +191,7 @@ fn forced_off(developer_data: bool) -> Option<&'static str> {
 /// Settle this run's choice (module notes); logs it with `eprintln!` (before the log
 /// plugin). `developer_data`: `--data` / `NVFOREVER_DATA` was given.
 pub fn decide(developer_data: bool, handoff: bool) {
+    let _ = DEVELOPER_DATA.set(developer_data);
     let _ = ACTIVE.set(choose(developer_data, handoff));
 }
 
@@ -455,10 +459,14 @@ impl Plugin for ReportsPlugin {
             },
         );
         delete::add_row(app);
-        let Some(active) = active().cloned() else { return };
-        let Some((pending, sent)) = folders() else { return };
         let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
         let _ = HIDDEN_FOLDERS.set(folders_to_hide(&self.data, exe_dir.as_deref()));
+        // A hand report needs no opt-in (§3.3): the form and the snapshot it sends are
+        // there whatever the choice.
+        form::add(app);
+        app.add_systems(Update, refresh_snapshot.run_if(|| active().is_some() || form::wants_snapshot()));
+        let Some(active) = active().cloned() else { return };
+        let Some((pending, sent)) = folders() else { return };
         if active.may_send {
             if self.handoff {
                 info!("reports: a load handed over to this run; earlier sessions are sent from here");
@@ -489,7 +497,6 @@ impl Plugin for ReportsPlugin {
             })
             .add_systems(Startup, (read_gpu, read_window))
             .add_systems(Update, (collect, track_loads, detect).chain())
-            .add_systems(Update, refresh_snapshot)
             .add_systems(Last, write_summary);
     }
 }
@@ -718,7 +725,7 @@ fn refresh_snapshot(
     memory: Option<Res<crate::memory_budget::MemoryBudget>>,
 ) {
     let now = real.elapsed_secs_f64();
-    if now - *last < snapshot::EVERY_SECS {
+    if now - *last < snapshot::EVERY_SECS && !form::snapshot_now() {
         return;
     }
     *last = now;
@@ -831,6 +838,18 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
         }
         return;
     }
+    bring_up_to_date(c, script.as_deref(), exiting);
+    let bytes = c.summary.to_bytes(redact);
+    match fnv_install::guard_write(&c.file, None).map_err(|e| e.to_string()).and_then(|()| std::fs::write(&c.file, &bytes).map_err(|e| e.to_string())) {
+        Ok(()) if exiting => info!("reports: session summary written to {}", c.file.display()),
+        Ok(()) => debug!("reports: session summary written to {}", c.file.display()),
+        Err(e) => warn!("reports: the session summary could not be written to {}: {e}", c.file.display()),
+    }
+}
+
+/// Bring the summary up to now (written every minute and at exit, and sent with a hand
+/// report, form.rs); `exiting`: the run is ending cleanly.
+fn bring_up_to_date(c: &mut Collector, script: Option<&nvf_play::script::ScriptState>, exiting: bool) {
     c.summary.duration_s = c.started.elapsed().as_secs() / 60 * 60;
     c.summary.end = if exiting { End::Clean } else { End::Unknown };
     c.summary.worldspace_time_s = c.space_time.iter().map(|(k, v)| (k.clone(), *v as u64)).collect();
@@ -840,7 +859,7 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
             crc.clone_from(new);
         }
     }
-    if let Some(rt) = script.as_ref().and_then(|s| s.rt.as_ref()) {
+    if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
         let g = &rt.game;
         let mut stubs: std::collections::BTreeMap<String, u64> = Default::default();
         for (op, n) in g.stubbed.iter().chain(g.unhandled.iter()) {
@@ -849,12 +868,6 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
         }
         c.summary.script_stubs = stubs.into_iter().collect();
         read_quests(g, &mut c.summary);
-    }
-    let bytes = c.summary.to_bytes(redact);
-    match fnv_install::guard_write(&c.file, None).map_err(|e| e.to_string()).and_then(|()| std::fs::write(&c.file, &bytes).map_err(|e| e.to_string())) {
-        Ok(()) if exiting => info!("reports: session summary written to {}", c.file.display()),
-        Ok(()) => debug!("reports: session summary written to {}", c.file.display()),
-        Err(e) => warn!("reports: the session summary could not be written to {}: {e}", c.file.display()),
     }
 }
 

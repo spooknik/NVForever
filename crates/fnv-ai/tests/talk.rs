@@ -129,6 +129,8 @@ const I_HELLO: u32 = 0x818;
 const I_SAY: u32 = 0x819;
 const T_CHATTER: u32 = 0x814;
 const I_CHATTER: u32 = 0x81A;
+const T_HELLO: u32 = 0x815;
+const I_HI: u32 = 0x81B;
 const STAT: u32 = 0x820;
 const ACTI: u32 = 0x821;
 const STOOL: u32 = 0x822;
@@ -141,6 +143,7 @@ const P_TO_NPC: u32 = 0x834;
 const P_MUTE: u32 = 0x835;
 const P_WANDER: u32 = 0x836;
 const P_SEATED: u32 = 0x837;
+const P_STAND: u32 = 0x838;
 // Bases.
 const N_GREET: u32 = 0x840;
 const N_COME: u32 = 0x841;
@@ -150,6 +153,7 @@ const N_TO_NPC: u32 = 0x844;
 const N_MUTE: u32 = 0x845;
 const N_IDLE: u32 = 0x846;
 const N_SEATED: u32 = 0x847;
+const N_STAND: u32 = 0x848;
 // The cell and its references.
 const CELL: u32 = 0x860;
 const TRIGGER: u32 = 0x870;
@@ -164,6 +168,7 @@ const R_TO_NPC: u32 = 0x884;
 const R_MUTE: u32 = 0x885;
 const R_IDLE: u32 = 0x886;
 const R_SEATED: u32 = 0x887;
+const R_STAND: u32 = 0x888;
 
 const PLAYER: u32 = 0x14;
 const GOODBYE: u16 = 0x0001;
@@ -175,7 +180,7 @@ const CORNER: [f32; 3] = [100.0, 100.0, 0.0];
 const STOOL_AT: [f32; 3] = [600.0, 1100.0, 0.0];
 
 /// The plugin; `greeting` is the flags of the one GREETING line.
-fn plugin_bytes(greeting: u16) -> Vec<u8> {
+fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
     let globs = [
         glob(0x801, "GameYear", 2281.0),
         glob(0x802, "GameMonth", 9.0),
@@ -203,6 +208,8 @@ fn plugin_bytes(greeting: u16) -> Vec<u8> {
         // A Wander package about its editor location, no Fallout behaviour flags set (so all
         // of them allowed).
         record(b"PACK", P_WANDER, &[sub(b"EDID", z("WanderHere")), sub(b"PKDT", [&0u32.to_le_bytes()[..], &[5, 0, 0, 0], &[0; 4]].concat()), sub(b"PLDT", triple((3, 0, 0))), sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat())]),
+        // A Travel package to its editor location: the actor stands where it was placed.
+        record(b"PACK", P_STAND, &[sub(b"EDID", z("StandHere")), sub(b"PKDT", [&0u32.to_le_bytes()[..], &[6, 0, 0, 0], &[0; 4]].concat()), sub(b"PLDT", triple((3, 0, 0))), sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat())]),
     ]
     .concat();
     let npcs = [
@@ -215,10 +222,12 @@ fn plugin_bytes(greeting: u16) -> Vec<u8> {
         npc(N_MUTE, "Mute", &[P_MUTE]),
         npc(N_IDLE, "Idler", &[P_WANDER]),
         npc(N_SEATED, "Sitter", &[P_SEATED]),
+        npc(N_STAND, "Stander", &[P_STAND]),
     ]
     .concat();
     let quest = record(b"QUST", QUEST, &[sub(b"EDID", z("TalkQuest")), sub(b"DATA", [vec![1, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
     let dial = [topic(GREETING, "GREETING", Some((I_HELLO, greeting, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None), topic(T_CHATTER, "IdleChatter", Some((I_CHATTER, 0, "Hot one today.")))].concat();
+    let dial = if hello { [dial, topic(T_HELLO, "HELLO", Some((I_HI, 0, "Morning.")))].concat() } else { dial };
     let bases = [
         record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]),
         record(b"ACTI", ACTI, &[sub(b"EDID", z("TalkTrigger"))]),
@@ -238,6 +247,7 @@ fn plugin_bytes(greeting: u16) -> Vec<u8> {
         placed(b"ACHR", R_IDLE, "IdlerRef", N_IDLE, CORNER, None),
         placed(b"REFR", R_STOOL, "StoolRef", STOOL, STOOL_AT, None),
         placed(b"ACHR", R_SEATED, "SitterRef", N_SEATED, CORNER, None),
+        placed(b"ACHR", R_STAND, "StanderRef", N_STAND, CORNER, None),
     ]
     .concat();
     let cell = [record(b"CELL", CELL, &[sub(b"EDID", z("Room"))]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs))].concat();
@@ -301,7 +311,16 @@ fn fixture() -> Fixture {
 }
 
 fn fixture_with(greeting: u16) -> Fixture {
-    let plugins = vec![Plugin::parse(&plugin_bytes(greeting), "Talk.esm".into()).unwrap()];
+    fixture_of(greeting, false)
+}
+
+/// The plugin with a HELLO topic too: one line anyone says to the player.
+fn fixture_hello() -> Fixture {
+    fixture_of(0, true)
+}
+
+fn fixture_of(greeting: u16, hello: bool) -> Fixture {
+    let plugins = vec![Plugin::parse(&plugin_bytes(greeting, hello), "Talk.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
     let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
@@ -762,6 +781,40 @@ fn a_look_turning_the_body_faces_the_target_until_stop_look() {
     assert!(s.events().iter().any(|e| matches!(e, AiEvent::LookOver { .. })));
 }
 
+/// A rooted actor that never turns (`Ai::fix_heading`: Mr. House's screen, Immobile with
+/// a Turning Speed of 0) keeps its heading through a conversation, after it ends, and
+/// when a script's Look asks for its whole body (issue #2150).
+#[test]
+fn a_fixed_actor_never_turns() {
+    use fnv_game::functions::senses::Look;
+    let f = fixture();
+    let mut s = sim(&f, R_GREET, CORNER);
+    s.run(0.5);
+    s.ai.root(&s.game, FormId(R_GREET));
+    s.ai.fix_heading(FormId(R_GREET));
+    let before = s.agent(R_GREET).walker.heading;
+    let want = fnv_nav::follow::heading_of([CORNER[0] - GREETER[0], CORNER[1] - GREETER[1]]);
+    assert!(fnv_nav::follow::heading_delta(before, want).abs() > 1.0, "it starts facing away: {before} against {want}");
+
+    s.game.start_dialogue(FormId(R_GREET), None).unwrap();
+    for _ in 0..20 {
+        s.ai.update_held(&mut s.game, 0.25);
+    }
+    assert!(s.game.end_dialogue());
+    s.run_social(5.0);
+    assert_eq!(s.agent(R_GREET).walker.heading, before);
+    let placed = s.game.world.placed.get(FormId(R_GREET)).unwrap().rot;
+
+    s.game.senses.looks.insert(FormId(R_GREET), Look { target: FormId(PLAYER), rotate_body: true });
+    s.run_social(5.0);
+    assert_eq!(s.agent(R_GREET).walker.heading, before);
+    // The game's heading of it is the placed one still.
+    assert!(s.game.world.peek(FormId(R_GREET)).is_none_or(|r| r.rot == placed));
+    assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
+    let looks: Vec<&AiEvent> = s.events().into_iter().filter(|e| matches!(e, AiEvent::LookTurn { .. } | AiEvent::LookFaced { .. } | AiEvent::LookHeld { .. })).collect();
+    assert!(matches!(looks.as_slice(), [AiEvent::LookHeld { .. }]), "{looks:?}");
+}
+
 // ---- out of the loaded area (fnv_ai::process) ---------------------------------------
 
 /// [`sim`] with a slow walk (2 units/s) and the actor out of the cell buffer: a run there
@@ -930,7 +983,82 @@ fn an_actor_next_to_the_player_chatters_now_and_then() {
     s.player_to([CORNER[0] + 100.0, CORNER[1], 0.0]);
     s.run_social(70.0);
     let said: Vec<&AiEvent> = s.events().into_iter().filter(|e| matches!(e, AiEvent::IdleChatter { .. })).collect();
-    assert!(matches!(said.first(), Some(AiEvent::IdleChatter { line, away }) if line.0 == I_CHATTER && *away <= fnv_ai::social::CHAT_NEAR_PLAYER), "{:?}", s.events());
+    assert!(matches!(said.first(), Some(AiEvent::IdleChatter { line, away }) if line.0 == I_CHATTER && *away <= fnv_ai::social::HELLO_DISTANCE), "{:?}", s.events());
+}
+
+/// Hellos (fnv-ai social.rs; #2156, owner's playtest 2026-11-11): said from
+/// `HELLO_DISTANCE` (200, a third closer than before), and only with nothing solid
+/// between the actor and the player.
+#[test]
+fn a_hello_needs_the_player_close_and_in_the_open() {
+    use fnv_ai::social::HELLO_DISTANCE;
+    use fnv_game::detection::Detection;
+    let f = fixture_hello();
+    let hellos = |s: &Sim| s.events().iter().filter(|e| matches!(e, AiEvent::Hello { .. })).count();
+    // 250 units away, where it was greeted before: nothing.
+    let mut s = sim(&f, R_STAND, [CORNER[0] + 250.0, CORNER[1], 0.0]);
+    s.run_social(5.0);
+    assert_eq!(hellos(&s), 0, "{:?}", s.events());
+    // Close, but the engine measured a wall between them: nothing, however long.
+    s.game.detection.measures_player = true;
+    let time = s.game.time;
+    s.game.detection.record(FormId(R_STAND), FormId(PLAYER), Detection { clear: false, ..Detection::default() }, time);
+    s.player_to([CORNER[0] + 150.0, CORNER[1], 0.0]);
+    s.run_social(5.0);
+    assert_eq!(hellos(&s), 0, "through a wall: {:?}", s.events());
+    // The player comes into the open: the hello.
+    s.game.detection.record(FormId(R_STAND), FormId(PLAYER), Detection { clear: true, ..Detection::default() }, time);
+    s.run_social(5.0);
+    let said: Vec<&AiEvent> = s.events().into_iter().filter(|e| matches!(e, AiEvent::Hello { .. })).collect();
+    assert!(matches!(said[..], [AiEvent::Hello { line, away }] if line.0 == I_HI && *away <= HELLO_DISTANCE), "{:?}", s.events());
+}
+
+/// Idle lines keep apart (#2156): an actor that said hello says no other idle line for
+/// `IDLE_LINE_AGAIN` seconds, though the player goes away and comes back and the
+/// chatter timer (15 to 60 s) runs out; a hello line said of late is not said again
+/// (`IDLE_LINE_MEMORY`), so the next hello comes only after that.
+#[test]
+fn idle_lines_wait_for_each_other_and_do_not_repeat() {
+    use fnv_ai::social::{HELLO_DISTANCE, HELLO_REARM, IDLE_LINE_AGAIN};
+    use fnv_game::dialogue::IDLE_LINE_MEMORY;
+    let f = fixture_hello();
+    let near = [CORNER[0] + 150.0, CORNER[1], 0.0];
+    let far = [CORNER[0] + HELLO_DISTANCE * HELLO_REARM + 100.0, CORNER[1], 0.0];
+    let count = |s: &Sim| {
+        let e = s.events();
+        (e.iter().filter(|e| matches!(e, AiEvent::Hello { .. })).count(), e.iter().filter(|e| matches!(e, AiEvent::IdleChatter { .. })).count())
+    };
+    let mut s = sim(&f, R_STAND, near);
+    s.run_social(2.0);
+    assert_eq!(count(&s), (1, 0), "{:?}", s.events());
+    // Away and back, over and over, for the rest of the actor's wait: no idle line.
+    let mut spent = 2.0;
+    while spent + 10.0 < IDLE_LINE_AGAIN {
+        s.player_to(far);
+        s.run_social(1.0);
+        s.player_to(near);
+        s.run_social(9.0);
+        spent += 10.0;
+    }
+    assert_eq!(count(&s), (1, 0), "within the actor's wait: {:?}", s.events());
+    // Its wait over: it chatters when the area's timer is due, but its one hello line
+    // is still remembered.
+    while spent + 10.0 < IDLE_LINE_MEMORY {
+        s.player_to(far);
+        s.run_social(1.0);
+        s.player_to(near);
+        s.run_social(9.0);
+        spent += 10.0;
+    }
+    let (hellos, chatter) = count(&s);
+    assert_eq!(hellos, 1, "the hello line is not repeated: {:?}", s.events());
+    assert_eq!(chatter, 1, "its one chatter line is said once and not repeated either: {:?}", s.events());
+    // The memory over: the next approach is greeted again.
+    s.player_to(far);
+    s.run_social(IDLE_LINE_AGAIN + 20.0);
+    s.player_to(near);
+    s.run_social(2.0);
+    assert_eq!(count(&s).0, 2, "{:?}", s.events());
 }
 
 /// Observe Combat's spectators "run away if they get too close" (fnv-ai social.rs,

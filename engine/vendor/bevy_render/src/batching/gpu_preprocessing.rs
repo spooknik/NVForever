@@ -2957,16 +2957,17 @@ pub fn write_binned_instance_buffers<BPI, GFBD>(
                 continue;
             };
 
-            // Write the various buffers to the GPU.
+            // Write the various buffers to the GPU. NVForever unchanged uploads: the three
+            // the CPU alone writes only when their bytes changed (#2064).
 
             batch_set
                 .gpu_buffers
                 .render_binned_mesh_instance_buffer
-                .write_buffer(&render_device, &render_queue);
+                .write_buffer_if_changed(&render_device, &render_queue);
             batch_set
                 .gpu_buffers
                 .bin_metadata_buffer
-                .write_buffer(&render_device, &render_queue);
+                .write_buffer_if_changed(&render_device, &render_queue);
             batch_set
                 .gpu_buffers
                 .fan_buffer
@@ -2974,7 +2975,7 @@ pub fn write_binned_instance_buffers<BPI, GFBD>(
             batch_set
                 .gpu_buffers
                 .bin_index_to_bin_metadata_index_buffer
-                .write_buffer(&render_device, &render_queue);
+                .write_buffer_if_changed(&render_device, &render_queue);
 
             let (
                 Some(render_bin_entry_buffer),

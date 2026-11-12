@@ -127,6 +127,26 @@ pub struct Row {
     /// reference this row stands for. Taking the row picks that reference up, so the
     /// weapon on the ground and the row are one item (#1032).
     pub reference: Option<FormId>,
+    /// A live explosive planted in this pocket (`Extra::live`): a row of its own, named
+    /// with [`LIVE_NOTE`], that no command takes, moves or puts up (#1640).
+    pub live: bool,
+}
+
+/// What a live explosive's row says after its name (`fnv_game::pickpocket`, a grenade or
+/// mine planted in a pocket and not yet gone off). FalloutNV.esm has no game setting for
+/// it [observed: none of its GMSTs names a live or armed item], so the word is NVForever's
+/// own [design, #1640; owner-review.md].
+pub const LIVE_NOTE: &str = "Armed";
+
+/// A live explosive's row name: its item's name, then [`LIVE_NOTE`] in brackets.
+pub fn live_name(name: String) -> String {
+    format!("{name} ({LIVE_NOTE})")
+}
+
+/// The status line when a command is refused on a live explosive's row (`name`, the
+/// row's name) [design, #1640: the words are NVForever's].
+pub fn live_refusal(name: &str) -> String {
+    format!("Cannot take or move {name}")
 }
 
 /// A folder of the inventory's Misc tab: the keys and the Caravan cards are listed in
@@ -175,7 +195,7 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: Some(f), reference: None }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false }
     }
 }
 
@@ -298,16 +318,18 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
         }
         let kind = it.map(|i| i.kind);
         let at = matches!(kind, Some(ItemKind::Weapon | ItemKind::Armor)).then(|| extra.condition_or_whole());
-        // Groups of one item come together (`Inventory::groups`).
-        if let Some(r) = rows.iter_mut().rev().take_while(|r| r.item == item).find(|r| r.at == at && r.mods == extra.mods) {
+        // Groups of one item come together (`Inventory::groups`); live units are a row of
+        // their own.
+        if let Some(r) = rows.iter_mut().rev().take_while(|r| r.item == item).find(|r| r.at == at && r.mods == extra.mods && r.live == extra.live) {
             r.count += count;
             r.equipped |= extra.equipped;
             continue;
         }
+        let name = modded_name(display_name(forms, item), extra.mods);
         rows.push(Row {
             item,
             at,
-            name: modded_name(display_name(forms, item), extra.mods),
+            name: if extra.live { live_name(name) } else { name },
             count,
             weight: it.and_then(|i| i.weight),
             value: it.and_then(|i| i.worth()),
@@ -322,6 +344,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             mods_value: forms.mods_value(item, extra.mods),
             folder: None,
             reference: None,
+            live: extra.live,
         });
     }
     for r in &mut rows {
@@ -365,6 +388,7 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
             mods_value: forms.mods_value(s.base, s.extra.mods),
             folder: None,
             reference: Some(r),
+            live: false,
         };
         l.weight += f64::from(row.weight.unwrap_or(0.0)) * f64::from(row.count);
         l.value += (row.value.unwrap_or(0) + row.mods_value) as i64 * row.count as i64;
@@ -932,7 +956,7 @@ impl MenuModel {
     /// Re-read the inventories from the simulation, keeping each column's selection on
     /// the same row when it is still there (else on the same position).
     pub fn refresh(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
-        let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.units(), r.bartered, r.folder)));
+        let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.units(), r.bartered, r.folder, r.live)));
         if self.trade.is_some() {
             self.refresh_trade(world)?;
         } else {
@@ -961,7 +985,7 @@ impl MenuModel {
         for &side in self.columns() {
             let i = side as usize;
             let rows = &self.lists[i].rows;
-            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered, r.folder) == k));
+            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k));
             self.selected[i] = at.unwrap_or(self.selected[i]).min(rows.len().saturating_sub(1));
             self.ensure_visible(side);
         }
@@ -986,7 +1010,8 @@ impl MenuModel {
             own[i] = l
                 .rows
                 .into_iter()
-                .filter(|r| r.item != t.caps && !r.quest)
+                // A live explosive (`Row::live`) is not for trade (#1640).
+                .filter(|r| r.item != t.caps && !r.quest && !r.live)
                 .filter(|r| {
                     let why = (side == Side::Container).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
                     if let Some(w) = why.filter(|_| !withheld.iter().any(|(i, _)| *i == r.item)) {
@@ -1076,6 +1101,7 @@ impl MenuModel {
                                 mods_value: 0,
                                 folder: None,
                                 reference: None,
+                                live: false,
                             }),
                         }
                     }
@@ -1249,7 +1275,7 @@ impl MenuModel {
     fn asks_quantity(&self, cmd: Command) -> Option<Quantity> {
         let asks = matches!((self.mode, cmd), (Mode::Container(_) | Mode::Barter(_), Command::One) | (Mode::Inventory, Command::Drop));
         let r = self.selected_row(self.focus)?;
-        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && r.kind != Some(ItemKind::CaravanCard)).then(|| Quantity {
+        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && !r.live && r.kind != Some(ItemKind::CaravanCard)).then(|| Quantity {
             cmd,
             side: self.focus,
             row: self.selected[self.focus as usize],
@@ -1294,7 +1320,8 @@ impl MenuModel {
             (Mode::Container(c), Command::TakeAll) => {
                 // The listed stacks only: non-playable and nameless items stay hidden in the container.
                 let mut moved = Vec::new();
-                for r in &self.lists[Side::Container as usize].rows {
+                // A live explosive's row stays (`Row::live`).
+                for r in self.lists[Side::Container as usize].rows.iter().filter(|r| !r.live) {
                     let n = match r.reference {
                         Some(at) => take_reference(world, at, &mut out.picked)?,
                         None => world.transfer_at(c, PLAYER, r.item, r.count, r.pick())?,
@@ -1316,6 +1343,24 @@ impl MenuModel {
                     Side::Container => (c, PLAYER),
                     Side::Player => (PLAYER, c),
                 };
+                // A live explosive in a pocket is taken by nobody, the player included,
+                // and costs no roll [design, #1640; owner-review.md].
+                if r.live {
+                    self.amount = None;
+                    return Ok(live_refusal(&r.name));
+                }
+                // Picking a pocket, nothing is rolled for a row whose units the simulation
+                // will not move (one listed before its explosive was armed, #1640).
+                if self.steal.is_some() && r.reference.is_none() {
+                    let inv = world.peek(from).and_then(|s| s.inventory.as_ref());
+                    if inv.map_or(0, |i| i.count_at(r.item, r.pick())) == 0 {
+                        self.amount = None;
+                        return Ok(match inv.is_some_and(|i| i.live_count(r.item) > 0) {
+                            true => live_refusal(&live_name(r.name.clone())),
+                            false => format!("Cannot find {} in the inventory", r.name),
+                        });
+                    }
+                }
                 let want = self.want(cmd == Command::One, &r);
                 if let Some(st) = self.steal.as_mut() {
                     let chance = st.chance(&r, want);
@@ -1341,6 +1386,10 @@ impl MenuModel {
             }
             (Mode::Barter(_), Command::One | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
+                if r.live {
+                    self.amount = None;
+                    return Ok(live_refusal(&r.name));
+                }
                 let want = self.want(cmd == Command::One, &r);
                 let Some(t) = self.trade.as_mut() else { return Ok(String::new()) };
                 out.changed = true;

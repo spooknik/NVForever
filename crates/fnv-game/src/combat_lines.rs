@@ -14,7 +14,10 @@
 //!   line; the line goes on although its speaker is dead (`Game::update_speech`). The
 //!   nearest living member of its group within [`RESPONSE_RADIUS`] then says
 //!   DeathResponse once the Death line is over [documented: Combat Tab, "If a valid actor
-//!   is nearby"; design: who is valid and how near]. A long generic death file plays
+//!   is nearby"; design: who is valid and how near], and no sooner than
+//!   [`DEATH_RESPONSE_SECONDS`] after the last DeathResponse anyone said: a death within
+//!   that time is answered by nobody [design: owner's playtest 2026-11-11, #2156, "they
+//!   say a death response after each death"]. A long generic death file plays
 //!   one cry, and the line ends with it ([`Game::cut_line_after`]; voice.md §9.1).
 //! - **Attack, PowerAttack, FireExplosive** ([`Game::attack_line`], from the engine when
 //!   the player or an NPC begins an attack): at most one per actor per random time between
@@ -66,6 +69,10 @@ use std::collections::BTreeMap;
 /// The actor of the group nearest to one that died says DeathResponse when within this
 /// many game units of it [design: a room's width; the documentation says "nearby"].
 pub const RESPONSE_RADIUS: f32 = 1536.0;
+
+/// Seconds of play between two DeathResponse lines, whoever says them [design: owner's
+/// playtest 2026-11-11, #2156; the documentation gives no wait].
+pub const DEATH_RESPONSE_SECONDS: f64 = 20.0;
 
 /// The topics answered by a nearby member of the speaker's group, and their answers
 /// (module notes).
@@ -146,6 +153,8 @@ pub struct CombatLines {
     /// the actor has none).
     pub said: Vec<(&'static str, FormId, Option<FormId>)>,
     pub timing: Option<Timing>,
+    /// `Game::time` before which nobody says DeathResponse ([`DEATH_RESPONSE_SECONDS`]).
+    pub next_death_response: f64,
     rng: u64,
     /// The hit under way says no lines ([`Game::hit_without_lines`]).
     quiet: bool,
@@ -446,7 +455,7 @@ impl Game<'_> {
         }
     }
 
-    /// The DeathResponse lines that are due (called each frame from `Game::update_speech`).
+    /// The answers that are due, DeathResponse among them (called each frame from `Game::update_speech`).
     pub(crate) fn combat_lines_tick(&mut self) {
         let now = self.time;
         if self.combat_lines.responses.iter().all(|r| r.at > now) {
@@ -455,8 +464,12 @@ impl Game<'_> {
         let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.combat_lines.responses).into_iter().partition(|r| r.at <= now);
         self.combat_lines.responses = later;
         for d in due {
-            if self.present(d.who) {
-                self.combat_line(d.who, Some(d.about), d.topic);
+            let death = d.topic == "DeathResponse";
+            if !self.present(d.who) || (death && now < self.combat_lines.next_death_response) {
+                continue;
+            }
+            if self.combat_line(d.who, Some(d.about), d.topic).is_some() && death {
+                self.combat_lines.next_death_response = now + DEATH_RESPONSE_SECONDS;
             }
         }
     }

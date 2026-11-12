@@ -697,6 +697,62 @@ impl FrameData {
             });
         }
 
+        // NVForever encoder gaps (measurement aid, NVF_PLAY_TEST_PROFILE_ENCODERS=1): the GPU
+        // time from the frame's first encoder to its last, how much of it no encoder covers,
+        // and the time from the previous frame's last encoder to this frame's first.
+        if std::env::var("NVF_PLAY_TEST_PROFILE_ENCODERS").is_ok_and(|v| v == "1") {
+            static LAST_END: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+            let mut iv: Vec<(u64, u64, &str)> = self
+                .closed_spans
+                .iter()
+                .filter(|s| s.path_range.len() == 1)
+                .filter_map(|s| {
+                    let name = &*self.path_components[s.path_range.start];
+                    if !name.starts_with("enc:") {
+                        return None;
+                    }
+                    Some((timestamps[s.begin_timestamp_index? as usize], timestamps[s.end_timestamp_index? as usize], name))
+                })
+                .filter(|(b, e, _)| *b > 0 && e >= b)
+                .collect();
+            iv.sort_by_key(|v| v.0);
+            if let (Some(first), Some(last)) = (iv.first().map(|v| v.0), iv.iter().map(|v| v.1).max()) {
+                let ms = |ticks: u64| ticks as f64 * timestamp_period_ns as f64 / 1e6;
+                let mut covered = 0u64;
+                let mut end = first;
+                let mut worst: Vec<(u64, &str, &str)> = Vec::new();
+                let mut prev = "start";
+                for (b, e, n) in &iv {
+                    if *b > end {
+                        worst.push((*b - end, prev, n));
+                    }
+                    let s = (*b).max(end);
+                    if *e > s {
+                        covered += *e - s;
+                        end = *e;
+                        prev = n;
+                    }
+                }
+                let before = LAST_END.swap(last, Ordering::Relaxed);
+                let mut push = |name: &str, value: f64| {
+                    diagnostics.push(RenderDiagnostic {
+                        path: DiagnosticPath::from_components(["render", name, "elapsed_gpu"]),
+                        suffix: "ms",
+                        value,
+                    })
+                };
+                push("zz:wall", ms(last - first));
+                push("zz:gaps", ms(last - first - covered));
+                if before > 0 && first > before {
+                    push("zz:between_frames", ms(first - before));
+                }
+                worst.sort_by(|a, b| b.0.cmp(&a.0));
+                for (g, a, b) in worst.iter().take(4) {
+                    push(&alloc::format!("zz:gap {a} -> {b}"), ms(*g));
+                }
+            }
+        }
+
         callback(RenderDiagnostics(diagnostics, self.began));
 
         drop(data);

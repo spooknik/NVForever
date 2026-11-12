@@ -85,7 +85,8 @@
 //! window's text, `KeyboardInput`, read every frame in `PreUpdate` so nothing typed before
 //! comes in late) goes into it, Backspace takes the last letter off, and while it is open
 //! the letters are its own: N, L, S, Q, W/S, A/D and Space do nothing else, and the game's
-//! controls read no key (`crate::bindings::KeyboardCapture`). It finds every row of every
+//! controls read no key (`crate::bindings::KeyboardCapture`; nvforever's hand-report form
+//! holds the keys the same way while it is over the menu, [`FormOver`]). It finds every row of every
 //! tab whose label or note (in the language shown or in English) or INI key holds each
 //! word typed, any case (`crate::settings_view::search`), the Controls tab's own rows too
 //! by their label, note and INI name; an empty text lists every row. The results are in
@@ -477,6 +478,31 @@ fn fire(due: &mut Vec<f32>, now: f32) -> bool {
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Paused(pub bool);
 
+/// A form of nvforever's own is up over the pause menu (the hand report,
+/// nvforever's `reports/form.rs`, player-reports.md §3.3): the pause menu takes no key or
+/// click while it is, and a text field has the keyboard ([`crate::bindings::KeyboardCapture`]).
+/// The form clears it the frame after it closes, so the key that closed it does nothing
+/// here.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormOver(pub bool);
+
+/// The "Report a bug" entry at the pause menu's bottom left, over the version (owner
+/// 2026-11-12): `shown` when nvforever's hand-report form is there to open
+/// (`reports/form.rs` sets it); a click sets `asked`, which the form takes. Only over a
+/// game, never under the main menu.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReportEntry {
+    pub shown: bool,
+    pub asked: bool,
+}
+
+/// The report entry's words [design: NVForever's own].
+const REPORT_LABEL: &str = "Report a bug";
+
+fn no_form(form: Option<Res<FormOver>>) -> bool {
+    !form.is_some_and(|f| f.0)
+}
+
 /// The page of the pause menu that is up; on the settings page, the row the keys are on.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -699,6 +725,8 @@ enum PauseButton {
     Delete,
     /// An answer of the delete question: yes or no.
     DeleteAnswer(bool),
+    /// "Report a bug" at the bottom left ([`ReportEntry`]).
+    Report,
 }
 
 /// A row's value, kept as text too (tests read it).
@@ -954,6 +982,8 @@ struct PauseView {
     last: Option<(SettingsScope, Option<RowId>, usize)>,
     /// The rail's line under the pointer (boxed unfilled, bright).
     rail_hover: Option<RailItem>,
+    /// "Report a bug" is under the pointer (boxed unfilled).
+    report_hover: bool,
     /// The wheel's movement short of a notch.
     wheel: f32,
     /// A list's open dropdown.
@@ -1093,6 +1123,8 @@ struct Drawn {
     /// On the search and the Changed list: the rows listed as another row, by that row,
     /// their names as the page shows them (`crate::settings_view::stands_for`).
     stand_ins: Vec<(RowId, Vec<String>)>,
+    /// "Report a bug" at the bottom left ([`ReportEntry`]), and whether the pointer is on it.
+    report: Option<bool>,
 }
 
 impl Drawn {
@@ -1195,6 +1227,8 @@ impl Plugin for PausePlugin {
             .add_systems(Startup, read_settings_tab)
             .init_resource::<PauseInputAid>()
             .init_resource::<crate::bindings::KeyboardCapture>()
+            .init_resource::<FormOver>()
+            .init_resource::<ReportEntry>()
             .init_resource::<ModsEntry>()
             .add_message::<MainMenuRequest>()
             .init_resource::<MenuPause>()
@@ -1215,7 +1249,7 @@ impl Plugin for PausePlugin {
                 // Over a conversation, a barter menu takes Esc for itself (`crate::menu`).
                 (
                     open.run_if(in_state(PlayState::Playing).or_else(in_state(PlayState::Dialogue)).and_then(crate::menu::no_menu)),
-                    (choose, finish_resume, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
+                    (choose.run_if(no_form), finish_resume, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
                 )
                     .in_set(PlaySet::Ui),
             )
@@ -1386,6 +1420,14 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                 right_entry(root, &f.entry, tr("Back"), from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
                 if matches!(d.page, Page::Settings { .. }) {
                     right_entry(root, &f.entry, tr("Defaults"), from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Defaults), PauseButton::Defaults, glyphs);
+                }
+            }
+            // "Report a bug" over the version at the bottom left; the first page shows the
+            // version too (the settings page draws its own).
+            if let Some(hovered) = d.report {
+                report_entry(root, f, hovered, glyphs);
+                if d.page == Page::Main {
+                    version(root, f);
                 }
             }
             if let Some((label, left, sel)) = d.keep {
@@ -1765,6 +1807,16 @@ fn version(root: &mut ChildSpawnerCommands, f: &Faces) {
     root.spawn(Node { position_type: PositionType::Absolute, left: u(30.0), top: u(960.0 - 60.0), width: u(400.0), height: u(40.0), ..default() }).with_children(|t| {
         sm_text(t, &f.small, concat!("NVForever ", env!("CARGO_PKG_VERSION")), 0.0, 26.0, color(Shade::Bright));
     });
+}
+
+/// "Report a bug" just over [`version`]'s line, left-aligned with it; boxed unfilled while
+/// the pointer is on it, as the rail's lines.
+fn report_entry(root: &mut ChildSpawnerCommands, f: &Faces, hovered: bool, glyphs: &crate::pad::PadGlyphs) {
+    let label = tr(REPORT_LABEL);
+    let w = crate::pad::hint_width(&f.entry, label, glyphs) + 20.0;
+    let node = Node { position_type: PositionType::Absolute, left: u(20.0), top: u(960.0 - 60.0 - ITEM), width: u(w), height: u(ITEM), ..default() };
+    let look = if hovered { BoxLook::Outline } else { BoxLook::None };
+    right_entry_look(root, &f.entry, label, node, w, if hovered { Shade::Bright } else { Shade::Dim }, look, PauseButton::Report, glyphs);
 }
 
 /// A node at `x`, `y` in its parent, `w` × `h`.
@@ -2335,12 +2387,14 @@ fn search_keys(events: &[KeyboardInput], modifiers: bool) -> Vec<SearchKey> {
 /// the keyboard's messages read, the search's keys kept for the pause menu while the
 /// search is open, and the keyboard held for it then ([`crate::bindings::KeyboardCapture`])
 /// [design: #1953].
+#[allow(clippy::too_many_arguments)]
 fn collect_search_keys(
     mut typed: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     paused: Option<Res<Paused>>,
     page: Option<Res<Page>>,
     view: Option<Res<PauseView>>,
+    form: Option<Res<FormOver>>,
     mut out: ResMut<SearchKeys>,
     mut capture: ResMut<crate::bindings::KeyboardCapture>,
 ) {
@@ -2348,7 +2402,7 @@ fn collect_search_keys(
     let open = paused.is_some_and(|p| p.0) && page.is_some_and(|p| matches!(*p, Page::Settings { .. })) && view.is_some_and(|v| v.scope == SettingsScope::Search);
     let modifiers = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::AltLeft, KeyCode::AltRight, KeyCode::SuperLeft, KeyCode::SuperRight]);
     out.0 = if open { search_keys(&events, modifiers) } else { Vec::new() };
-    capture.set_if_neq(crate::bindings::KeyboardCapture(open));
+    capture.set_if_neq(crate::bindings::KeyboardCapture(open || form.is_some_and(|f| f.0)));
 }
 
 /// A key the pause menu aid presses: its code, what it types and its text.
@@ -2407,7 +2461,7 @@ fn points_at(at: &PointAt, b: PauseButton, list: &[Setting]) -> bool {
 }
 
 /// `point:<target>`: `search`, `search-field`, `changed`, `defaults`, `back`,
-/// `heading-up`, `heading-down`, `tab:<name>`, `row:<key>` (a Controls row by its name,
+/// `heading-up`, `heading-down`, `report` ("Report a bug"), `tab:<name>`, `row:<key>` (a Controls row by its name,
 /// `bind:Jump`), `choice:<n>` (the open dropdown's, from 0).
 fn parse_point(t: &str) -> Option<PointAt> {
     let t = t.trim();
@@ -2419,6 +2473,7 @@ fn parse_point(t: &str) -> Option<PointAt> {
         "back" => PointAt::Button(PauseButton::Back),
         "heading-up" => PointAt::Button(PauseButton::HeadingStep(-1)),
         "heading-down" => PointAt::Button(PauseButton::HeadingStep(1)),
+        "report" => PointAt::Button(PauseButton::Report),
         _ => {
             if let Some(n) = t.strip_prefix("tab:") {
                 PointAt::Tab(n.trim().to_string())
@@ -2544,7 +2599,7 @@ fn choose(
         ResMut<SettingsLayout>,
         Option<Res<crate::ui_colour::CustomColours>>,
     ),
-    (meters, pointed, mut tab_store): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>),
+    (meters, pointed, mut tab_store, mut report): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>, Option<ResMut<ReportEntry>>),
 ) {
     use crate::bindings::{Bindings, Input, InputDevice};
     use crate::pad::PadInput;
@@ -2962,6 +3017,14 @@ fn choose(
         }
         view.rail_hover = hover;
     }
+    // "Report a bug" under the pointer: boxed unfilled, the focus sound once.
+    let on_report = !over && pointed.iter().any(|(s, b)| *s == PointerState::Hovered && *b == PauseButton::Report);
+    if on_report != view.report_hover {
+        if on_report {
+            sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Focus });
+        }
+        view.report_hover = on_report;
+    }
     if act("defaults") && matches!(*page, Page::Settings { .. }) {
         clicked = Some(PauseButton::Defaults);
     }
@@ -3033,6 +3096,15 @@ fn choose(
         return;
     }
     view.dropdown = None;
+    // "Report a bug": the form opens over the page (nvforever's `reports/form.rs`).
+    if clicked == Some(PauseButton::Report) {
+        if let Some(r) = report.as_mut().filter(|r| r.shown) {
+            info!("pause menu: report a bug");
+            r.asked = true;
+            sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Picked });
+        }
+        return;
+    }
     // A click on the column's entry of another page (the page's own entry closes it). From
     // an open search the search closes first, and the frame's keys (its text) reach no
     // other page [design: #1953].
@@ -3817,6 +3889,9 @@ fn drawn_now(world: &mut World) -> Drawn {
         let vis = Visibility::of_world(world);
         crate::settings_view::stands_for(&list, ids, vis).into_iter().map(|(by, rows)| (by, rows.into_iter().map(|r| stand_in_name(&list, r)).collect())).collect()
     };
+    // Over a game only, on the first page and the settings page (the load page's rows
+    // and a mod's page have the bottom left).
+    let report_shown = main.is_none() && matches!(page, Page::Main | Page::Settings { .. }) && world.get_resource::<ReportEntry>().is_some_and(|r| r.shown);
     let view = world.resource::<PauseView>();
     let thumb = world.resource::<LoadList>().thumb.as_ref().map(|(i, h)| (*i, h.is_some()));
     Drawn {
@@ -3849,6 +3924,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         language: fnv_util::words::generation(),
         search: (matches!(page, Page::Settings { .. }) && view.scope == SettingsScope::Search).then(|| (view.search.query.clone(), view.focus == SettingsFocus::SearchText)),
         stand_ins,
+        report: report_shown.then_some(view.report_hover),
     }
 }
 
@@ -3945,6 +4021,7 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     view.scroll = 0;
     view.followed = None;
     view.rail_hover = None;
+    view.report_hover = false;
     view.dropdown = None;
     view.search = SearchState::default();
     view.found = Found::default();
@@ -4341,6 +4418,37 @@ mod tests {
         assert!(buttons.contains(&PauseButton::HeadingStep(-1)) && buttons.contains(&PauseButton::HeadingStep(1)));
         // Three rows and two headings: five lines, the window's count.
         assert_eq!(world.resource::<PauseView>().drawn.as_ref().unwrap().entries.len(), 5);
+    }
+
+    #[test]
+    fn report_a_bug_is_drawn_over_the_version_only_when_the_form_is_there() {
+        let drawn = |app: &mut App| {
+            app.update();
+            let world = app.world_mut();
+            let reports: Vec<PauseButton> = world.query::<&PauseButton>().iter(world).copied().filter(|b| *b == PauseButton::Report).collect();
+            let version = world.query::<&Text>().iter(world).any(|t| t.0.starts_with("NVForever"));
+            (reports, version)
+        };
+        // Without the form (a viewer or menu-only run): no entry, and no version on the first page.
+        let mut app = settings_app(&[("difficulty", "Gameplay")], Page::Main);
+        assert_eq!(drawn(&mut app), (vec![], false));
+        // With it: once on the first page, over the version; the settings page has it too.
+        for page in [Page::Main, Page::Settings { selected: None }] {
+            let mut app = settings_app(&[("difficulty", "Gameplay")], page);
+            app.insert_resource(ReportEntry { shown: true, asked: false });
+            let (reports, version) = drawn(&mut app);
+            assert_eq!(reports.len(), 1, "{page:?}");
+            assert!(version, "{page:?}: the version under it");
+        }
+        // Not on the load page, whose rows reach the bottom.
+        let mut app = settings_app(&[("difficulty", "Gameplay")], Page::Load { selected: 0 });
+        app.insert_resource(ReportEntry { shown: true, asked: false });
+        assert!(drawn(&mut app).0.is_empty());
+    }
+
+    #[test]
+    fn report_a_bug_points_like_the_other_buttons() {
+        assert_eq!(parse_point("report"), Some(PointAt::Button(PauseButton::Report)));
     }
 
     #[test]

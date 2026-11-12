@@ -480,7 +480,9 @@ pub struct ActorDef {
     pub template_model: bool,
     pub template_inventory: bool,
     pub template_script: bool,
-    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM].
+    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM], from the
+    /// actor that supplies its traits (template flag "Traits") [documented: GECK wiki
+    /// Traits Tab - NPC and Traits Tab - Creatures list Combat Style; Template Data].
     pub combat_style: Option<FormId>,
     /// INAM "Death item": the leveled item list added to the actor's inventory when it
     /// dies, from the actor that supplies its traits (template flag "Traits")

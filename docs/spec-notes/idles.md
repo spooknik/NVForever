@@ -750,7 +750,11 @@ combat branch that the engine never played.
   `GetIsAlerted == 1`, alone or joined by OR [hypothesis: the folder match and walk of
   §11]. The tree's own conditions decide: a warning gecko reads GetIsAlerted 0 and
   procedure 44, so it does not hiss until it fights (procedure 13) [observed in the
-  original, §14.3].
+  original, §14.3]. A fight does not set GetIsAlerted (#2121; GetIsAlerted read 0 in the
+  original's fights, npc-behaviour-compare.md §11): the gecko's combat idles pass on
+  procedure 13, which Lost reads too, and the warnings gated on `GetIsAlerted == 1` alone
+  (`MWarning`, `StBWarning`) play only for an actor SetAlert alerted [design: the tree's
+  own conditions, read as scripts read them].
 - It ends when the creature moves or is calm again [design]; an attack stops it as it
   stops any idle (`attack_anims.rs`), except that an idle flagged No Attacking (the
   hiss, the rat's growl) holds the attack until it has played (§9). Log: `npc combat:

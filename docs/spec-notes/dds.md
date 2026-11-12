@@ -70,6 +70,17 @@ in the game is not known.
   DDS]) store six faces one after another, each a full mip chain. Six files are cube maps.
 - The bytes after the 128-byte header equal the sum above exactly; no file has trailing
   data.
+- Mods' files are not all exact [observed: Classic Fallout Weapons, 78 of its 468
+  textures, DXT1 and DXT5, carry 8 to 32 bytes more than their size and mip count
+  need, e.g. `sten.dds`: 1024×1024 DXT1, 10 levels counted, 8 bytes over; the owner
+  sees these weapons textured in the original game]. The levels the header counts are
+  read and what follows is left alone [hypothesis: the original does the same]; a file
+  with less data than the layout needs is refused (#2164).
+- A mod's block-format texture may have sides that are not multiples of 4 [observed:
+  the same mod's `YK32_innerpanel.dds`, DXT5, 179×196, 8 levels]. Its blocks cover
+  ceil(w/4) × ceil(h/4) and the texels past the edge are not part of the picture
+  [documented: MS DDS]. The engine decodes such a texture to RGBA on the CPU, as GPUs
+  take block formats only at multiples of 4 [design: #2164].
 
 ## 4. Naming conventions [hypothesis, to verify against shaders and the NIF texture sets]
 

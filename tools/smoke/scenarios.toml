@@ -1063,6 +1063,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-script-values"
+source = "issue #2121 (docs/design/alert.md §6; npc-behaviour-compare.md §11): what scripts read of a fight. A gecko fighting the god-mode player reads IsInCombat 1, GetIsAlerted 0 (SetAlert's alone; the original read 0 in every in-combat sample), GetCombatTarget the player and procedure COMBAT 13 / package COMBAT 5, while it still draws its stance (`Game::alert_stance`); SetAlert 1 then reads 1"
+note = "a gecko (NVCrGecko) placed at the player at 3 s (the first created reference, 0xFF000000), put 600 units away and set on the player at 6 s; its values read at 10 s, while the player stands in sight. Keeping the target once it is unseen and Lost reading 13 / 5 are pinned by fnv-game tests/combat_transitions.rs (a lone hostile out of sight needs a scene with no other actor: in Goodsprings a bighorner took the gecko's attention, #2121's comment)"
+areas = ["combat", "scripts"]
+paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/functions/ai_state.rs", "engine/nvforever/src/creature_stance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1,5:moveto:0xFF000000:player:0:600:0,6:combat:0xFF000000:player,10:call:0xFF000000:IsInCombat,10.1:call:0xFF000000:GetIsAlerted,10.2:call:0xFF000000:GetCombatTarget,10.3:call:0xFF000000:GetCurrentAIProcedure,10.4:call:0xFF000000:GetCurrentAIPackage,12:call:0xFF000000:SetAlert:1,12.1:call:0xFF000000:GetIsAlerted" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'script: test aid calls IsInCombat on \S*FF000000 = 1$', label = "the gecko fights" },
+  { re = 'creature stance: .*FF000000 draws \(alerted\)', label = "fighting, it still draws its stance (alert_stance counts the combat states)" },
+  { re = 'script: test aid calls GetCombatTarget on \S*FF000000 = 00000014$', label = "its combat target is the player" },
+  { re = 'script: test aid calls GetCurrentAIProcedure on \S*FF000000 = 13$', label = "procedure COMBAT" },
+  { re = 'script: test aid calls GetCurrentAIPackage on \S*FF000000 = 5$', label = "package type COMBAT" },
+]
+order = [[
+  { re = 'script: test aid calls GetIsAlerted on \S*FF000000 = 0$', label = "in the fight GetIsAlerted reads 0 (#2121; it read 1 before)" },
+  { re = 'script: test aid calls SetAlert on \S*FF000000', label = "SetAlert 1" },
+  { re = 'script: test aid calls GetIsAlerted on \S*FF000000 = 1$', label = "then it reads 1" },
+]]
+
+[[scenario]]
 name = "nav-water-closed"
 kind = "tool"
 source = "GECK wiki Navmesh Creation Workflow: creatures without the Swims flag \"will avoid using water triangles\" (PathParams::water, fnv-ai keeps_out_of_water): from the Boulder Beach shore to a point in Lake Mead a swimmer's path crosses water triangles; for one that does not swim the goal in water is out of reach at once (no search of the area); standing in the water, it walks out"
@@ -2037,6 +2059,39 @@ expect = ["furniture summary: 1 of 1 actors sat down, 1 got up again"]
 # every 3 s would pass). The 5 s spacing is proved by the unit tests of
 # crates/fnv-actor/src/furniture_retry.rs.
 [[scenario]]
+name = "resident-resettles-after-fight"
+source = "issue #2013 (packages.md, furniture.md): Easy Pete on his chair by day is drawn into a fight with a spawned gecko, which gets him up; the gecko is taken away (disabled, as in the capture) and when his search ends inside his package's place he sits again [observed in the original: AI observer 2026-11-10, Easy Pete sat again about 5 real seconds after the fight]"
+areas = ["ai", "residents", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "9", "--size", "1280x720", "--no-voice", "--no-messages", "--npc-packages", "EasyPeteRef"]
+env = { RUST_LOG = "info", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NEAR = "00106349", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "20:call:EasyPeteRef:PlaceAtMe:NVCrGecko:1:200:0,20.5:combat:EasyPeteRef:0xFF000000,20.6:combat:0xFF000000:EasyPeteRef,26:call:0xFF000000:Disable,80:call:EasyPeteRef:GetSitting" }
+run_seconds = 85
+order = [[
+  "furniture: 00104C80 is on ",
+  "furniture: 00104C80 gets off ",
+  { re = 'EasyPeteRef: (is back in the place of|has searched: back to the place of) ', label = "his search over, he goes back to his chair" },
+  "furniture: 00104C80 is on ",
+  "script: test aid calls GetSitting on EasyPeteRef = 3",
+]]
+
+[[scenario]]
+name = "resident-resettles-in-bed"
+source = "issue #2013 (packages.md): Easy Pete asleep under his Sleep package (in cell) is drawn into a fight with a spawned gecko, which gets him off his bed; the gecko is taken away (disabled) and, his search over anywhere in the cell, his package's place, he lies down again instead of standing in the room until the package's hours end [design; the original's bed case is not settled by the 2026-11-10 capture]"
+note = "Easy Pete is put by his bed (00176ACE) at 2:00 as in wake-to-talk; a gecko is set on him at 20 s and disabled at 26 s"
+areas = ["ai", "residents", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0,20:call:EasyPeteRef:PlaceAtMe:NVCrGecko:1:150:0,20.5:combat:EasyPeteRef:0xFF000000,20.6:combat:0xFF000000:EasyPeteRef,26:call:0xFF000000:Disable,75:call:EasyPeteRef:GetSleeping" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "2", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 80
+order = [[
+  { text = "furniture: 00104C80 is on 00176ACE", label = "Easy Pete asleep on his bed" },
+  { text = "furniture: 00104C80 gets off 00176ACE", label = "the fight gets him up" },
+  { re = 'EasyPeteRef: is back in the place of \S+: settles there again', label = "his search over in the cell, he settles again (#2013)" },
+  { text = "furniture: 00104C80 is on 00176ACE", label = "back on his bed" },
+  { text = "script: test aid calls GetSleeping on EasyPeteRef = 3", label = "asleep" },
+]]
+
+[[scenario]]
 name = "resident-furniture-refusal-retry"
 source = "issue #1506, docs/spec-notes/furniture.md §7: the test aid's settler is on Easy Pete's chair when his AI resumes; refused (in use), he waits, asks again (logged once) and sits soon after the settler got off"
 areas = ["ai", "residents", "furniture"]
@@ -2640,22 +2695,21 @@ expect = [
 ]
 
 [[scenario]]
-name = "goodbye-at-once"
-source = "owner's playtest 2026-11-05 against the original (issue #1606; docs/spec-notes/dialogue.md §5): choosing a Goodbye closes the menu at once and the actor finishes the line as the player walks away (Game::choose, Speech::farewell)"
-note = "Chet's conversation of talk-gestures-menu, left by Tab (the Goodbye choice) once he offers choices. Before #1606 the line was said in the dialogue screen and the conversation ended after it (its line ended before the conversation did); now the conversation ends first and the line ends in the world, not cut, with its subtitle drawn as a SayTo line's"
+name = "goodbye-choice-holds"
+source = "owner's playtest 2026-11-11 (issue #2157; docs/spec-notes/dialogue.md §5): the last line of a conversation holds the player like the lines before it. A chosen Goodbye line is said in the conversation and ends it when it is over (Game::choose, Game::finish_line); between #1606 and #2157 it closed the conversation at once and was finished in the world (this scenario was goodbye-at-once then)"
+note = "Chet's conversation of talk-gestures-menu, left by Tab (his Goodbye choice, VFreeformGoodspringsGoodspringsChetTopic001) once he offers choices: the line ends before the conversation does, and nothing is finished in the world"
 areas = ["dialogue"]
 paths = ["crates/fnv-game/src/dialogue.rs", "engine/nvf-play/src/dialogue.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "10:GSChetRef=leave" }
 args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12"]
 run_seconds = 40
 order = [[
-  { re = 'dialogue: choice \d+ made: .*, GSChetRef answers with ', label = "Tab picks Chet's Goodbye choice" },
-  { re = 'dialogue: conversation with GSChetRef ended \(goodbye, \d+ lines\)', label = "the conversation ends at once" },
-  { re = 'dialogue: the conversation ends on the Goodbye choice; GSChetRef finishes the line \S+ in the world', label = "and Chet goes on with the line in the world" },
-  { re = 'subtitle: Chet: \S', label = "its subtitle, as any line said in the world" },
-  { re = 'script: GSChetRef ended line ', label = "the line ends after the conversation, said to the end" },
+  { re = 'dialogue: choice \d+ made: .*, GSChetRef answers with 0x00104C42', label = "Tab picks Chet's Goodbye choice" },
+  { re = 'script: GSChetRef ended line 0x00104C42', label = "the line is said to the end in the conversation" },
+  { re = 'dialogue: conversation with GSChetRef ended \(goodbye, 2 lines\)', label = "and only then the conversation ends" },
 ]]
 expect = [
+  { re = 'finishes the line \S+ in the world', count = 0, label = "no line is finished in the world" },
   { re = 'script: GSChetRef cut line', count = 0, label = "the line is not cut" },
 ]
 
@@ -4746,12 +4800,12 @@ expect = [
 [[scenario]]
 name = "hello-shared-quest-order"
 source = "[hypothesis] #1895: Info Index places shared lines within the listing quest (docs/spec-notes/dialogue.md section 1.2); [design] crates/fnv-game/src/data.rs shared_lines preserves the Powder Ganger Random pool"
-note = "[design] Only issue-listed actor 000F0AF8 is handed to residents. Detection is disabled before approaching; the player alternates between offsets 900 and 100 units from that actor to rearm hellos (crates/fnv-ai/src/social.rs HELLO_DISTANCE / HELLO_REARM). Four approaches must choose eligible Random lines, never the later plain line. Seeded variation is checked in dialogue_data.rs; this scenario does not require distinct picks. [hypothesis] The approach timing allows each voice to finish; the setup needs its first runtime check."
+note = "[design] Only issue-listed actor 000F0AF8 is handed to residents. Detection is disabled before approaching; the player alternates between offsets 900 and 100 units from that actor to rearm hellos (crates/fnv-ai/src/social.rs HELLO_DISTANCE / HELLO_REARM), the approaches 65 s apart since #2156: an actor that said an idle line says no other for 60 s (IDLE_LINE_AGAIN). Four approaches must choose eligible Random lines, never the later plain line; a line said in the last 180 s is not said again, so the four are the pool's four lines. Seeded variation is checked in dialogue_data.rs; this scenario does not require distinct picks."
 areas = ["dialogue", "ai", "residents"]
-paths = ["crates/fnv-game/src/data.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/tests/dialogue.rs", "crates/fnv-game/tests/dialogue_data.rs", "docs/spec-notes/dialogue.md"]
+paths = ["crates/fnv-game/src/data.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/tests/dialogue.rs", "crates/fnv-game/tests/dialogue_data.rs", "docs/spec-notes/dialogue.md", "crates/fnv-ai/src/social.rs"]
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F0AF8"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close;8:player.moveto 000F0AF8 0 900 0;8.5:close;15:player.moveto 000F0AF8 0 100 0;15.5:close;28:player.moveto 000F0AF8 0 900 0;28.5:close;35:player.moveto 000F0AF8 0 100 0;35.5:close;48:player.moveto 000F0AF8 0 900 0;48.5:close;55:player.moveto 000F0AF8 0 100 0;55.5:close;68:player.moveto 000F0AF8 0 900 0;68.5:close;75:player.moveto 000F0AF8 0 100 0;75.5:close" }
-run_seconds = 88
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close;8:player.moveto 000F0AF8 0 900 0;8.5:close;15:player.moveto 000F0AF8 0 100 0;15.5:close;73:player.moveto 000F0AF8 0 900 0;73.5:close;80:player.moveto 000F0AF8 0 100 0;80.5:close;138:player.moveto 000F0AF8 0 900 0;138.5:close;145:player.moveto 000F0AF8 0 100 0;145.5:close;203:player.moveto 000F0AF8 0 900 0;203.5:close;210:player.moveto 000F0AF8 0 100 0;210.5:close" }
+run_seconds = 223
 expect = [
   { re = 'ai \[.*\] 000F0AF8: says hello to the player .* line 0x(00151A7B|00151A7A|0015694C|0015694D)\b', min = 4, label = "four approaches select from the eligible Random pool" },
 ]
@@ -14187,6 +14241,33 @@ expect = [
 ]
 
 [[scenario]]
+name = "npc-speed-mult-changes"
+source = "LootJunkieAzza/NVForever#2118: a script's SetAV SpeedMult (or ModAV, an effect, damage) on an NPC changes its speed, as it does the player's (docs/spec-notes/actors.md §8.10, People and creatures)"
+note = "GoodspringsSettler03Ref is put 150 units from the player at 6 s and follows it (DefaultFollowPlayerFar) from 7 s; SetAV SpeedMult 200 at 9 s, GetRunSpeed at 11 s; put 2,500 units off at 12 s so it runs back; SetAV SpeedMult 50 at 15 s, GetRunSpeed at 17 s; SetAV SpeedMult 100 at 18 s, put 2,500 units off again at 19 s so it runs back, SetAV SpeedMult 0 at 20 s with the walk under way, held eleven seconds (longer than the stuck rule took to move it on before the fix: four detours, then a skip, about 7.4 s), SetAV SpeedMult 100 at 31 s and it runs on. It wears no armour that slows it, so its run is 344 × Speed Mult / 100 (688, then 172); the ranges allow the medium and heavy armour shares. Before the fix its speeds were given once from the record's 100 and GetRunSpeed read 0. At Speed Mult 0 it stands on its walk near the player, not counted as stuck: before the review fix of #2143 the physics mover's stuck rule kept the walk's first speed, detoured it on the spot after about a second and moved it on along its path (SKIP_AHEAD) about every second; only the settler lives by its packages here (--npc-packages), so no actor may be moved on along its path"
+areas = ["actors", "ai"]
+paths = ["engine/nvforever/src/creature_pace.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/follow.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:moveto:GoodspringsSettler03Ref:player:150:0:0,7:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultFollowPlayerFar,9:set_av:GoodspringsSettler03Ref:SpeedMult:200,11:call:GoodspringsSettler03Ref:GetRunSpeed,12:moveto:GoodspringsSettler03Ref:player:2500:0:0,15:set_av:GoodspringsSettler03Ref:SpeedMult:50,17:call:GoodspringsSettler03Ref:GetRunSpeed,18:set_av:GoodspringsSettler03Ref:SpeedMult:100,19:moveto:GoodspringsSettler03Ref:player:2500:0:0,20:set_av:GoodspringsSettler03Ref:SpeedMult:0,31:set_av:GoodspringsSettler03Ref:SpeedMult:100" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--hour", "12", "--npc-packages", "GoodspringsSettler03Ref", "--no-voice", "--no-messages"]
+run_seconds = 38
+order = [[
+  { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 200', label = "SetAV SpeedMult 200" },
+  { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks \d+ and runs (?P<n>\d+) units/s \(Speed Mult 200 now, 100 before', range = [580, 690], label = "its speeds given again at 200" },
+  { re = 'test aid calls GetRunSpeed on GoodspringsSettler03Ref = (?:Num\()?(?P<n>[\d.]+)', range = [580, 690], label = "GetRunSpeed reads the doubled run" },
+  { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 50', label = "SetAV SpeedMult 50" },
+  { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks \d+ and runs (?P<n>\d+) units/s \(Speed Mult 50 now, 200 before', range = [140, 175], label = "its speeds given again at 50" },
+  { re = 'test aid calls GetRunSpeed on GoodspringsSettler03Ref = (?:Num\()?(?P<n>[\d.]+)', range = [140, 175], label = "GetRunSpeed reads the halved run" },
+  { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 0\b', label = "SetAV SpeedMult 0 while it runs back" },
+  { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks 0 and runs 0 units/s \(Speed Mult 0 now, 100 before', label = "its speeds given again at 0" },
+  { re = 'actor [0-9A-F]{8} stands on its walk at .*: its speed is 0, not stuck', label = "it stands on its walk under physics, not counted as stuck" },
+  { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 100', label = "SetAV SpeedMult 100 again" },
+  { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks \d+ and runs (?P<n>\d+) units/s \(Speed Mult 100 now, 0 before', range = [290, 345], label = "its speeds given again at 100" },
+]]
+expect = [
+  { re = 'creature pace summary: .*speeds given again for a new Speed Mult (?P<n>\d+) times', range = [2, 10000], label = "counted in the summary" },
+]
+forbid = [{ re = 'actor [0-9A-F]{8} stuck at .*moved on along its path', label = "an actor moved on along its path (the settler standing at Speed Mult 0, or slowed, counted as stuck: the maintainer's review of #2143)" }]
+
+[[scenario]]
 name = "pickpocket-steal"
 source = "ESM full audit gap 6 (docs/spec-notes/pickpocket.md): sneaking, E on an NPC shows Steal and opens its pocket; a take rolls against the chance (GECK wiki Pickpocket) and is either unseen or caught"
 note = "Chet in the general store is held where he stands (SetRestrained 1 at 0.5 s: left to his sandbox package he walked off to his broom and FACE put the player on another floor height than him, with nothing under the crosshair; #951) and given two Stimpaks at 3 s; the player stands at him (NEAR), sneaks at 4 s, is put in front of him again at 7 s (FACE), presses E at 8 s, takes the first row at 10 s (Enter; his .357 rounds are a stack, so a second Enter answers How many?) and presses E again at 12 s (closing the menu, or, when caught, hearing that he has already caught the player)"
@@ -14219,6 +14300,27 @@ order = [[
   { re = 'crime: murder against GSChetRef 0x00104C79; seen by \[.*\]; turned on the player: \[\]', label = "the kill is the player's murder; nobody turns" },
 ]]
 forbid = [{ text = "crime: the player is now an enemy of", label = "no faction turns on the player" }]
+
+[[scenario]]
+name = "pickpocket-live-item"
+source = "#1640 item 5, first part (docs/spec-notes/pickpocket.md §5): a planted explosive reserves its unit in the pocket (Extra::live); the victim cannot equip, drop or lose it to RemoveItem; its blast takes exactly that unit"
+note = "[design] pickpocket-plant-dynamite's placement (Chet restrained, Sneak 100, one Dynamite placed at 10 s, the menu closed at 11 s). The console then tries Chet's EquipItem, Drop and RemoveItem on the Dynamite during the fuse and counts it (still 1), closes, and counts again after the blast (0). The live check line reads the row from the open pocket menu, listed again as the dynamite is armed (pickpocket::arm_given); the refusal of a take is the unit tests an_explosive_armed_in_the_open_pocket_is_listed_and_refused_at_once and a_live_explosive_is_a_row_of_its_own_that_stays."
+areas = ["activate", "menus", "crime"]
+paths = ["engine/nvf-play/src/pickpocket.rs", "crates/fnv-game/src/pickpocket.rs", "crates/fnv-sim/src/inventory.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_CONSOLE = "2:player.setav sneak 100;2.3:close;11.3:GSChetRef.EquipItem WeapNVDynamite;11.4:GSChetRef.Drop WeapNVDynamite 1;11.5:GSChetRef.RemoveItem WeapNVDynamite 1;11.7:GSChetRef.GetItemCount WeapNVDynamite;12:close;15:GSChetRef.GetItemCount WeapNVDynamite;15.3:close", NVF_PLAY_TEST_SCRIPT = "0.5:call:GSChetRef:SetRestrained:1,6:call:player:RemoveAllItems,6.5:call:player:AddItem:WeapNVDynamite:1", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,9.5:left,10:enter,11:e" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'pickpocket live check: Dynamite on .*0x00104C79: row "Dynamite \(Armed\) x1", reserved=1 ordinary=0', count = 1, label = "the planted unit is reserved, and the open pocket lists it as its own (Armed) row" },
+  { re = "pickpocket: Dynamite explodes in 0x00104C79's pocket: it dies", count = 1, label = "one blast" },
+]
+order = [[
+  { re = 'pickpocket: planted Dynamite x1 \(live, explosion', label = "the dynamite goes live in his pocket" },
+  { re = 'pickpocket live check: Dynamite on .*0x00104C79: row "Dynamite \(Armed\) x1", reserved=1 ordinary=0', label = "its unit is reserved" },
+  { re = 'console: GetItemCount on GSChetRef >> 1\.00', label = "Chet's EquipItem, Drop and RemoveItem left it in his pocket" },
+  { re = "pickpocket: Dynamite explodes in 0x00104C79's pocket: it dies", label = "it goes off and kills him" },
+  { re = 'console: GetItemCount on GSChetRef >> 0\.00', label = "the blast took it" },
+]]
 
 [[scenario]]
 name = "ragdoll-under-a-box"
@@ -21765,6 +21867,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-off-sleeve-first-person"
+source = "#2173 (docs/spec-notes/actors.md §1.2): with Use Pip-Boy off and the body shown in first person the owner saw the outfit's left forearm sleeve floating ahead of the view while aiming: only `PipBoyOn…` was a first-person shape, so the arms rig drew no forearm sleeve and the third-person body kept `PipBoyOff…` where its hidden arm was"
+note = "the player wears the Vault 21 Jumpsuit (VaultSuit21 0x00104184) in Goodsprings with --first-person-body; the Pip-Boy comes off at 3 s (the aid's frame=screen, as the Use Pip-Boy switch), the 10mm pistol (0x0000434F) is drawn at 5 s and aimed 7-9.5 s; frames at 4.5 s (lowered), 6.5 s (drawn) and 8.5 s (aimed): a blue left forearm on the arm, nothing in the air"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/first_person.rs", "crates/fnv-actor/src/mesh.rs"]
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00104184,0000434F", NVF_PLAY_TEST_PIPBOY = "3:frame=screen", NVF_PLAY_TEST_CONTROL = "5:weapon,7:aim,9.5:aim", NVF_PLAY_TEST_LOOK = "4:0:-30", NVF_PLAY_TEST_SHOTS = "4.5:pipboy_off_sleeve_lowered.png,6.5:pipboy_off_sleeve_drawn.png,8.5:pipboy_off_sleeve_aimed.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "--first-person-body"]
+run_seconds = 10
+expect = [
+  { re = 'player body: armour drawn \["VaultSuit21"', label = "the Pip-Boy and its glove are off" },
+  { re = 'player First rig part armor \S+ \S*vaultsuit\S*: shapes \[[^\]]*"PipBoyOff[^\]]*\]', label = "without a Pip-Boy the arms rig draws the suit's PipBoyOff sleeve" },
+  { re = 'player First rig part armor \S+ \S*vaultsuit\S*: shapes \[[^\]]*"PipBoyOn[^\]]*\]', label = "with it (the first seconds) the PipBoyOn sleeve" },
+]
+
+[[scenario]]
 name = "pipboy-glove-leather"
 source = "#1067 (docs/spec-notes/actors.md §2.3): an outfit's glove addon (ArmorLeather's ArmorLeatherList: LeatherArmorGloveR, LeatherArmorGloveL) was drawn together with the always-worn Pip-Boy Glove's hand; a worn item whose every slot another item's addons take is now left out"
 note = "the player wears Leather Armor (ArmorLeather 0x00020423) in Goodsprings; third person, the camera turned to the player's front at 6 s, a frame at 7 s (one left hand, the leather glove)"
@@ -25081,6 +25198,50 @@ expect = [
 forbid = [{ text = "the server was asked to delete", label = "a deletion reported done with no server" }]
 
 [[scenario]]
+name = "report-form-unreachable"
+source = "#2151, docs/design/player-reports.md section 3.3: Report a bug at the pause menu's bottom left opens the form for a player who has not opted in; it takes the screenshot, writes a save for the report and, with no server answering, says so and keeps the form (engine/nvforever/src/reports/form.rs)"
+areas = ["reports", "pause"]
+paths = ["engine/nvforever/src/reports/form.rs", "engine/nvforever/src/reports/upload.rs", "engine/nvf-play/src/pause.rs"]
+# Port 9 on this machine refuses connections: never the project's server. No NVF_REPORTS:
+# the form needs no opt-in. The pause comes after the start's DLC message boxes, which
+# hold saves.
+env = { NVFOREVER_HOME = "report-form-home", NVF_REPORTS_ENDPOINT = "http://127.0.0.1:9", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "14:26", NVF_PLAY_TEST_PAUSE_MENU = "15:point:report,15.3:press,15.5:release", NVF_PLAY_TEST_REPORT_FORM = "The door in Goodsprings does not open|save|contact=tester|category=differs" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 32
+order = [[
+  { text = "pause menu: report a bug", label = "Report a bug clicked" },
+  { text = "report form: open (", label = "the form opens" },
+  { text = "test aid NVF_PLAY_TEST_REPORT_FORM: the form filled and sent", label = "the aid sends it" },
+  { text = "report form: save written for the report", label = "a save written for it" },
+  { text = "report form: sending to http://127.0.0.1:9 (differs, description 37 characters, contact,", label = "its fields" },
+  { text = "report form: could not send: No answer from the server", label = "no server: said so" },
+]]
+expect = [
+  { text = ", Screenshot ", label = "the form opens with the screenshot" },
+  { text = "sends to http://127.0.0.1:9)", label = "to the test server" },
+  "run log: the game exited normally",
+]
+forbid = [
+  { text = "report form: sent, reference", label = "a report sent with no server" },
+  { text = "reports: on, sending to", label = "the form turned reports on" },
+]
+
+[[scenario]]
+name = "report-form-not-from-test-runs"
+source = "#2151, docs/design/player-reports.md section 8: a test run without NVF_REPORTS_ENDPOINT never sends a hand report; the form opens and says why (engine/nvforever/src/reports/form.rs)"
+areas = ["reports", "pause"]
+paths = ["engine/nvforever/src/reports/form.rs"]
+env = { NVFOREVER_HOME = "report-form-off-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "6:14", NVF_PLAY_TEST_PAUSE_MENU = "7:point:report,7.3:press,7.5:release", NVF_PLAY_TEST_REPORT_FORM = "a test" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  "report form: open (",
+  "cannot send: This run does not send reports (a test aid drives this run",
+  "run log: the game exited normally",
+]
+forbid = [{ text = "report form: sending to", label = "a hand report sent from a test run" }]
+
+[[scenario]]
 name = "reports-snapshot-on-panic"
 source = "#2055, docs/design/player-reports.md sections 4.2 and 4.3: with reports on, a panic writes the flight recorder and the world snapshot beside its crash report (engine/nvforever/src/reports/snapshot.rs, crash.rs)"
 areas = ["reports", "crash"]
@@ -25107,3 +25268,124 @@ expect = [
   { re = 'events log: (\d+) events written', range = [20, 1000000], label = "the run's events were written to it" },
   "run log: the game exited normally",
 ]
+
+[[scenario]]
+name = "script-sandbox-stays"
+source = "issue #2012: a Sandbox package has no done state, so a script-added one is not done on arrival and stays until it is removed or replaced (PackageType::has_done_state, Game::package_goal_met)"
+note = "the original's side, captured 2026-11-10 (issue #2012): GSChetRef given DefaultSandboxEditorLocation256 by AddScriptPackage in his store at 10:00 kept it for 1.5 game hours with no OnPackageDone. Here he is given it at 4 s and asked at 30 s and 125 s whether it is still his current package; before the fix it was dropped at the first periodic choice after he arrived"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:GSChetRef:AddScriptPackage:DefaultSandboxEditorLocation256,30:call:GSChetRef:GetIsCurrentPackage:DefaultSandboxEditorLocation256,125:call:GSChetRef:GetIsCurrentPackage:DefaultSandboxEditorLocation256" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "10", "--no-voice", "--no-messages", "--npc-packages", "GSChetRef"]
+run_seconds = 130
+order = [[
+  { text = "GSChetRef: package DefaultSandboxEditorLocation256", label = "the script package is taken up" },
+  { text = "script: test aid calls GetIsCurrentPackage on GSChetRef = 1", label = "still his package at 30 s" },
+  { text = "script: test aid calls GetIsCurrentPackage on GSChetRef = 1", label = "and at 125 s, two minutes on" },
+]]
+
+[[scenario]]
+name = "script-follow-stays"
+source = "issue #2012: a Follow package has no done state, so a script-added one is not done when it begins and stays (PackageType::has_done_state, Game::package_goal_met)"
+note = "GoodspringsSettler03Ref is put 300 units from the player and given DefaultFollowPlayerFar at 4 s; at 40 s it is asked whether that is still its package. Before the fix Follow met its goal when it began and the script package was dropped at the next periodic choice"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:300:0:0,4:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultFollowPlayerFar,40:call:GoodspringsSettler03Ref:GetIsCurrentPackage:DefaultFollowPlayerFar" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 45
+order = [[
+  { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
+  { text = "script: test aid calls GetIsCurrentPackage on GoodspringsSettler03Ref = 1", label = "still its package at 40 s" },
+]]
+
+[[scenario]]
+name = "tutorial-close-hint-pad"
+source = "issue #1904: the tutorial menu's Close hint is in the usual button style and follows the input device, \"Close E)\" with the keyboard and \"Close B)\" with a controller, as in the original (owner's play); Next and Previous the same way (tutorial_menu.rs hints, docs/spec-notes/tutorial-menu.md)"
+note = "Healing Limbs opens at 3 s with the keyboard (the aid closes it after 2 s); the pause menu at 6 s picks Controller at 7 s; the same tutorial at 11 s then names the controller's buttons. Before the fix both read \"[A]\", \"[S]\", \"[E]\""
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/tutorial_menu.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVFOREVER_HOME = "tutorial-close-hint-pad-home", NVF_PLAY_TEST_SCRIPT_MENUS = "2", NVF_PLAY_TEST_SCRIPT = "3:call:-:ShowTutorialMenu:0x00072358,11:call:-:ShowTutorialMenu:0x00072358", NVF_PLAY_TEST_PAUSE = "6:9", NVF_PLAY_TEST_SETTINGS = "7:device:Controller" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens with the keyboard" },
+  { re = 'tutorial menu: hints [^,]+ A\), [^,]+ S\), [^,]+ E\)', label = "its hints name the keys: Close E)" },
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens again" },
+  { re = 'tutorial menu: hints [^,]+ RT\), [^,]+ LT\), [^,]+ B\)', label = "its hints name the buttons: Close B)" },
+]]
+expect = [
+  { re = 'tutorial menu: hints .*\[', max = 0, label = "no hint in square brackets" },
+]
+
+[[scenario]]
+name = "house-screen-never-turns"
+source = "#2150 (owner's playtest 2026-11-11): Mr. House's screen turned when a conversation ended and in a fight. An Immobile creature with a Turning Speed of 0 never turns (fnv-ai carry.rs fix_heading and face, nvforever residents.rs never_turns and the drawn aim heading); turrets (Turning Speed 30 and more) turn as before (helios-ceiling-turrets)"
+note = "Lucky38World (the penthouse): Lucky38MrHouseREF (0x001264C5, base MrHouse 0x00125BB5: Immobile, TNAM 0) placed at (-1039, 5335, 18949) facing 135 degrees; the player due south of it (a turn to the player would read 180), the console sets it on the player and reads its angle before and after"
+areas = ["combat", "creatures", "dialogue"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/social.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "9:Lucky38MrHouseREF.getangle z;10:Lucky38MrHouseREF.startcombat player;16:Lucky38MrHouseREF.isincombat;16.5:Lucky38MrHouseREF.getangle z;17:close" }
+args = ["--play", "--world", "Lucky38World", "--pos=-1039,5035,18990", "--heading", "0", "--no-voice"]
+run_seconds = 21
+expect = [
+  { re = 'ai: Lucky38MrHouseREF never turns \(flagged Immobile, Turning Speed 0\)', label = "the screen is marked as never turning" },
+  { re = 'console: GetAngle on Lucky38MrHouseREF >> 135\.00', min = 2, label = "its heading is the placed 135 degrees before the fight and 6 s into it" },
+]
+
+[[scenario]]
+name = "dpad-points-pad"
+source = "issue #1910: with a controller, D-pad left removes a point and right adds one on the SPECIAL page and the level-up skills page, as in the original (owner's play on a controller); the D-pad reaches the menus as arrow keys with no keyboard event (pad.rs sideways, menu_keys)"
+note = "Controller chosen in the settings at 2 s. The SPECIAL page (AddSPECIALPoints 1) at 8 s: D-pad right spends the point on the selected attribute, left takes it back, right spends it again, Done at 13 s. The level-up menu at 16 s: D-pad right twice raises the selected skill, left lowers it once. Before the fix none of the D-pad presses changed a value"
+areas = ["chargen", "levelup", "menus", "controller"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/levelup.rs", "engine/nvf-play/src/chargen.rs"]
+env = { NVFOREVER_HOME = "dpad-points-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "8:call:-:AddSPECIALPoints:1", NVF_PLAY_TEST_KEYS = "10:pad-D-Pad Right,11:pad-D-Pad Left,12:pad-D-Pad Right,18:pad-D-Pad Right,19:pad-D-Pad Right,20:pad-D-Pad Left", NVF_PLAY_TEST_CHARGEN = "13:done", NVF_PLAY_TEST_LEVELUP = "16:advance" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  { text = "test aid: real input Pad(DPadLeft) pressed", count = 2, label = "two D-pad left presses" },
+  { text = "test aid: real input Pad(DPadRight) pressed", count = 4, label = "four D-pad right presses" },
+]
+order = [[
+  { re = 'chargen: attributes menu open', label = "the SPECIAL page opens" },
+  { re = 'chargen: \w+ raised; 0 points left', label = "D-pad right adds a point" },
+  { re = 'chargen: \w+ lowered; 1 points left', label = "D-pad left takes it back" },
+  { re = 'chargen: \w+ raised; 0 points left', label = "D-pad right spends it again" },
+  { re = 'chargen: done', label = "and the page is done" },
+  { re = 'levelup: menu open, level 2, \d+ skill points', label = "the level-up menu opens" },
+  { re = 'levelup: (\w+ ?)+ (\d+) -> \d+; \d+ points left', label = "D-pad right adds a skill point" },
+  { re = 'levelup: (\w+ ?)+ \d+ -> \d+; \d+ points left', label = "and another" },
+  { re = 'levelup: (\w+ ?)+ \d+ -> \d+; \d+ points left', label = "D-pad left takes one back" },
+]]
+
+[[scenario]]
+name = "melee-chases-backing-player"
+source = "#2163 (owner's playtest 2026-11-11): melee fighters and creatures never hit a player who backed away. The chase went to where detection last measured the target; a feral ghoul stopped there and set off again 19 times in 7 s without a blow. A detected target is chased where it is, the chaser keeps its pace (fnv-ai alert.rs: keeps_way, lead, Drift), and a creature's attack on the run counts the target's own movement (nvforever npc_combat.rs closing_speed)"
+note = "Searchlight Airport runway (as grenade-launcher-arc; the radscorpions about killed first), the player 2,600 units along it looking on along it (heading 75); a feral ghoul (VCrTier1FeralGhoul1A, runs 384 units/s) put 600 units in front of the player at 3.2 s and set on the player; from 6 s to 14 s the player runs backwards (272.8 units/s). On main before the change (2026-11-11, the same run with 7 s of backing away): 2 blows before the player moved, none while it did"
+areas = ["combat", "creatures", "ai"]
+paths = ["crates/fnv-ai/src/alert.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close", NVF_PLAY_TEST_LOOK = "2:75:0", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VCrTier1FeralGhoul1A:1,3.2:moveto:0xFF000000:player:580:155:0,3.5:combat:0xFF000000:player", NVF_PLAY_TEST_MOVE = "6:-1:0,14:0:0" }
+args = ["--cell", "Goodsprings", "--pos=39511,-116487,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { text = "test aid: movement keys forward -1 right 0", label = "the player backs away" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [7, 16], label = "the ghoul keeps striking while the player backs away: about a blow a second over 11 s of fighting (3 without the change)" },
+  { re = 'npc combat summary.*the player was hit (?P<n>\d+) times', range = [6, 16], label = "and its blows land" },
+  { re = 'VCrTier1FeralGhoul1A 0xFF000000: (runs at|stops and faces) the player', max = 12, label = "it keeps the player's pace instead of stopping and setting off again (19 pairs in 7 s without the change)" },
+]
+
+[[scenario]]
+name = "dam-panel-prompt"
+source = "#2160 (docs/spec-notes/cells-refs.md §3): Hoover Dam's control panel, a talking activator with no name and the Activation Prompt 'Activate', is offered under the crosshair by its prompt alone, and E runs its script (where the override chip is installed)"
+note = "VHDMainControlPanel1REF 0x00153FCE in HooverDamIntPowerPlant01b; its trigger's OnLoad marks it destroyed until the ending quests run, so the aid clears that at 8 s; E at 12 s"
+areas = ["activation", "hud"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00153FCE", NVF_PLAY_TEST_SCRIPT = "8:call:0x00153FCE:SetDestroyed:0", NVF_PLAY_TEST_ACTIVATE = "12" }
+args = ["--cell", "HooverDamIntPowerPlant01b", "--play", "--no-voice"]
+run_seconds = 20
+order = [[
+  "script: test aid calls SetDestroyed on …",
+  { re = 'target 0x00153FCE  \(Activate\)', label = "the nameless panel under the crosshair" },
+  { re = 'reticle: prompt "Activate" on ""', label = "its prompt is the XATO, with no name" },
+  { re = 'activate 0x00153FCE  \(Activate\): its script.s OnActivate ran', label = "E runs the panel's script" },
+  { text = 'message box shown: This control box is connected to the main computer banks at Hoover Dam. ["Leave it alone.", "Install the override chip."]', label = "the box offers to install the override chip" },
+]]

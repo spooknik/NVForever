@@ -26,10 +26,29 @@ jobs:
             ':(icase)*.egt' ':(icase)*.tri' ':(icase)*.lip' ':(icase)*.ogg' \
             ':(icase)*.wav' ':(icase)*.mp3' ':(icase)*.fos' ':(icase)*.spt' \
             ':(icase)*.bik' ':(icase)*.fnt' ':(icase)*.sdp' ':(icase)*.nam' \
-            ':(icase)*.exe' ':(icase)*.dll' \
-            'goldens/*' 'parity-lab/goldens/*' '*lab.local.json')
+            ':(icase)*.exe' ':(icase)*.dll' ':(icase)*.bundle' \
+            'goldens/*' 'parity-lab/goldens/*' '*lab.local.json' '*baseline.json' \
+            ':(icase)*nvforever-*.png' ':(icase)*nvf-screenshot-*.png' 'pr-pictures/*')
           if [ -n "$found" ]; then
-            echo "::error::These files must not be committed (game data, goldens or binaries):"
+            echo "::error::These files must not be committed (game data, goldens, lab baselines, screenshots or binaries):"
+            echo "$found"
+            exit 1
+          fi
+      # LEGAL.md promises no screenshots or frames rendered from game data, and a texture
+      # taken out of an archive can be saved as any image type. Images are refused
+      # everywhere except the app's own icons and the vendored Bevy sources; add a new
+      # image of NVForever's own here by its path, in the pull request that adds it.
+      - name: No images outside the allow-list
+        run: |
+          found=$(git ls-files -- \
+            ':(icase)*.png' ':(icase)*.tga' ':(icase)*.bmp' ':(icase)*.jpg' \
+            ':(icase)*.jpeg' ':(icase)*.gif' ':(icase)*.webp' ':(icase)*.tif' \
+            ':(icase)*.tiff' ':(icase)*.hdr' ':(icase)*.exr' ':(icase)*.ico' \
+            ':(exclude)engine/nvforever/assets/icon.png' \
+            ':(exclude)engine/nvforever/assets/nvforever.ico' \
+            ':(exclude)engine/vendor/*')
+          if [ -n "$found" ]; then
+            echo "::error::Images may be screenshots or textures from the game; only the allow-list in game-data-guard.yml is accepted:"
             echo "$found"
             exit 1
           fi

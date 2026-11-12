@@ -105,7 +105,8 @@ pub fn is_crash(end: &str) -> bool {
     matches!(end, "panic" | "native")
 }
 
-/// A `multipart/form-data` body: `(field name, file name, content type, bytes)` parts.
+/// A `multipart/form-data` body: `(field name, file name, content type, bytes)` parts; a
+/// part with no file name is a text field (the hand report's description, form.rs).
 /// Returns the body and its content type (with the boundary).
 pub fn multipart(parts: &[(&str, &str, &str, &[u8])]) -> (Vec<u8>, String) {
     // A boundary that cannot be in the parts: long, and checked.
@@ -115,7 +116,11 @@ pub fn multipart(parts: &[(&str, &str, &str, &[u8])]) -> (Vec<u8>, String) {
     }
     let mut body = Vec::new();
     for (name, file, ctype, bytes) in parts {
-        body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{file}\"\r\nContent-Type: {ctype}\r\n\r\n").as_bytes());
+        if file.is_empty() {
+            body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes());
+        } else {
+            body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{file}\"\r\nContent-Type: {ctype}\r\n\r\n").as_bytes());
+        }
         body.extend_from_slice(bytes);
         body.extend_from_slice(b"\r\n");
     }
@@ -295,6 +300,18 @@ pub(crate) mod http {
         agent().delete(url).header("X-NVF-Build", env!("CARGO_PKG_VERSION")).header("X-NVF-Delete-Token", delete_token).call().ok().map(|r| r.status().as_u16())
     }
 
+    /// `POST` returning the answer's body too (a hand report's reference, form.rs); the
+    /// delete token only with an install ID.
+    pub fn post_for(url: &str, body: &[u8], content_type: &str, delete_token: Option<&str>) -> Option<(u16, Vec<u8>)> {
+        let mut req = agent().post(url).header("X-NVF-Build", env!("CARGO_PKG_VERSION"));
+        if let Some(t) = delete_token {
+            req = req.header("X-NVF-Delete-Token", t);
+        }
+        let mut r = req.content_type(content_type).send(body).ok()?;
+        let status = r.status().as_u16();
+        Some((status, r.body_mut().with_config().limit(64 * 1024).read_to_vec().unwrap_or_default()))
+    }
+
     pub fn post(url: &str, body: &[u8], content_type: &str, delete_token: &str) -> Option<u16> {
         agent()
             .post(url)
@@ -314,6 +331,9 @@ pub(crate) mod http {
         None
     }
     pub fn post(_: &str, _: &[u8], _: &str, _: &str) -> Option<u16> {
+        None
+    }
+    pub fn post_for(_: &str, _: &[u8], _: &str, _: Option<&str>) -> Option<(u16, Vec<u8>)> {
         None
     }
     pub fn delete(_: &str, _: &str) -> Option<u16> {
@@ -374,6 +394,14 @@ mod tests {
         assert_eq!(end_of(br#"{"end":"native","x":1}"#).as_deref(), Some("native"));
         assert!(is_crash("panic") && is_crash("native") && !is_crash("clean") && !is_crash("unknown"));
         assert_eq!(end_of(b"not json"), None);
+    }
+
+    #[test]
+    fn a_part_without_a_file_name_is_a_text_field() {
+        let (body, _) = multipart(&[("description", "", "", b"the door")]);
+        let text = String::from_utf8(body).unwrap();
+        assert!(text.contains("name=\"description\"\r\n\r\nthe door\r\n"), "{text}");
+        assert!(!text.contains("filename"));
     }
 
     #[test]

@@ -51,7 +51,9 @@ These come from [LEGAL.md](LEGAL.md), which has the full reasoning.
 6. **Commit no game data.** That means no `.esm`/`.esp`/`.bsa`, meshes, textures, audio,
    saves or executables, and no screenshots or frames rendered from game data. Goldens,
    dumps and captures made from your copy stay in a private folder outside the
-   repository. CI checks this (`game-data-guard`), but don't rely on it.
+   repository. CI checks this (`game-data-guard`), but don't rely on it. It refuses
+   every image except the app's own icons and the vendored Bevy files; an image of
+   NVForever's own is added to its allow-list by path, in the pull request that adds it.
 7. **Don't write into the game.** The NVForever program never writes into the game folder
    or `Documents\My Games\FalloutNV`. See
    [docs/design/install-layout.md](docs/design/install-layout.md).

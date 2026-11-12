@@ -22,7 +22,8 @@
 //!   the whole body that would stop their legs [design]. The draw cycle is
 //!   `fnv_actor::weapon::WeaponAnim`, as for people's weapons (`weapons.rs`), on the same
 //!   blend layers 2 and 3 (a creature has no `WeaponHold`).
-//! - **When**: `fnv_game` says the creature is alerted (a combat state, SetAlert), as
+//! - **When**: `fnv_game` says the creature stands alerted (a combat state, SetAlert:
+//!   `Game::alert_stance`), as
 //!   `alert.rs` draws people's weapons; and while it warns the player
 //!   (`Game::warning_to`, not alerted), drawn once and held [owner decision 2026-10-25:
 //!   the original's warning gecko drew and put away its stance every 2 s (capture
@@ -197,7 +198,9 @@ fn alerted(script: Option<Res<ScriptState>>, mut q: Query<(&ActorRig, &mut Creat
         let id = FormId(rig.reference);
         // As `detection.rs` names actors: the base's editor ID from the entity's name.
         let label = || format!("{} {:08X}", name.and_then(|n| n.as_str().split_whitespace().nth(2)).unwrap_or(""), rig.reference).trim().to_string();
-        let mode = if game.is_alerted(id) {
+        // Alerted or in a combat state (`Game::alert_stance`), not GetIsAlerted alone
+        // (#2121): a fighting creature keeps its alerted stance.
+        let mode = if game.alert_stance(id) {
             Mode::Alerted
         } else if game.draws_weapon(id) {
             Mode::Warning

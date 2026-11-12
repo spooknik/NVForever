@@ -165,7 +165,8 @@ impl Ai {
                     let mut rounds = Vec::new();
                     for (item, extra, n) in inv.groups() {
                         match forms.item(item).map(|i| i.kind) {
-                            Some(ItemKind::Weapon) if n > 0 && !extra.broken() => {
+                            // Not a live unit (a planted explosive, `Extra::live`, #1640).
+                            Some(ItemKind::Weapon) if n > 0 && !extra.broken() && !extra.live => {
                                 let c = best.entry(item).or_insert(0.0);
                                 *c = c.max(extra.condition_or_whole());
                             }

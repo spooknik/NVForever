@@ -1184,8 +1184,8 @@ fn waited(g: &Game, st: &RunState, obs: &mut Map<String, Json>, found: bool, sto
 /// the input has to close it. A Goodbye greeting said at the player opens no
 /// conversation (`Game::start_dialogue`): the wait goes on until its line has ended and
 /// its end script has run, as the player hears it out (issue #1114). The same for a
-/// chosen Goodbye line, which closes its conversation at once and is said on as a
-/// farewell (`Game::choose`, `Speech::farewell`).
+/// chosen Goodbye line under `GameConfig::goodbye_at_once`, which closes its
+/// conversation at once and is said on as a farewell (`Game::choose`, `Speech::farewell`).
 fn wait_talk(g: &mut Game, max: u64) -> Result<(), String> {
     for _ in 0..=max {
         match &g.dialogue {

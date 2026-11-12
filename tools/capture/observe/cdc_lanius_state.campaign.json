@@ -1,0 +1,105 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "cdc_lanius_state",
+ "title": "Issue #2155: what the owner's save nvfLanius holds (where the player and Lanius are, the final battle's variables), read before choosing how to stage the fight. Nothing is changed.",
+ "save": "nvfLanius",
+ "defaults": {
+  "fields": "full",
+  "every": 2,
+  "depth": 2,
+  "settle_frames": 120,
+  "track": [
+   "VLegionLegateLaniusREF"
+  ],
+  "extra_header": [
+   [
+    "battle_state",
+    "num",
+    "player.GetAV Variable01"
+   ],
+   [
+    "showdown_start",
+    "num",
+    "player.GetAV Variable02"
+   ],
+   [
+    "fights_player",
+    "num",
+    "player.GetAV Variable03"
+   ],
+   [
+    "legate_runs",
+    "num",
+    "player.GetAV Variable04"
+   ],
+   [
+    "legate_attacks",
+    "num",
+    "player.GetAV Variable05"
+   ],
+   [
+    "start_convo",
+    "num",
+    "player.GetAV Variable06"
+   ],
+   [
+    "menu",
+    "num",
+    "MenuMode"
+   ]
+  ],
+  "close_menus_after": 0
+ },
+ "sessions": [
+  {
+   "name": "state",
+   "hours": 0.05,
+   "timed": [
+    {
+     "after": 10,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fV"
+      ],
+      "names": [
+       "vHDBattleController",
+       "VLegateShowdown",
+       "VLegionLegateLaniusREF"
+      ],
+      "lines": [
+       "let fV := GetVariable \"iBattleState\" {0}",
+       "player.SetAV Variable01 fV",
+       "let fV := GetVariable \"ShowdownStart\" {1}",
+       "player.SetAV Variable02 fV",
+       "let fV := GetVariable \"LegateFightsPlayer\" {1}",
+       "player.SetAV Variable03 fV",
+       "let fV := GetVariable \"LegateRuns\" {1}",
+       "player.SetAV Variable04 fV",
+       "let fV := GetVariable \"LegateAttacks\" {2}",
+       "player.SetAV Variable05 fV",
+       "let fV := GetVariable \"StartConvo\" {2}",
+       "player.SetAV Variable06 fV"
+      ]
+     }
+    },
+    {
+     "after": 15,
+     "repeat": true,
+     "do": [
+      "player.RestoreAV Health 99999"
+     ]
+    }
+   ],
+   "note": "read only, but for god mode and the player's Health raised and restored twice a second (in every session of both campaigns): a dead player reloads the save for ever",
+   "do_first": [
+    [
+     "player.ForceAV Health 99999"
+    ]
+   ],
+   "console_first": [
+    "tgm"
+   ]
+  }
+ ]
+}

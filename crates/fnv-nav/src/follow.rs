@@ -422,6 +422,13 @@ pub enum Advice {
 /// way; if still stuck, the path is planned again (or, with `skip`, the actor is moved on
 /// along it: the failsafe the owner asked for on 2026-10-17); after `max_replans`, it
 /// gives up. An engine choice (docs/design/navmesh.md §4), not the original game's behaviour.
+///
+/// The speed is the one the actor moves at, kept in step with it ([`Unstuck::set_speed`]):
+/// over a second whose speed changed, the slowest of that second is the one judged by, so
+/// an actor slowed (a Speed Mult dropped from 100 to 15, issue #2118) or setting off again
+/// is not judged by a faster speed than it was asked to go. At a speed of 0 it stands and
+/// is never stuck: the history is dropped, so the time it stood does not count when it
+/// walks on [design].
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Unstuck {
     pub speed: f32,
@@ -429,9 +436,9 @@ pub struct Unstuck {
     /// Advise [`Advice::Skip`] where it would advise [`Advice::Replan`].
     pub skip: bool,
     /// The path's remaining length over the last second, one sample per update with its
-    /// time step.
+    /// time step and the speed it was asked to go at.
     #[serde(skip)]
-    history: std::collections::VecDeque<(f32, f32)>,
+    history: std::collections::VecDeque<(f32, f32, f32)>,
     /// The detour being made: index into [`DETOURS`] and time left.
     detour: Option<(usize, f32)>,
     /// Detours tried since the actor got stuck.
@@ -495,6 +502,27 @@ impl Unstuck {
         self.last = None;
     }
 
+    /// The speed the actor moves at now (for a walker, `Walker::moving_speed`: its
+    /// package's or fight's speed times its crippled legs' share, which is what its
+    /// progress can be), from this update on. The second before is judged by the slowest
+    /// speed in it (the type's notes). At 0 (or not a number) the actor stands: the
+    /// progress history goes, and with it where its feet were ([`Unstuck::advise_moved`]),
+    /// so neither the time it stood nor a push while it stood counts; the detours tried
+    /// and the replans stay [design, issue #2118].
+    pub fn set_speed(&mut self, speed: f32) {
+        let speed = if speed.is_finite() { speed.max(0.0) } else { 0.0 };
+        if speed <= 0.0 {
+            self.history.clear();
+            self.last = None;
+        }
+        self.speed = speed;
+    }
+
+    /// At a speed of 0 (or not a number): standing, never stuck.
+    fn standing(&self) -> bool {
+        self.speed.is_nan() || self.speed <= 0.0
+    }
+
     /// As [`Unstuck::advise`], with progress measured by how far the feet moved along the
     /// way the actor was to go (`want` of the last update), not by the path's remaining
     /// length: for paths planned again and again after a moving target (Follow packages,
@@ -502,6 +530,11 @@ impl Unstuck {
     /// path of about the same length, counted as stuck all the way and detoured into a
     /// fence). Sliding along an obstacle, across the way, is still no progress.
     pub fn advise_moved(&mut self, feet: [f32; 3], want: [f32; 2], dt: f32) -> Advice {
+        if self.standing() {
+            // Standing at a speed of 0 ([`Unstuck::set_speed`]).
+            self.set_speed(0.0);
+            return Advice::Head(want);
+        }
         if let Some((at, way)) = self.last {
             self.moved_left -= (feet[0] - at[0]) * way[0] + (feet[1] - at[1]) * way[1];
         }
@@ -514,7 +547,12 @@ impl Unstuck {
     /// along the path (sliding round an obstacle, a detour that does not help) is not
     /// progress.
     pub fn advise(&mut self, remaining: f32, want: [f32; 2], dt: f32) -> Advice {
-        self.history.push_back((remaining, dt));
+        if self.standing() {
+            // Standing at a speed of 0: never stuck ([`Unstuck::set_speed`]).
+            self.history.clear();
+            return Advice::Head(want);
+        }
+        self.history.push_back((remaining, dt, self.speed));
         let mut span: f32 = self.history.iter().map(|h| h.1).sum();
         while span - self.history.front().map_or(0.0, |h| h.1) >= 1.0 {
             span -= self.history.pop_front().expect("non-empty").1;
@@ -527,7 +565,7 @@ impl Unstuck {
             }
             self.detour = None;
             self.history.clear();
-            self.history.push_back((remaining, dt));
+            self.history.push_back((remaining, dt, self.speed));
             return Advice::Head(want);
         }
         let first = self.history.front().expect("just pushed").0;
@@ -535,7 +573,10 @@ impl Unstuck {
         if span < 1.0 {
             return Advice::Head(want);
         }
-        if progress >= 0.2 * self.speed {
+        // The slowest speed of the second (the type's notes): the speed itself while it
+        // stays the same.
+        let slowest = self.history.iter().map(|h| h.2).fold(self.speed, f32::min);
+        if progress >= 0.2 * slowest {
             if self.stuck_at.is_none_or(|m| remaining < m - 0.5 * self.speed) {
                 self.tried = 0;
                 self.stuck_at = None;
@@ -1121,6 +1162,73 @@ mod tests {
         }
         assert!(detoured);
         assert!(u.detours >= 1);
+    }
+
+    /// Walks `seconds` at `speed` units/s from `x` along +x, advised by motion; how far it
+    /// got and whether anything but the path's direction was advised.
+    fn walk_at(u: &mut Unstuck, x: &mut f32, speed: f32, seconds: f32) -> bool {
+        let dt = 0.1;
+        let mut off = false;
+        for _ in 0..(seconds / dt).round() as usize {
+            *x += speed * dt;
+            off |= u.advise_moved([*x, 0.0, 0.0], [1.0, 0.0], dt) != Advice::Head([1.0, 0.0]);
+        }
+        off
+    }
+
+    /// Issue #2118: a Speed Mult of 0 stops a walk under way; standing is never stuck, and
+    /// the time it stood does not count once it walks on.
+    #[test]
+    fn unstuck_at_a_speed_of_zero_stands_and_is_never_stuck() {
+        let mut u = Unstuck::new(100.0);
+        u.skip = true;
+        let mut x = 0.0;
+        assert!(!walk_at(&mut u, &mut x, 100.0, 2.0));
+        u.set_speed(0.0);
+        // Ten seconds standing: no detour, no skip.
+        assert!(!walk_at(&mut u, &mut x, 0.0, 10.0));
+        assert_eq!((u.detours, u.replans, u.skipped), (0, 0, false));
+        // Back to 100: setting off is not judged by the second it stood.
+        u.set_speed(100.0);
+        assert!(!walk_at(&mut u, &mut x, 100.0, 3.0));
+        // A rule made while the speed was 0 finds an actor stuck once its speed is back.
+        let mut late = Unstuck::new(0.0);
+        late.skip = true;
+        let mut y = 0.0;
+        assert!(!walk_at(&mut late, &mut y, 0.0, 3.0));
+        late.set_speed(100.0);
+        assert!(walk_at(&mut late, &mut y, 0.0, 3.0), "stuck at its own speed again");
+        assert!(late.detours >= 1);
+        // Not a number counts as standing.
+        let mut nan = Unstuck::new(100.0);
+        nan.set_speed(f32::NAN);
+        assert_eq!(nan.speed, 0.0);
+    }
+
+    /// Issue #2118: an actor slowed under a fifth of the speed its walk started at is
+    /// judged by its new speed, not the old one; and the second it went slower is not
+    /// held against it when it speeds up again.
+    #[test]
+    fn unstuck_follows_a_change_of_speed() {
+        let mut u = Unstuck::new(100.0);
+        u.skip = true;
+        let mut x = 0.0;
+        assert!(!walk_at(&mut u, &mut x, 100.0, 2.0));
+        // 100 to 15: 15 units a second is less than a fifth of 100, and still progress.
+        u.set_speed(15.0);
+        assert!(!walk_at(&mut u, &mut x, 15.0, 5.0));
+        // Speeding up: the second at 15 is judged by 15, then 100 by 100.
+        u.set_speed(100.0);
+        assert!(!walk_at(&mut u, &mut x, 100.0, 3.0));
+        assert_eq!((u.detours, u.replans), (0, 0));
+        // The rule still works at the slow speed: stuck at 15, it detours.
+        u.set_speed(15.0);
+        assert!(walk_at(&mut u, &mut x, 0.0, 3.0));
+        // Without the new speed (as before the fix), the same slow walk is called stuck.
+        let mut stale = Unstuck::new(100.0);
+        let mut z = 0.0;
+        assert!(!walk_at(&mut stale, &mut z, 100.0, 2.0));
+        assert!(walk_at(&mut stale, &mut z, 15.0, 5.0));
     }
 
     #[test]

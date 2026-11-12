@@ -30,12 +30,17 @@ no damage off.
   package's doings, its search and its fight wait (`alert_step` is skipped). When the
   use is gone, the actor takes up its package again (`AiEvent::WeaponUseOver`).
 - **In place** the actor turns to its target at the standing turn rate (a package's use
-  only out of combat).
+  only out of combat, unless the package has Continue During Combat).
+- **Continue During Combat** (#2120): with the flag, `alert_step` hands the actor back to
+  its package in a combat state (`Game::continues_during_combat`; docs/design/alert.md §5),
+  so a Use Weapon package keeps walking it to its stand and keeping it there, and its use
+  stays active (§3).
 
 ## 3. Firing (nvforever `use_weapon.rs`)
 
 For each actor whose use is in place and still to be carried out (`Game::active_weapon_use`:
-not done; a package's not while the actor is in combat):
+not done; a package's not while the actor is in combat, unless the package has Continue
+During Combat, read from the use's own package as `Game::package_def` gives it):
 
 - **The gun**: the use's weapon if it is a gun, else the gun drawn on it; a melee or
   unarmed weapon, or none, swings instead (§3.1).
@@ -56,6 +61,49 @@ not done; a package's not while the actor is in combat):
   end script runs; the use stays, done, until the package changes).
 - A script's use comes before the combat AI (`npc_combat` skips the actor), as the shipped
   scripts call StartCombat with UseWeapon (spec note §2). ResetAI drops the use.
+- A package's use with Continue During Combat, in a combat state, keeps the combat AI
+  off only while the shooter acts on it this frame (`use_weapon::acts_on`: the actor in
+  place, the use's target standing among the drawn people the shooter aims at, the player
+  included), and through a melee use's last blow until it lands
+  (`npc_combat::weapon_use_holds_fight`, `use_weapon::Shooters::landing`): the actor
+  fires the package's pattern at the package's target instead of the ordinary attacks.
+  The shooter and the fight read the same test, so one of them always has the actor
+  (#2145 review). That is not a promise of shots: either may still hold its fire (not
+  facing, not drawn, Hold Fire When Blocked, restrained, a target out of reach for a
+  package's melee use, §4). Not in place (still on its way to its stand, or never there),
+  or with a target the shooter does not fire at (a marker, as the Ultra-Luxe kitchen's
+  torchers have; an actor not drawn), the ordinary attacks take over and it turns to its
+  enemy (`WeaponUse::taken`, below). Its movement stays its package's: the walk to its
+  stand goes on in combat (`fnv_ai::alert` hands a Continue During Combat actor back to
+  its package), not the ordinary combat movement (closing in, cover). Once the shooter
+  can act, the use takes over again; meanwhile the actor's fight keeps its state (its
+  sight time, magazine, post), so the hand-over going back and forth does not start the
+  fight from nothing each time (`npc_combat::use_hold`, `keeps_fight`). Nothing of the
+  fight's own attack stays under way while the shooter has the actor
+  (`npc_combat::hold_for_use`): blows begun and not landed are let go, a gun's wind-up or
+  reload goes back to Ready (`settle_for_use`; a step with the trigger off would still
+  fire a committed wind-up, and a frozen reload would leave it reported reloading and
+  busy), its melee guard is lowered and a pending reaction to a blow dropped (others
+  would read it as guarding), and its combat crouch ends. Only a use still to be carried out is kept so; a
+  package's last melee blow landing drops the fight's state, as before. Spent (or its
+  package changed),
+  the use is no longer active and the fight takes the actor back. Out of a combat state,
+  and for a script's use in any state, nothing changes. `shoot` and `fight` run in no set
+  order, so in the frame a use begins or ends one of them may still act on the state the
+  other has just left.
+- In Combat the actor is drawn facing the target of the use it carries out, a script's
+  or a package's, not its combat target, and a lock on its enemy from the fight does not
+  turn it (`residents::aim_target`, `keeps_lock`): the shooter fires only facing the
+  use's target. A package's use the fight took over owns no aim: `fight` marks it each
+  frame (`WeaponUse::taken`, `Game::weapon_use_taken`; cleared at the start of every
+  frame of the fight), `fnv_ai::carry::weapon_step` then turns the actor, standing, to its
+  combat target at the combat turn rate (people and creatures alike, as `alert_step` turns
+  a standing fighter), and a person is drawn facing it with the fight's lock holding
+  (`residents::use_aim`). During a melee use's last blow (no longer active) it faces its combat
+  target again. Keeping the package's target in combat, rather than
+  turning on whoever attacks it, is our reading of the flag's "continue to fire" (spec
+  note §3) [design], an open question for the maintainer (docs/owner-review.md); a held
+  package use (no flag) waits as before, its target and volleys kept.
 
 ### 3.1 Melee (claude/q5-melee-useweapon, 2026-10-20)
 
@@ -96,7 +144,8 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
 ## 4. Not built
 
 - Melee: harmless blows' sound and impact; power attacks; a package's melee use walking
-  up to its target.
+  up to its target (with Continue During Combat and its target standing beyond reach, the
+  shooter holds the fight and lands no blow, §3).
 - Swapping the drawn model: a use naming a weapon other than the one drawn fires that
   weapon's shots from the drawn model.
 - Grabbing a weapon the actor does not carry.
@@ -105,6 +154,17 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
 
 ## 5. Checks
 
+- Unit tests (#2145 review): `use_weapon::acts_on` and `npc_combat::weapon_use_holds_fight`
+  (a package's use in combat holds the fight only in place with a standing target; a marker,
+  an undrawn target or an actor on its way fights), `npc_combat::use_hold` (a
+  classification test: a target coming and going sorts each frame as kept or taken over,
+  never dropped; it does not itself show the state is kept),
+  `a_gun_handed_to_the_shooter_is_left_neither_reloading_nor_about_to_fire`
+  (`settle_for_use`: a reload or wind-up under way is let go, a cooldown kept),
+  `residents::use_aim` (a use the fight took over leaves the aim to the combat target),
+  and `a_use_weapon_package_the_fight_took_over_turns_to_its_enemy`
+  (`crates/fnv-ai/tests/carry.rs`: taken over, it turns to its enemy and keeps its stand;
+  handed back, to the package's target).
 - Unit tests: `fnv_game::use_weapon` (volleys and pauses), `crates/fnv-ai/tests/carry.rs`
   (a package walks to its place, faces its target, meets its goal when spent; the function
   walks the actor to its stand reference and back to its package after).

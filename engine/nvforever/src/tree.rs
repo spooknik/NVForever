@@ -149,7 +149,8 @@ impl Plugin for TreePlugin {
             MaterialPlugin::<BillboardMaterial>::default(),
         ))
             .init_resource::<TreeCache>()
-            .add_systems(Update, wind.after(crate::sky::update_sky));
+            .add_systems(Update, wind.after(crate::sky::update_sky))
+            .add_systems(PostUpdate, order_leaves.after(bevy::transform::TransformSystems::Propagate));
     }
 }
 
@@ -238,6 +239,72 @@ pub struct TreePart {
     pub material: PartMaterial,
     /// Bounds in the tree's own space (leaf cards included).
     pub aabb: Aabb,
+    /// Leaf cards: the same cards in each draw order ([`LeafOrder`]); `mesh` is the first.
+    pub leaf_orders: Option<Arc<[Handle<Mesh>; LEAF_ORDERS]>>,
+}
+
+/// Headings around the trunk that leaf cards have a draw order for.
+pub const LEAF_ORDERS: usize = 8;
+
+/// Leaf cards are drawn nearest the camera first. They are alpha-tested, so the GPU tests
+/// their depth only after their fragment shader has run (it may discard), and what
+/// spares it the cards behind is its coarse per-tile test against the depth already
+/// written: the nearer cards must be drawn first. A dense shrub filling a quarter of the
+/// view ran 160 million prepass fragments a frame in the cards' authored order, 86 million
+/// outermost first (docs/design/frame-rate-audit.md §10). Each leaf mesh comes in
+/// [`LEAF_ORDERS`] orders, the cards sorted from the side the camera is on for each
+/// heading around the trunk, and [`order_leaves`] picks the one for the camera's heading.
+#[derive(Component)]
+pub struct LeafOrder {
+    pub meshes: Arc<[Handle<Mesh>; LEAF_ORDERS]>,
+    pub current: usize,
+}
+
+/// The heading (of [`LEAF_ORDERS`]) the camera at `eye` lies in from a tree whose own
+/// space `local` is (game space, z up): the nearest one.
+pub fn leaf_heading(local: &GlobalTransform, eye: Vec3) -> usize {
+    let p = local.affine().inverse().transform_point3(eye);
+    let a = p.y.atan2(p.x);
+    let step = std::f32::consts::TAU / LEAF_ORDERS as f32;
+    ((a / step).round() as i64).rem_euclid(LEAF_ORDERS as i64) as usize
+}
+
+/// Each leaf mesh drawn in the order for the camera's heading.
+pub fn order_leaves(
+    camera: Query<&GlobalTransform, With<nvf_play::PlayerCamera>>,
+    mut leaves: Query<(&GlobalTransform, &mut LeafOrder, &mut Mesh3d)>,
+) {
+    let Ok(eye) = camera.single().map(|c| c.translation()) else { return };
+    if !leaf_orders_on() {
+        return;
+    }
+    for (local, mut order, mut mesh) in &mut leaves {
+        let k = leaf_heading(local, eye);
+        if k != order.current {
+            order.current = k;
+            mesh.0 = order.meshes[k].clone();
+        }
+    }
+}
+
+/// Whether leaf cards change their draw order with the camera (test aid
+/// `NVF_PLAY_TEST_LEAF_ORDER=authored` keeps the first: heading 0's).
+fn leaf_orders_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_LEAF_ORDER").map_or(true, |v| v != "authored"))
+}
+
+/// The index list of leaf cards (each `(first vertex, place)`, four vertices from the
+/// first) sorted for heading `k`: the cards furthest towards that heading from the
+/// cards' centre first.
+fn leaf_indices(cards: &[(u32, Vec3)], k: usize) -> Vec<u32> {
+    let n = cards.len().max(1) as f32;
+    let centre = cards.iter().fold(Vec3::ZERO, |a, c| a + c.1) / n;
+    let a = std::f32::consts::TAU * k as f32 / LEAF_ORDERS as f32;
+    let dir = Vec3::new(a.cos(), a.sin(), 0.0);
+    let mut sorted: Vec<&(u32, Vec3)> = cards.iter().collect();
+    sorted.sort_by(|x, y| (y.1 - centre).dot(dir).total_cmp(&(x.1 - centre).dot(dir)));
+    sorted.iter().flat_map(|&&(f, _)| [f, f + 1, f + 2, f, f + 2, f + 3]).collect()
 }
 
 /// One TREE base made drawable: parts in tree space (size 1) and the scale to game units.
@@ -330,17 +397,25 @@ fn build(
             },
             extension: BarkWind { wind },
         });
-        parts.push(TreePart { mesh: models.meshes.add(mesh), material: PartMaterial::Bark(mat), aabb });
+        parts.push(TreePart { mesh: models.meshes.add(mesh), material: PartMaterial::Bark(mat), aabb, leaf_orders: None });
     }
 
     if !g.leaves.is_empty() {
         let texture = rec.leaf_texture.as_deref()?;
         let image = models.textures.get(texture, true, &models.data, &mut models.images, models.formats.as_deref())?;
+        // Each leaf-map cell's visible part (`trimmed_cells`), worked out once per tree.
+        let alpha = trim_leaves().then(|| {
+            let path = nvf_assets::texture::resolved_path(texture, |p| models.data.vfs.exists(p));
+            models.data.read(&path).and_then(|b| nvf_assets::texture::alpha_map(&b))
+        }).flatten();
+        let mut kept_parts: HashMap<usize, Option<[f32; 4]>> = HashMap::new();
+        let (mut whole_area, mut kept_area) = (0.0f32, 0.0f32);
         let n = g.leaves.len();
         let (mut pos, mut nor, mut uv, mut corner) = (Vec::with_capacity(4 * n), Vec::with_capacity(4 * n), Vec::with_capacity(4 * n), Vec::with_capacity(4 * n));
         let mut colour = Vec::with_capacity(4 * n);
-        let mut indices = Vec::with_capacity(6 * n);
         let mut reach = 0.0f32;
+        // Each card's first vertex and its place, for the draw orders (`LeafOrder`).
+        let mut cards: Vec<(u32, Vec3)> = Vec::with_capacity(n);
         for l in &g.leaves {
             let [w, h] = l.size;
             let [px, py] = l.pivot;
@@ -349,18 +424,39 @@ fn build(
             // Leaf-map cell corners as stored: bottom right, bottom left, top left, top
             // right (speedtree.md §3, tag 10002); the whole texture without one.
             let c = spt.leaf_uvs.get(l.map).copied().unwrap_or([1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0]);
+            // Corner k's texture coordinate.
+            let at = |k: usize| [c[2 * k], c[2 * k + 1]];
+            // The card is cut down to its cell's visible part, the texture coordinates with
+            // it, so the same texels land on the same places and the clear rest is never
+            // rasterised (bottom left is corner 1, bottom right 0, top left 2).
+            let [s0, s1, t0, t1] = match &alpha {
+                Some(a) => match *kept_parts.entry(l.map).or_insert_with(|| a.kept_part(at(1), at(0), at(2), LEAF_CLEAR, LEAF_PAD)) {
+                    Some(k) => k,
+                    None => continue,
+                },
+                None => [0.0, 1.0, 0.0, 1.0],
+            };
+            whole_area += w * h;
+            kept_area += w * h * (s1 - s0) * (t1 - t0);
+            let uv_at = |s: f32, t: f32| {
+                let (bl, br, tl) = (at(1), at(0), at(2));
+                [bl[0] + s * (br[0] - bl[0]) + t * (tl[0] - bl[0]), bl[1] + s * (br[1] - bl[1]) + t * (tl[1] - bl[1])]
+            };
+            let (x0, x1, y0, y1) = (x0 + s0 * (x1 - x0), x0 + s1 * (x1 - x0), y0 + t0 * (y1 - y0), y0 + t1 * (y1 - y0));
             let first = pos.len() as u32;
+            cards.push((first, Vec3::from_array(l.position)));
             let tint = dim_colour(rec.leaf_dimming.map_or(1.0, |d| g.brightness(d, l.position[2])));
             // Bottom left, bottom right, top right, top left: counter-clockwise on screen.
-            for (cx, cy, k) in [(x0, y0, 1), (x1, y0, 0), (x1, y1, 3), (x0, y1, 2)] {
+            for (cx, cy, s, t) in [(x0, y0, s0, t0), (x1, y0, s1, t0), (x1, y1, s1, t1), (x0, y1, s0, t1)] {
                 pos.push(l.position);
                 nor.push(l.normal);
-                uv.push([c[2 * k], c[2 * k + 1]]);
+                uv.push(uv_at(s, t));
                 corner.push([cx, cy]);
                 colour.push(tint);
             }
-            indices.extend([first, first + 1, first + 2, first, first + 2, first + 3]);
         }
+        debug!("{}: leaf cards cut to {:.0} % of their area", rec.model, 100.0 * kept_area / whole_area.max(1e-6));
+        LEAF_AREA.lock().unwrap_or_else(|e| e.into_inner()).add(whole_area, kept_area);
         let aabb = bounds(pos.iter().copied(), reach + sway);
         let mut mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::RENDER_WORLD);
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
@@ -370,7 +466,11 @@ fn build(
         if rec.leaf_dimming.is_some() {
             mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colour);
         }
-        mesh.insert_indices(bevy::mesh::Indices::U32(indices));
+        let orders: [Handle<Mesh>; LEAF_ORDERS] = std::array::from_fn(|k| {
+            let mut m = mesh.clone();
+            m.insert_indices(bevy::mesh::Indices::U32(leaf_indices(&cards, k)));
+            models.meshes.add(m)
+        });
         let mat = leaf_materials.add(LeafMaterial {
             base: StandardMaterial {
                 base_color_texture: Some(image),
@@ -383,10 +483,44 @@ fn build(
             },
             extension: LeafCards { wind },
         });
-        parts.push(TreePart { mesh: models.meshes.add(mesh), material: PartMaterial::Leaves(mat), aabb });
+        parts.push(TreePart { mesh: orders[0].clone(), material: PartMaterial::Leaves(mat), aabb, leaf_orders: Some(Arc::new(orders)) });
     }
     (!parts.is_empty()).then_some(TreeVisual { parts, scale })
 }
+
+/// Leaf cards keep the part of their cell above this alpha (of 255), [`LEAF_PAD`] texels
+/// wider: well under the cutoff (0.5), so the soft edge a multisampled view draws from the
+/// alpha just under the cutoff (nvf_assets coverage.wesl) is kept, and a coarser mip,
+/// which spreads the visible texels, loses at most a sliver at the card's edge.
+const LEAF_CLEAR: u8 = 8;
+const LEAF_PAD: f32 = 2.0;
+
+/// Whether leaf cards are cut to their visible part (test aid
+/// `NVF_PLAY_TEST_LEAF_CARDS=whole` keeps them whole).
+fn trim_leaves() -> bool {
+    std::env::var("NVF_PLAY_TEST_LEAF_CARDS").map_or(true, |v| v != "whole")
+}
+
+/// The leaf cards' area before and after cutting, over the trees built so far.
+#[derive(Default)]
+pub struct LeafArea {
+    pub whole: f64,
+    pub kept: f64,
+    pub trees: u32,
+}
+
+impl LeafArea {
+    fn add(&mut self, whole: f32, kept: f32) {
+        self.whole += f64::from(whole);
+        self.kept += f64::from(kept);
+        self.trees += 1;
+        if self.trees.is_power_of_two() {
+            info!("leaf cards: {} tree models' cards cut to {:.0} % of their area", self.trees, 100.0 * self.kept / self.whole.max(1e-6));
+        }
+    }
+}
+
+pub static LEAF_AREA: std::sync::Mutex<LeafArea> = std::sync::Mutex::new(LeafArea { whole: 0.0, kept: 0.0, trees: 0 });
 
 /// Vertex colour for a dimming brightness. The brightness is a display-space factor (the
 /// original shades in display space [hypothesis]); this renderer lights in linear space,
@@ -422,15 +556,26 @@ pub fn spawn(commands: &mut Commands, parent: Entity, v: &TreeVisual, rt: Mat4, 
     for p in &v.parts {
         let common = (Mesh3d(p.mesh.clone()), t, p.aabb, NoAutoAabb, extra.clone());
         match &p.material {
-            PartMaterial::Bark(m) => commands.entity(parent).with_child((common, MeshMaterial3d(m.clone()))),
+            PartMaterial::Bark(m) => {
+                commands.entity(parent).with_child((common, MeshMaterial3d(m.clone())));
+            }
             // Leaf cards cast shadows (onto the ground and other objects) but receive
             // none: in the shadow pass they face the light, in the main pass the camera,
             // so a tree's own cards blacken its lower half in hard, mismatched blocks
             // [observed]. The crown darkens by the CNAM dimming instead (vertex colours).
             PartMaterial::Leaves(m) => {
-                commands.entity(parent).with_child((common, MeshMaterial3d(m.clone()), bevy::light::NotShadowReceiver))
+                let mut leaves = commands.entity(parent);
+                match &p.leaf_orders {
+                    Some(orders) => leaves.with_child((
+                        common,
+                        MeshMaterial3d(m.clone()),
+                        bevy::light::NotShadowReceiver,
+                        LeafOrder { meshes: orders.clone(), current: 0 },
+                    )),
+                    None => leaves.with_child((common, MeshMaterial3d(m.clone()), bevy::light::NotShadowReceiver)),
+                };
             }
-        };
+        }
     }
     v.parts.len()
 }
@@ -444,6 +589,23 @@ mod tests {
         assert!((period(rock) - 4.0).abs() < 0.3, "{}", period(rock));
         assert!((period(rustle) - 1.0).abs() < 0.1, "{}", period(rustle));
         assert_eq!(super::angular_speeds(-1.0, -1.0), super::angular_speeds(0.0, 0.0));
+    }
+
+    #[test]
+    fn leaf_cards_are_drawn_from_the_heading_side_first() {
+        use bevy::prelude::*;
+        // Three cards along x: at -1, 0 and +1 (first vertices 0, 4, 8).
+        let cards = [(0u32, Vec3::new(-1.0, 0.0, 0.0)), (4, Vec3::ZERO), (8, Vec3::new(1.0, 0.0, 0.0))];
+        // Heading 0 is +x: the card at +1 first.
+        assert_eq!(super::leaf_indices(&cards, 0), [8, 9, 10, 8, 10, 11, 4, 5, 6, 4, 6, 7, 0, 1, 2, 0, 2, 3]);
+        // Heading 4 is -x.
+        assert_eq!(&super::leaf_indices(&cards, 4)[..6], [0, 1, 2, 0, 2, 3]);
+        // A camera at +y of a tree turned a quarter turn about z lies at its -x: heading 4.
+        let tree = GlobalTransform::from(Transform::from_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)));
+        assert_eq!(super::leaf_heading(&tree, Vec3::new(0.0, 5.0, 0.0)), 0);
+        assert_eq!(super::leaf_heading(&tree, Vec3::new(0.0, -5.0, 0.0)), 4);
+        assert_eq!(super::leaf_heading(&GlobalTransform::IDENTITY, Vec3::new(-3.0, 0.1, 0.0)), 4);
+        assert_eq!(super::leaf_heading(&GlobalTransform::IDENTITY, Vec3::new(1.0, 1.0, 0.0)), 1);
     }
 
     #[test]

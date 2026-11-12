@@ -18,10 +18,19 @@
 //! talking already, or carrying out a Dialogue package [hypothesis].
 //!
 //! When:
-//! - **Hello**: when the player comes within [`HELLO_DISTANCE`] of the actor; again only
-//!   after the player has gone beyond [`HELLO_REARM`] times that distance. One hello is
-//!   said at a time [stand-ins: the game's distance and repeat rules are not in the
-//!   documentation or the masters].
+//! - **Hello**: when the player comes within [`HELLO_DISTANCE`] of the actor, with
+//!   nothing solid between the two (`Game::greet_sight`, the line a force greet needs:
+//!   an actor behind a wall waits until the player is in the open); again only
+//!   after the player has gone beyond [`HELLO_REARM`] times that distance [stand-ins:
+//!   the game's distance and repeat rules are not in the documentation or the masters].
+//!   Idle lines (hellos and idle chatter) keep apart: after one, nobody in the area says
+//!   another for [`IDLE_LINE_GAP`] seconds, and the actor that said it none for
+//!   [`IDLE_LINE_AGAIN`]. An actor the player comes up to while the area waits has
+//!   missed its hello, as one that has said it (so a crowd does not greet one after
+//!   another once the wait is over). No line said of late is said again, by anyone
+//!   (`Game::say_hello_fresh`, `fnv_game::dialogue::IDLE_LINE_MEMORY`) [design: owner's
+//!   playtest 2026-11-11, #2156: NPCs "way too talkative", the same line from everyone
+//!   in the Legion's Fort, idle lines through walls, "the proximity cut down 33%"].
 //! - **Random conversation**: the loaded area tries one after a time drawn between
 //!   `fAISocialTimerForConversationsMin` and `…Max` seconds of play (30 and 60 in
 //!   FalloutNV.esm), with a chance of `fAISocialchanceForConversation` per cent
@@ -63,8 +72,8 @@
 //!   combat" [documented: Conversation Tab]): the loaded area tries one after a time
 //!   drawn between `fIdleChatterCommentTimer` and `fIdleChatterCommentTimerMax` (15 and
 //!   60 in FalloutNV.esm) [hypothesis: the settings' meaning; one timer for the area as
-//!   for random conversations]; an actor within [`CHAT_NEAR_PLAYER`] of the player is
-//!   drawn and says its line.
+//!   for random conversations]; an actor within [`HELLO_DISTANCE`] of the player, with a
+//!   clear line to it, is drawn and says its line, under the idle lines' waits above.
 //! - **Reaction to player actions** (the PLAYER… topics [documented: Topics Tab]: "the
 //!   player fires their weapon near an actor", "throws a grenade near an actor who isn't
 //!   in a combat state", "places a mine near an actor"): when the player's body starts a
@@ -103,19 +112,25 @@ use fnv_sim::FormId;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The player is greeted from this close, game units [stand-in].
-pub const HELLO_DISTANCE: f32 = 300.0;
+/// The player is greeted, and chattered at, from this close, game units [design: owner
+/// 2026-11-11, #2156: a third closer than the 300 it was].
+pub const HELLO_DISTANCE: f32 = 200.0;
 /// An actor that said hello greets again once the player has gone this many times
-/// [`HELLO_DISTANCE`] away [stand-in].
-pub const HELLO_REARM: f32 = 2.0;
+/// [`HELLO_DISTANCE`] away [stand-in: 600 units, as before #2156].
+pub const HELLO_REARM: f32 = 3.0;
+/// Seconds of play between two idle lines (hellos, idle chatter) in the loaded area
+/// [design: owner 2026-11-11, #2156].
+pub const IDLE_LINE_GAP: f64 = 20.0;
+/// Seconds of play before an actor that said an idle line says another [design: same].
+pub const IDLE_LINE_AGAIN: f64 = 60.0;
 /// Two actors start talking this close, game units [the standard Activate Distance of a
 /// Dialogue package, iActivatePickLength (Dialogue Package); hypothesis for random
 /// conversations].
 pub const TALK_DISTANCE: f32 = 150.0;
 /// A random conversation starts only with the player this close to the starter or its
 /// partner, game units [stand-in: the owner's "right next to them", playtest list 5 item
-/// 28; the hello distance, so the player who is greeted can also overhear].
-pub const CHAT_NEAR_PLAYER: f32 = HELLO_DISTANCE;
+/// 28; 300 units, the hello distance until #2156 brought hellos closer].
+pub const CHAT_NEAR_PLAYER: f32 = 300.0;
 /// A walk up to a partner that takes longer than this, seconds, is given up [stand-in].
 pub const CHAT_WALK_SECONDS: f64 = 30.0;
 /// The settings' values when the load order does not set them [the indoor values of
@@ -168,8 +183,12 @@ pub(crate) struct Social {
     /// Until when (`Game::time`) an actor rests after a conversation before it starts
     /// another.
     next_chat: BTreeMap<FormId, f64>,
-    /// Actors that said hello and wait for the player to go away.
+    /// Actors that said hello, or missed it, and wait for the player to go away.
     greeted: BTreeSet<FormId>,
+    /// When (`Game::time`) the loaded area may next hear an idle line ([`IDLE_LINE_GAP`]).
+    next_idle_line: f64,
+    /// Until when each actor that said an idle line says no other ([`IDLE_LINE_AGAIN`]).
+    quiet: BTreeMap<FormId, f64>,
     pub(crate) rng: Rng,
     pub(crate) stats: SocialStats,
     /// When the loaded area next tries idle chatter.
@@ -223,6 +242,8 @@ impl Default for Social {
             next_try: None,
             next_chat: BTreeMap::new(),
             greeted: BTreeSet::new(),
+            next_idle_line: 0.0,
+            quiet: BTreeMap::new(),
             rng: Rng(0x5EED_C0DE),
             stats: SocialStats::default(),
             next_chatter: None,
@@ -336,12 +357,21 @@ impl Ai {
                 if away > HELLO_DISTANCE * HELLO_REARM {
                     self.social.greeted.remove(&f.actor);
                 }
-                let saying = game.speech.iter().any(|s| s.hello);
-                if saying || away > HELLO_DISTANCE || self.social.greeted.contains(&f.actor) || !allows(f.def, fallout::HELLOS_TO_PLAYER) || game.is_talking(f.actor) {
+                if away > HELLO_DISTANCE || self.social.greeted.contains(&f.actor) || !allows(f.def, fallout::HELLOS_TO_PLAYER) || game.is_talking(f.actor) {
                     continue;
                 }
+                // Behind a wall or a closed door: it greets once the player is in the open.
+                if !game.greet_sight(f.actor, FormId::PLAYER_REF) {
+                    continue;
+                }
+                // Greeted, or its hello missed: another idle line is being said or was
+                // said just now, or it has said one itself of late.
                 self.social.greeted.insert(f.actor);
-                if let Some(line) = game.say_hello(f.actor) {
+                if game.speech.iter().any(|s| s.hello) || !self.may_say_idle_line(f.actor, now) {
+                    continue;
+                }
+                if let Some(line) = game.say_hello_fresh(f.actor) {
+                    self.said_idle_line(f.actor, now);
                     events.push((f.actor, AiEvent::Hello { line, away }));
                 }
             }
@@ -417,17 +447,35 @@ impl Ai {
         }
     }
 
+    /// Whether `actor` may say an idle line now: the area's wait since the last one is
+    /// over, and its own (module notes).
+    fn may_say_idle_line(&self, actor: FormId, now: f64) -> bool {
+        now >= self.social.next_idle_line && self.social.quiet.get(&actor).is_none_or(|&t| now >= t)
+    }
+
+    /// `actor` said an idle line: the waits start.
+    fn said_idle_line(&mut self, actor: FormId, now: f64) {
+        self.social.quiet.retain(|_, until| now < *until);
+        self.social.next_idle_line = now + IDLE_LINE_GAP;
+        self.social.quiet.insert(actor, now + IDLE_LINE_AGAIN);
+    }
+
     /// Idle chatter (module notes): when the area's timer is due, an actor next to the
     /// player that may chatter says its IdleChatter line.
     fn idle_chatter(&mut self, game: &mut Game, player: Place, events: &mut Vec<(FormId, AiEvent)>) {
         let now = game.time;
         let (lo, hi) = (setting(game, "fIdleChatterCommentTimer", CHATTER_MIN), setting(game, "fIdleChatterCommentTimerMax", CHATTER_MAX));
         let due = *self.social.next_chatter.get_or_insert_with(|| now + self.social.rng.range(lo, hi) as f64);
-        if now < due || game.speech.iter().any(|s| s.hello) {
+        if now < due || now < self.social.next_idle_line || game.speech.iter().any(|s| s.hello) {
             return;
         }
         let Some(topic) = game.data.by_edid("IdleChatter").filter(|t| game.data.topic_defs.contains_key(t)) else { return };
-        let mut can: Vec<(FormId, f32)> = self.onlookers(game, player, fallout::ALLOW_IDLE_CHATTER).into_iter().filter(|(_, _, d)| *d <= CHAT_NEAR_PLAYER).map(|(a, _, d)| (a, d)).collect();
+        let mut can: Vec<(FormId, f32)> = self
+            .onlookers(game, player, fallout::ALLOW_IDLE_CHATTER)
+            .into_iter()
+            .filter(|(a, _, d)| *d <= HELLO_DISTANCE && self.may_say_idle_line(*a, now) && game.greet_sight(*a, FormId::PLAYER_REF))
+            .map(|(a, _, d)| (a, d))
+            .collect();
         // Nobody next to the player: due again as soon as someone is.
         if can.is_empty() {
             return;
@@ -436,7 +484,8 @@ impl Ai {
         while !can.is_empty() {
             let i = ((self.social.rng.next() * can.len() as f32) as usize).min(can.len() - 1);
             let (actor, away) = can.swap_remove(i);
-            if let Some(line) = game.say(actor, None, topic, false) {
+            if let Some(line) = game.say_chatter(actor, topic) {
+                self.said_idle_line(actor, now);
                 events.push((actor, AiEvent::IdleChatter { line, away }));
                 return;
             }
@@ -809,6 +858,8 @@ impl Ai {
                 Some("it is in furniture")
             } else if a.talk == Some(Talking::Speaking) {
                 Some("it faces whom it talks to (its Dialogue package)")
+            } else if a.fixed {
+                Some("it never turns (Immobile, Turning Speed 0)")
             } else {
                 None
             };

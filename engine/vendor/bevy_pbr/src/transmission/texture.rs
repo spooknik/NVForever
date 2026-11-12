@@ -73,7 +73,11 @@ pub fn prepare_core_3d_transmission_textures(
         let cached_texture = textures
             .entry(camera.target.clone())
             .or_insert_with(|| {
-                let usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
+                // NVForever one resolve: RENDER_ATTACHMENT, so the multisampled main
+                // texture can be resolved straight into it (node.rs).
+                let usage = TextureUsages::TEXTURE_BINDING
+                    | TextureUsages::COPY_DST
+                    | TextureUsages::RENDER_ATTACHMENT;
 
                 let descriptor = TextureDescriptor {
                     label: Some("view_transmission_texture"),

@@ -2196,6 +2196,18 @@ fn magazine_in_hand(magazine: u32, carried: u32, no_ammo: bool, regenerates: boo
     }
 }
 
+/// The HUD counter's pair: rounds in the weapon, rounds carried besides. The rounds of
+/// a regenerating weapon (the Recharger Rifle) are its own charge and not taken from
+/// the inventory, so the charge shows whole and nothing is taken off what is carried
+/// (#2170) [hypothesis: the original's two figures for such a weapon, observer check 105].
+fn hud_ammo(magazine: u32, carried: u32, regenerates: bool) -> (u32, u32) {
+    if regenerates {
+        (magazine, carried)
+    } else {
+        (magazine.min(carried), carried.saturating_sub(magazine))
+    }
+}
+
 /// Follow the equipped weapon: a new weapon gets a new cycle, loaded from what is carried.
 fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut<WeaponAnim>) {
     let c = &mut *c;
@@ -5178,8 +5190,7 @@ impl Combat {
         let condition = self.equipped.flatten().map(|id| item_condition(sim, FormId::PLAYER_REF, id));
         let ammo = match (self.equipped.flatten(), self.cycle.as_ref()) {
             (Some(_), Some(cy)) if !cy.no_ammo => {
-                let total = player_count(sim, self.ammo);
-                Some((cy.magazine.min(total), total.saturating_sub(cy.magazine)))
+                Some(hud_ammo(cy.magazine, player_count(sim, self.ammo), cy.regen.is_some()))
             }
             (Some(id), Some(_)) if self.self_ammo => Some((player_count(sim, Some(id)), 0)),
             _ => None,
@@ -5404,6 +5415,18 @@ mod tests {
         assert_eq!(magazine_in_hand(1, 0, true, false, false), 1);
         assert_eq!(magazine_in_hand(5, 0, false, true, false), 5);
         assert_eq!(magazine_in_hand(30, 0, false, false, true), 30);
+    }
+
+    #[test]
+    fn the_counter_shows_a_regenerating_weapons_charge() {
+        // Rounds from the inventory: those loaded, and the rest of what is carried.
+        assert_eq!(hud_ammo(6, 48, false), (6, 42));
+        assert_eq!(hud_ammo(6, 4, false), (4, 0));
+        assert_eq!(hud_ammo(6, 0, false), (0, 0));
+        // The Recharger Rifle carries no rounds: its charge is the count (#2170).
+        assert_eq!(hud_ammo(7, 0, true), (7, 0));
+        assert_eq!(hud_ammo(0, 0, true), (0, 0));
+        assert_eq!(hud_ammo(7, 20, true), (7, 20));
     }
 
     #[test]

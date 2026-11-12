@@ -330,6 +330,9 @@ pub enum AiEvent {
     SearchOver { why: &'static str },
     /// After a search it goes back to its package's place, `away` units off.
     SearchBack { package: FormId, away: f32 },
+    /// Back to its package inside the package's place (after a search, a push or a
+    /// chat), it settles there again: its bed or chair, a sandbox ([`Ai::back_to_package`]).
+    Resettles { package: FormId },
     /// An actor without a package, moved away by a search, a fight or a push, walks back
     /// to where it was placed ([`Ai::back_to_package`]).
     BackHome { away: f32, length: f32 },
@@ -549,6 +552,9 @@ pub struct Agent {
     /// It cannot walk (a creature without movement animations, a raven): it stays where
     /// it is, whatever its packages say ([`Ai::root`]).
     pub rooted: bool,
+    /// A rooted actor that never turns either ([`Ai::fix_heading`]): nothing changes its
+    /// heading, in or out of combat.
+    pub fixed: bool,
     /// The heading it is to stand facing where it arrived (an idle marker's, a sandbox
     /// spot's): turned to on the spot at the standing turn rate, not taken at once
     /// [design; owner's playtest 2026-10-11: actors turned half about in a frame].
@@ -600,8 +606,9 @@ pub struct Ai {
     pub(crate) coming: std::collections::BTreeSet<FormId>,
     /// The loaded area, from the engine ([`Ai::set_loaded`]).
     pub(crate) loaded: Option<crate::process::LoadedArea>,
-    /// Actors with speeds of their own (creatures, from their clips); the others move at
-    /// [`AiConfig::walk_speed`] and [`AiConfig::run_speed`].
+    /// Actors with speeds of their own (creatures, from their clips; people, by their
+    /// current Speed Mult and armour); the others move at [`AiConfig::walk_speed`] and
+    /// [`AiConfig::run_speed`].
     pub speeds: BTreeMap<FormId, ActorSpeeds>,
     /// Actors slowed by crippled legs: the share of their speed they keep
     /// ([`Ai::set_pace`]; `fnv_game::Game::leg_speed_mult`).
@@ -635,6 +642,52 @@ pub struct Ai {
     /// When (`Game::time`) a script last put each actor somewhere ([`Ai::relocate`]):
     /// [`Ai::arrive`] leaves such an actor where it was put for a while.
     pub(crate) script_moved: BTreeMap<FormId, f64>,
+    /// Actors whose walk under way stands because their speeds are 0 (a Speed Mult of 0),
+    /// with the gait it goes on in when they come back ([`Ai::set_speeds`], issue #2118).
+    /// Not saved, as the walks are not (`crate::progress`): after a load the walk is
+    /// planned again at 0, and when the speeds come back a package's goes on in the gait
+    /// `Ai::plan` chose, any other at the calm walk until it is planned again, whatever
+    /// gait it stood in before the save [design].
+    stalled: BTreeMap<FormId, Stall>,
+}
+
+/// A walk standing at speeds of 0 ([`Ai::stalled`]): which of its actor's speeds it goes at
+/// ([`gait_speeds`]: 0 calm walk, 1 calm run, 2 alert walk, 3 alert run), its share of that
+/// speed (a sneak's, a follower's catch-up), and where the walk goes (`Walker::trip`):
+/// another walk does not take it up.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Stall {
+    gait: usize,
+    share: f32,
+    to: Option<Place>,
+}
+
+/// An actor's speeds in the order [`Stall::gait`] counts them.
+fn gait_speeds(s: &ActorSpeeds) -> [f32; 4] {
+    [s.calm.walk, s.calm.run, s.alert.walk, s.alert.run]
+}
+
+/// The gait of a walk going at `speed` with the speeds `old`, and its share of that gait's
+/// speed: the walk or run, calm or alert, nearest to `speed` by ratio (a sneaking run,
+/// × 0.57, or a follower's catch-up stays a run or a walk). `None` when it cannot be told:
+/// `speed` or every speed of `old` is 0 [design, issue #2118].
+fn gait_of(speed: f32, old: &ActorSpeeds) -> Option<(usize, f32)> {
+    if !(speed.is_finite() && speed > 0.0) {
+        return None;
+    }
+    let off = |was: f32| (speed / was).ln().abs();
+    let (gait, was) = gait_speeds(old).into_iter().enumerate().filter(|(_, was)| was.is_finite() && *was > 0.0).min_by(|a, b| off(a.1).total_cmp(&off(b.1)))?;
+    Some((gait, speed / was))
+}
+
+/// The share of its speed a sneaking actor moves at: fMoveSneakMult (0.57 in
+/// FalloutNV.esm [observed]) while it sneaks (`Game::sneaks`), 1 otherwise ([`Ai::pace`]).
+fn sneak_share(game: &Game, actor: FormId) -> f32 {
+    if game.sneaks(actor) {
+        game.world.forms.setting_f32("fMoveSneakMult").unwrap_or(SNEAK_MULT)
+    } else {
+        1.0
+    }
 }
 
 /// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
@@ -653,7 +706,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -810,11 +863,45 @@ impl Ai {
         self.applied_obstacles == Some((game.world.presence_serial(), nav.obstacles_stamp()))
     }
 
-    /// Give `actor` speeds of its own; its walker turns at its own rate from now on.
+    /// Give `actor` speeds of its own; its walker turns at its own rate from now on, and
+    /// a walk under way goes on at once at the new speeds, in its gait (`gait_of`):
+    /// otherwise a package's walk keeps the speed it was planned at until its next plan
+    /// (issue #2118: a SetAV SpeedMult 200 follower ran on at 100). Speeds of 0 stop the
+    /// walk where it is, and it goes on in the same gait when they come back (a package's
+    /// walk planned while they were 0 in the gait `Ai::plan` chose, any other at the
+    /// calm walk). Crippled
+    /// legs' share ([`Ai::set_pace`]) is the walker's own and stays as it is.
     pub fn set_speeds(&mut self, actor: FormId, speeds: ActorSpeeds) {
-        self.speeds.insert(actor, speeds);
-        if let Some(a) = self.agents.get_mut(&actor) {
-            own_turning(&mut a.walker, &speeds);
+        let default = Speeds { walk: self.cfg.walk_speed, run: self.cfg.run_speed };
+        let old = self.speeds.insert(actor, speeds).unwrap_or(ActorSpeeds { calm: default, alert: default, turn_rate: None, spot_turn_start: None });
+        let Some(a) = self.agents.get_mut(&actor) else {
+            self.stalled.remove(&actor);
+            return;
+        };
+        own_turning(&mut a.walker, &speeds);
+        if a.walker.follower.is_none() {
+            // Nothing under way: the next walk is planned at the new speeds.
+            self.stalled.remove(&actor);
+            return;
+        }
+        let to = a.walker.trip.as_ref().map(|t| t.to);
+        // The gait this walk was stopped in, or planned in at 0 (`Ai::plan`); none kept
+        // for another walk.
+        let stall = self.stalled.get(&actor).copied().filter(|s| s.to == to && a.walker.speed <= 0.0);
+        let (gait, share) = match (stall, gait_of(a.walker.speed, &old)) {
+            (Some(s), _) => (s.gait, s.share),
+            (None, Some(g)) => g,
+            // Planned at 0 where the gait was not kept: it walks [design] until its next
+            // plan rather than standing on its way.
+            (None, None) if a.walker.speed <= 0.0 => (0, 1.0),
+            (None, None) => return,
+        };
+        let now = gait_speeds(&speeds)[gait].max(0.0) * share;
+        a.walker.speed = now;
+        if now > 0.0 {
+            self.stalled.remove(&actor);
+        } else {
+            self.stalled.insert(actor, Stall { gait, share, to });
         }
     }
 
@@ -851,7 +938,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, fixed: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
         Ok(())
     }
 
@@ -920,6 +1007,23 @@ impl Ai {
         self.taken.retain(|_, user| *user != actor);
     }
 
+    /// A rooted actor that never turns either: no conversation, spoken line, script Look
+    /// or combat target changes its heading from now on ([`Ai::face`], the Look turn of
+    /// `crate::social`). The engine decides who: an Immobile creature whose Turning Speed
+    /// is 0, which in FalloutNV.esm are Mr. House's and Yes Man's screens (MrHouse,
+    /// MrHouseOFFLINE, YesManMainframe) and CRVoid, while every Immobile turret has 30 or
+    /// more [observed: the masters' CREA ACBS and TNAM; documented: GECK wiki Stats Tab
+    /// for Creatures, Turning Speed "How quickly the creature rotates"]. The owner saw
+    /// the screen turn when a conversation ended and in a fight, where it is to stay
+    /// still under any circumstance [observed: playtest 2026-11-11, issue #2150]. An
+    /// actor that is not rooted is left as it is.
+    pub fn fix_heading(&mut self, actor: FormId) {
+        if let Some(a) = self.agents.get_mut(&actor).filter(|a| a.rooted) {
+            a.fixed = true;
+            a.face_to = None;
+        }
+    }
+
     /// Whether `actor` stands where an actor walking into it pushes it aside: it is in
     /// the world and alive, not on its way, not on furniture or about to use some, not
     /// waiting at a door, not in a conversation it started and not fighting (in Combat it
@@ -983,7 +1087,19 @@ impl Ai {
         }
         let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
-        let Some(to) = a.goal.clone().and_then(|g| self.way_to(feet, &g)) else { return };
+        let Some(goal) = a.goal.clone() else { return };
+        let Some(to) = self.way_to(feet, &goal) else {
+            // Already in the package's place: taken off its bed or chair (an alert takes
+            // an actor off its furniture), it settles again as on arrival. In the original
+            // Easy Pete, fought off his chair, had his chair package back at the fight's
+            // end and sat again about 5 real seconds later [observed: AI observer
+            // 2026-11-10, issue #2013].
+            if a.using.is_none() {
+                self.log(game, actor, AiEvent::Resettles { package });
+                self.settle(game, actor);
+            }
+            return;
+        };
         self.log(game, actor, why(package, hdist(feet.pos, to.pos)));
         self.plan(game, nav, actor, package, to, None);
     }
@@ -1766,14 +1882,13 @@ impl Ai {
         let _ = game.set_actor_place(actor, cell, feet.pos, heading);
     }
 
-    /// Turn a standing actor towards a place for `dt` seconds, and tell the game its
-    /// heading.
     /// A rooted actor (an Immobile turret, [`Ai::root`]) stays where it is but turns in
     /// place, at the combat turn rate, to its combat target (in Combat: the target it
     /// detects, else the one detected last) or to the place of its alarm (Alert, Lost), as
     /// a fighter standing its ground does (`crate::alert`). Before, it never turned, so a
     /// HELIOS One ceiling turret kept its placed heading and the player stayed out of its
-    /// view (#1537). SetActorsAI 0 holds it as any other actor.
+    /// view (#1537). SetActorsAI 0 holds it as any other actor. One that never turns
+    /// ([`Ai::fix_heading`], Mr. House's screen) does not here either (#2150).
     fn rooted_turn(&mut self, game: &mut Game, actor: FormId, dt: f32) {
         if game.ai_off(actor) || game.extra.get(&actor).is_some_and(|e| e.restrained) {
             return;
@@ -1803,8 +1918,14 @@ impl Ai {
         self.face(game, actor, to, dt * rate);
     }
 
+    /// Turn a standing actor towards a place for `dt` seconds, and tell the game its
+    /// heading. One that never turns ([`Ai::fix_heading`]) keeps its heading, whoever
+    /// asks: its conversation, a line it says to someone, a fight.
     pub(crate) fn face(&mut self, game: &mut Game, actor: FormId, to: Place, dt: f32) {
         let a = self.agents.get_mut(&actor).expect("listed");
+        if a.fixed {
+            return;
+        }
         let d = [to.pos[0] - a.walker.feet[0], to.pos[1] - a.walker.feet[1]];
         if d[0].hypot(d[1]) < 1.0 {
             return;
@@ -2190,11 +2311,7 @@ impl Ai {
     pub(crate) fn pace(&self, game: &Game, actor: FormId, running: bool) -> f32 {
         let own = self.calm_speeds(actor);
         let speed = if running { own.run } else { own.walk };
-        if game.sneaks(actor) {
-            speed * game.world.forms.setting_f32("fMoveSneakMult").unwrap_or(SNEAK_MULT)
-        } else {
-            speed
-        }
+        speed * sneak_share(game, actor)
     }
 
     /// Plan a walk to `to`; without a way there the package is set aside.
@@ -2211,6 +2328,14 @@ impl Ai {
             Ok(path) => {
                 let doors = path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect();
                 let event = AiEvent::Trip { package, to: to.pos, space: to.space, length: path.length, doors, running, patrol_point };
+                // A walk planned at speeds of 0 keeps its gait for when they come back; an
+                // earlier walk's stop is not this one's (issue #2118).
+                let to = a.walker.trip.as_ref().map(|t| t.to);
+                if speed > 0.0 {
+                    self.stalled.remove(&actor);
+                } else {
+                    self.stalled.insert(actor, Stall { gait: usize::from(running), share: sneak_share(game, actor), to });
+                }
                 a.activity = Activity::Travelling;
                 a.trip_started = game.time;
                 a.trip_from = a.walker.travelled;
@@ -2298,7 +2423,9 @@ impl Ai {
     /// where it is to stand (it stays where it is when it is there already, is to stand
     /// on its own reference, or has no way there); one that is over sends it back to its
     /// package. In place, a weapon use (a script's, or its package's while it is not in
-    /// combat) turns it to its target at the standing turn rate. Returns whether a
+    /// combat or the package continues during combat) turns it to its target at the
+    /// standing turn rate; one the fight took over (`WeaponUse::taken`) turns it, standing,
+    /// to its combat target at the combat turn rate instead. Returns whether a
     /// script's use holds the actor (its package's own doings and its fight wait).
     fn weapon_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) -> bool {
         let script = game.weapon_use(actor).filter(|w| w.source == Source::Script).map(|w| (w.seq, w.stand, w.target));
@@ -2362,7 +2489,7 @@ impl Ai {
                 let going = a.activity == Activity::Travelling;
                 let close = away > if holding { resume } else { stop };
                 match (close, a.search) {
-                    (true, Some(Search::Closing { target: t, to, since })) if t == target && going && goal::dist(to, at) < crate::alert::CLOSE_REPLAN_DISTANCE && game.time - since < crate::alert::CLOSE_REPLAN_SECONDS => {}
+                    (true, Some(Search::Closing { target: t, to, since, .. })) if t == target && going && crate::alert::keeps_way(to, since, at, away, stop, game.time) => {}
                     (true, _) => self.close_in(game, nav, actor, target, at, away, stop),
                     (false, Some(Search::Holding { target: t })) if t == target => {}
                     (false, _) => {
@@ -2378,7 +2505,20 @@ impl Ai {
         let a = &self.agents[&actor];
         let space = a.walker.space;
         let standing = a.activity != Activity::Travelling;
-        if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && standing).map(|w| w.target) {
+        // A use the fight took over (`WeaponUse::taken`: in Combat, nothing for the
+        // engine's shooter to act on) turns it to its enemy as a standing fighter turns
+        // (`crate::alert`), people and creatures alike: its package's doings go on in
+        // combat, so the combat steering that would turn it does not run (#2145 review)
+        // [design].
+        // Read only in Combat: one left set as the actor leaves it, before the fight's next
+        // frame clears it, means nothing.
+        let taken = game.active_weapon_use(actor).is_some_and(|w| w.taken) && game.awareness.state(actor) == fnv_game::awareness::State::Combat;
+        if taken {
+            let enemy = game.awareness.get(actor).and_then(|aw| aw.combat_target()).map(|(_, t)| t.at);
+            if let Some(at) = enemy.filter(|_| standing) {
+                self.combat_face(game, actor, Place { space, pos: at }, dt);
+            }
+        } else if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && standing).map(|w| w.target) {
             if let Some(at) = goal::place_of_ref(game, t).filter(|p| p.space == space) {
                 self.face(game, actor, at, dt);
             }

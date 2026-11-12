@@ -185,6 +185,17 @@ fn ai_source(g: &Game, f: FormId) -> Option<FormId> {
     g.data.actors.contains_key(&f).then(|| g.data.base_template_source(f, |d| d.template_ai))
 }
 
+/// The actor record whose traits `f` (an actor reference or base) uses, following its
+/// template while "Use Traits" is set, as [`ai_source`] does for the AI data; the combat
+/// style is on the Traits tab [documented: GECK wiki Traits Tab - NPC, Template Data].
+fn traits_source(g: &Game, f: FormId) -> Option<FormId> {
+    if g.world.placed.get(f).is_some() || g.world.peek(f).is_some() {
+        let b = crate::functions::base_of(g, f)?;
+        return g.template_source(b, f, |d| d.template_traits).map(|(id, _)| id);
+    }
+    g.data.actors.contains_key(&f).then(|| g.data.base_template_source(f, |d| d.template_traits))
+}
+
 /// The cell `args[k]` names, else the player's [documented: GetCellWaterForm, "If no
 /// cell is specified, the player's current cell is used"].
 fn cell_arg(g: &Game, args: &[XVal], k: usize) -> Option<FormId> {
@@ -457,13 +468,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `[actorBase]`: the combat style the actor fights with (`Game::combat_style_id`:
-        // the package's, SetCombatStyle's, the AI data's ZNAM) [documented:
-        // GetCombatStyle, "the current Combat Style"]; for a base form its AI data's ZNAM;
-        // none DefaultCombatstyle [observed: lutana1 actor.combatstyle.doc,
-        // actor.combatstyle.ref.docref, actor.combatstyle.player].
+        // the package's, SetCombatStyle's, the ZNAM of the actor supplying its traits)
+        // [documented: GetCombatStyle, "the current Combat Style"]; for a base form the
+        // ZNAM of its Traits source (#2138); none DefaultCombatstyle [observed: lutana1
+        // actor.combatstyle.doc, actor.combatstyle.ref.docref, actor.combatstyle.player].
         "getcombatstyle" => {
             let own = if let Some(b) = form(args, 0) {
-                ai_source(g, b).and_then(|s| g.data.actors.get(&s)).and_then(|d| d.combat_style)
+                traits_source(g, b).and_then(|s| g.data.actors.get(&s)).and_then(|d| d.combat_style)
             } else {
                 subject.and_then(|r| g.combat_style_id(r))
             };

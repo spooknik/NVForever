@@ -161,6 +161,12 @@ pub struct GameConfig {
     /// interval is about 10 seconds [documented: GECK wiki, How Are Packages Evaluated].
     #[serde(default)]
     pub package_interval: Option<f64>,
+    /// A Goodbye line the player chooses closes the conversation at once and the actor
+    /// finishes it in the world (`Game::say_farewell`, issue #1606). Off (the default):
+    /// the line is said in the conversation and holds the player like the lines before
+    /// it [owner statement 2026-11-11, issue #2157].
+    #[serde(default)]
+    pub goodbye_at_once: bool,
 }
 
 fn yes() -> bool {
@@ -169,7 +175,7 @@ fn yes() -> bool {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true, package_interval: None }
+        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true, package_interval: None, goodbye_at_once: false }
     }
 }
 
@@ -1099,7 +1105,9 @@ pub struct Speech {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub greeting: bool,
     /// A Goodbye line the player chose, said at the player after its conversation closed
-    /// at once (`Game::choose`, docs/spec-notes/dialogue.md §5) [observed: owner's
+    /// at once: only with `GameConfig::goodbye_at_once`, off by default since #2157 (the
+    /// line holds the player in its conversation instead)
+    /// (`Game::choose`, docs/spec-notes/dialogue.md §5) [observed: owner's
     /// playtest 2026-11-05, against the original: choosing a Goodbye closes the menu at
     /// once and the actor finishes the line as the player walks away]. It ends as a
     /// Goodbye greeting does: its end script and Add Topics, no SayToDone block; it is
@@ -1651,6 +1659,10 @@ pub struct Game<'a> {
     /// Actors a script's StartConversation with allowMovement 1 lets go on moving while
     /// they talk to each other ([`Game::conversation_moves`]); not saved.
     pub moving_talkers: BTreeSet<FormId>,
+    /// The hello and idle chatter lines said of late, with when (`Game::time`): no actor
+    /// says one of them again for a while ([`Game::say_hello_fresh`],
+    /// `crate::dialogue::IDLE_LINE_MEMORY`). Not part of the saved state.
+    pub idle_said: BTreeMap<FormId, f64>,
     /// (speaker, line) pairs of the Say Once lines already said, and of every line said
     /// in a conversation with the player (the shading of choices).
     pub said: BTreeSet<(FormId, FormId)>,
@@ -2409,6 +2421,7 @@ impl<'a> Game<'a> {
             speech: Vec::new(),
             say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
+            idle_said: BTreeMap::new(),
             said: BTreeSet::new(),
             said_day: BTreeMap::new(),
             dialogue: None,
@@ -5713,6 +5726,8 @@ impl<'a> Game<'a> {
         g.align_queued();
         g.speech = s.speech.clone();
         g.pickpocket.planted = s.planted.clone();
+        // The live units in the restored inventories agree with the plants (#1640).
+        g.reconcile_live_explosives();
         g.said = s.said.clone();
         if s.said_day_days_clock {
             g.said_day = s.said_day.clone();

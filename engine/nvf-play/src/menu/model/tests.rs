@@ -268,6 +268,108 @@ fn take_all_and_encumbrance() {
 }
 
 #[test]
+fn a_live_explosive_is_a_row_of_its_own_that_stays() {
+    // #1640: a planted explosive's unit (`Extra::live`) is listed apart, marked, and no
+    // command takes it; the ordinary units of the same item are taken as usual.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let inv = w.inventory_mut(FormId(BOX_REF)).unwrap();
+    inv.add(FormId(RIFLE), 1);
+    assert!(inv.mark_live(FormId(RIFLE)));
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    let armed = super::live_name("Varmint Rifle".into());
+    assert_eq!(armed, format!("Varmint Rifle ({})", super::LIVE_NOTE));
+    assert_eq!(names(m.list(Side::Container)), vec![("Bottle Cap", 200), ("Varmint Rifle", 1), (armed.as_str(), 1), ("anvil", 1), ("tin can", 2)]);
+    assert!(m.list(Side::Container).rows[2].live && !m.list(Side::Container).rows[1].live);
+    // Refused, nothing moves; the selection stays on it.
+    select(&mut m, Side::Container, &armed);
+    let a = m.apply(&mut w, Command::Stack);
+    assert!(!a.changed && a.taken.is_empty());
+    assert_eq!(m.status.as_deref(), Some(super::live_refusal(&armed).as_str()));
+    assert_eq!((count(&mut w, BOX_REF, RIFLE), count(&mut w, 0x14, RIFLE)), (2, 0));
+    assert_eq!(m.selected_row(Side::Container).unwrap().name, armed);
+    // The ordinary rifle is taken; Take All leaves the live one.
+    select(&mut m, Side::Container, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert_eq!((count(&mut w, BOX_REF, RIFLE), count(&mut w, 0x14, RIFLE)), (1, 1));
+    m.apply(&mut w, Command::TakeAll);
+    assert_eq!(names(m.list(Side::Container)), vec![(armed.as_str(), 1)]);
+    assert_eq!(count(&mut w, BOX_REF, RIFLE), 1);
+    // Storing the player's rifle back adds an ordinary row beside it.
+    m.apply(&mut w, Command::Focus(Side::Player));
+    select(&mut m, Side::Player, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert_eq!(names(m.list(Side::Container)), vec![("Varmint Rifle", 1), (armed.as_str(), 1)]);
+}
+
+/// A pocket menu on the box (steal mode) whose rolls always go unnoticed (`sure`) or are
+/// always caught.
+fn pocket(world: &mut World<'_>, sure: bool) -> MenuModel {
+    let mut m = MenuModel::open_container(world, FormId(BOX_REF)).unwrap();
+    m.steal = Some(Steal::new(FormId(BOX_REF), rolls(sure), 0.0, 0.0, 7));
+    m
+}
+
+fn rolls(sure: bool) -> fnv_game::pickpocket::Rules {
+    let c = if sure { 100.0 } else { 0.0 };
+    fnv_game::pickpocket::Rules { min_chance: c, max_chance: c, ..Default::default() }
+}
+
+#[test]
+fn an_explosive_armed_in_the_open_pocket_is_listed_and_refused_at_once() {
+    // #1640 (review): the menu moves the item as an ordinary one; arming it
+    // (`pickpocket::arm_given`, as `menu::apply_input` runs it right after the command)
+    // lists the pocket again, so the next command sees the "(Armed)" row and a take of it
+    // is refused before any roll.
+    let f: &'static Fixture = Box::leak(Box::new(fixture()));
+    let plugins = vec![Plugin::parse(&plugin_bytes(), "Test.esm".into()).unwrap()];
+    let mut script = crate::script::ScriptState::over_plugins(&plugins);
+    let rt = script.rt.as_mut().unwrap();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut sim = crate::sim::SimState { forms: &f.forms, refs: &f.refs, world };
+    let mut m = pocket(&mut sim.world, true);
+    m.apply(&mut sim.world, Command::Focus(Side::Player));
+    select(&mut m, Side::Player, "Pistol");
+    let a = m.apply(&mut sim.world, Command::One);
+    assert_eq!(a.given, vec![(FormId(PISTOL), 1)]);
+    assert!(names(m.list(Side::Container)).contains(&("Pistol", 1)), "listed as an ordinary item first");
+    let blast = fnv_game::pickpocket::Explosive { damage: 50.0, ..Default::default() };
+    let explosion = FormId(0x999);
+    let placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut m), |item| (item == FormId(PISTOL)).then_some((explosion, blast)), FormId(BOX_REF), &a.given);
+    assert_eq!(placed, vec![crate::pickpocket::Placed::Live(explosion)]);
+    assert_eq!(rt.game.pickpocket.planted.len(), 1);
+    let armed = super::live_name("Pistol".into());
+    let listed = names(m.list(Side::Container));
+    assert!(listed.contains(&(armed.as_str(), 1)) && !listed.contains(&("Pistol", 1)), "{listed:?}");
+    // Taking it back: refused with no roll (every roll would be caught now).
+    m.steal.as_mut().unwrap().rules = rolls(false);
+    m.apply(&mut sim.world, Command::Focus(Side::Container));
+    select(&mut m, Side::Container, &armed);
+    let a = m.apply(&mut sim.world, Command::One);
+    assert!(a.caught.is_none() && !a.close && a.taken.is_empty(), "{a:?}");
+    assert_eq!(m.status.as_deref(), Some(super::live_refusal(&armed).as_str()));
+    assert_eq!(count(&mut sim.world, BOX_REF, PISTOL), 1);
+    // A placement that is no explosive is listed as before.
+    let placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut m), |_| None, FormId(BOX_REF), &[(FormId(CAN), 1)]);
+    assert_eq!(placed, vec![crate::pickpocket::Placed::Plain]);
+}
+
+#[test]
+fn a_pocket_row_listed_before_its_arming_is_not_rolled_for() {
+    // A row the menu listed as ordinary, its unit since reserved: nothing to move, so no
+    // roll and no catch.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = pocket(&mut w, false);
+    assert!(w.inventory_mut(FormId(BOX_REF)).unwrap().mark_live(FormId(RIFLE)));
+    select(&mut m, Side::Container, "Varmint Rifle");
+    let a = m.apply(&mut w, Command::One);
+    assert!(a.caught.is_none() && !a.close && a.taken.is_empty(), "{a:?}");
+    assert_eq!(m.status.as_deref(), Some(super::live_refusal(&super::live_name("Varmint Rifle".into())).as_str()));
+    assert_eq!(count(&mut w, BOX_REF, RIFLE), 1);
+}
+
+#[test]
 fn stored_equipped_items_are_unequipped() {
     let f = fixture();
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());

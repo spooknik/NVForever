@@ -161,11 +161,21 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, top_only: b
     let levels = if top_only { &dds.levels[0][..1] } else { &dds.levels[0][..] };
     let (format, data) = match dds.format {
         Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
+            if w % 4 != 0 || h % 4 != 0 {
+                // The GPU takes block formats only at multiples of 4: such a texture
+                // (a mod's 179×196 DXT5, dds.md §3) is decoded here instead [#2164].
+                let mut out = Vec::new();
+                for (m, l) in levels.iter().enumerate() {
+                    let (lw, lh) = dds.header.level_dims(m as u32);
+                    out.extend(fnv_dds::decode_blocks(dds.format, lw, lh, l).ok_or("block data too short")?);
+                }
+                let format = if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm };
+                let mut img = checked_image(w, h, levels.len() as u32, format, out)?;
+                img.sampler = sampler();
+                return Ok(img);
+            }
             if !bc_supported {
                 return Err("GPU lacks BC texture support".into());
-            }
-            if w % 4 != 0 || h % 4 != 0 {
-                return Err(format!("{w}x{h} block-compressed texture is not a multiple of 4"));
             }
             let f = match (dds.format, srgb) {
                 (Format::Dxt1, true) => TextureFormat::Bc1RgbaUnormSrgb,
@@ -527,6 +537,92 @@ pub fn alpha_shares(bytes: &[u8]) -> Option<AlphaShares> {
     Some(AlphaShares { clear: counts[0] as f32 / n, opaque: counts[1] as f32 / n, partial: counts[2] as f32 / n })
 }
 
+/// A texture's top-level alpha, one byte per texel, rows from the top.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AlphaMap {
+    pub width: usize,
+    pub height: usize,
+    pub alpha: Vec<u8>,
+}
+
+/// The top-level alpha of a DDS file. `None` for files that do not parse and for layouts
+/// without alpha.
+pub fn alpha_map(bytes: &[u8]) -> Option<AlphaMap> {
+    let dds = Dds::parse(bytes).ok()?;
+    let top = *dds.levels.first()?.first()?;
+    let (width, height) = (dds.header.width as usize, dds.header.height as usize);
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let mut alpha = vec![0u8; width * height];
+    match dds.format {
+        Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
+            let size = dds.format.block_bytes()?;
+            let across = width.div_ceil(4);
+            let blocks = (across * height.div_ceil(4)).min(top.len() / size);
+            for (n, b) in top.chunks_exact(size).take(blocks).enumerate() {
+                let (bx, by) = (n % across * 4, n / across * 4);
+                for (i, a) in block_alpha(dds.format, b).into_iter().enumerate() {
+                    let (x, y) = (bx + i % 4, by + i / 4);
+                    if x < width && y < height {
+                        alpha[y * width + x] = a;
+                    }
+                }
+            }
+        }
+        Format::A8R8G8B8 | Format::A4R4G4B4 | Format::A8B8G8R8 | Format::A1R5G5B5 | Format::A8L8 => {
+            let rgba = to_rgba8(dds.format, top)?;
+            for (a, p) in alpha.iter_mut().zip(rgba.as_chunks::<4>().0) {
+                *a = p[3];
+            }
+        }
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 => return None,
+    }
+    Some(AlphaMap { width, height, alpha })
+}
+
+impl AlphaMap {
+    /// The part of a rectangular cell of the texture that holds every texel above
+    /// `clear` alpha, widened by `pad` texels: `[s0, s1, t0, t1]` in the cell's own
+    /// coordinates, s from its corner `origin` towards `s_end`, t towards `t_end`, each
+    /// 0..1 (texture coordinates, 0..1 over the texture, wrapping). `None` when the cell
+    /// holds nothing above `clear`. The cell's edges must follow the texture's axes.
+    pub fn kept_part(&self, origin: [f32; 2], s_end: [f32; 2], t_end: [f32; 2], clear: u8, pad: f32) -> Option<[f32; 4]> {
+        let (w, h) = (self.width as f32, self.height as f32);
+        let lo = [origin[0].min(s_end[0]).min(t_end[0]), origin[1].min(s_end[1]).min(t_end[1])];
+        let hi = [origin[0].max(s_end[0]).max(t_end[0]), origin[1].max(s_end[1]).max(t_end[1])];
+        let (ds, dt) = ([s_end[0] - origin[0], s_end[1] - origin[1]], [t_end[0] - origin[0], t_end[1] - origin[1]]);
+        let det = ds[0] * dt[1] - ds[1] * dt[0];
+        if det.abs() < 1e-12 {
+            return None;
+        }
+        // Texels whose centres lie in the cell.
+        let (x0, x1) = ((lo[0] * w - 0.5).ceil() as i64, (hi[0] * w - 0.5).floor() as i64);
+        let (y0, y1) = ((lo[1] * h - 0.5).ceil() as i64, (hi[1] * h - 0.5).floor() as i64);
+        let mut kept: Option<[f32; 4]> = None;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let (tx, ty) = (x.rem_euclid(self.width as i64) as usize, y.rem_euclid(self.height as i64) as usize);
+                if self.alpha[ty * self.width + tx] <= clear {
+                    continue;
+                }
+                let (u, v) = ((x as f32 + 0.5) / w - origin[0], (y as f32 + 0.5) / h - origin[1]);
+                let s = (u * dt[1] - v * dt[0]) / det;
+                let t = (ds[0] * v - ds[1] * u) / det;
+                let k = kept.get_or_insert([s, s, t, t]);
+                *k = [k[0].min(s), k[1].max(s), k[2].min(t), k[3].max(t)];
+            }
+        }
+        // A texel's own half and the pad, in cell coordinates.
+        let s_texels = (ds[0] * w).abs().max((ds[1] * h).abs()).max(1.0);
+        let t_texels = (dt[0] * w).abs().max((dt[1] * h).abs()).max(1.0);
+        kept.map(|[s0, s1, t0, t1]| {
+            let (ps, pt) = ((0.5 + pad) / s_texels, (0.5 + pad) / t_texels);
+            [(s0 - ps).max(0.0), (s1 + ps).min(1.0), (t0 - pt).max(0.0), (t1 + pt).min(1.0)]
+        })
+    }
+}
+
 /// The 16 alphas of one DXT block [documented: the DXT1/3/5 block layouts; fnv-dds].
 fn block_alpha(format: Format, b: &[u8]) -> [u8; 16] {
     match format {
@@ -575,9 +671,47 @@ fn remembered(known: &Mutex<HashMap<String, bool>>, key: String, compute: impl F
 #[cfg(test)]
 mod tests {
     use super::first_person_texture;
-    use super::{alpha_shares, remembered, AlphaShares};
+    use super::{alpha_shares, dds_image, remembered, AlphaShares, TextureFormat};
     use std::collections::HashMap;
     use std::sync::Mutex;
+
+    #[test]
+    fn the_kept_part_of_a_cell_holds_its_visible_texels_and_the_pad() {
+        use super::AlphaMap;
+        // 8 x 8, visible texels at x 4..=5, y 2..=3 only.
+        let mut alpha = vec![0u8; 64];
+        for y in 2..=3 {
+            for x in 4..=5 {
+                alpha[y * 8 + x] = 255;
+            }
+        }
+        let map = AlphaMap { width: 8, height: 8, alpha };
+        // The whole texture, s along +u, t along +v: x 4..=5 is 4/8..6/8, y 2..=3 is 2/8..4/8.
+        let k = map.kept_part([0.0, 0.0], [1.0, 0.0], [0.0, 1.0], 8, 0.0).unwrap();
+        assert_eq!(k, [0.5, 0.75, 0.25, 0.5]);
+        // One texel of pad each way.
+        let k = map.kept_part([0.0, 0.0], [1.0, 0.0], [0.0, 1.0], 8, 1.0).unwrap();
+        assert_eq!(k, [0.375, 0.875, 0.125, 0.625]);
+        // A cell stored the other way round (t from the bottom up): the same texels.
+        let k = map.kept_part([0.0, 1.0], [1.0, 1.0], [0.0, 0.0], 8, 0.0).unwrap();
+        assert_eq!(k, [0.5, 0.75, 0.5, 0.75]);
+        // A cell with nothing visible.
+        assert_eq!(map.kept_part([0.0, 0.5], [0.5, 0.5], [0.0, 1.0], 8, 0.0), None);
+    }
+
+    #[test]
+    fn a_dxt5_alpha_map_reads_each_block_in_place() {
+        use super::alpha_map;
+        // 8 x 4: two DXT5 blocks, the first all alpha 0 (a0 = a1 = 0), the second 255.
+        let mut payload = Vec::new();
+        payload.extend([0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        payload.extend([255u8, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let m = alpha_map(&dds(b"DXT5", 8, 4, &payload)).unwrap();
+        assert_eq!((m.width, m.height), (8, 4));
+        assert_eq!(m.alpha[0], 0);
+        assert_eq!(m.alpha[4], 255);
+        assert_eq!(m.alpha[3 * 8 + 7], 255);
+    }
 
     #[test]
     fn a_mask_is_worked_out_once_per_path() {
@@ -613,6 +747,28 @@ mod tests {
         blk[0] = a;
         blk[1] = a;
         blk
+    }
+
+    /// A block texture whose sides are not multiples of 4 becomes an RGBA image of its
+    /// own size; one with bytes after its last level loads as if they were not there [#2164].
+    #[test]
+    fn odd_sized_and_overlong_block_textures_load() {
+        // 6x5 DXT5 = 2x2 blocks, every texel opaque.
+        let payload: Vec<u8> = (0..4).flat_map(|_| dxt5_block(255)).collect();
+        let img = dds_image(&dds(b"DXT5", 6, 5, &payload), true, true).unwrap();
+        assert_eq!(img.texture_descriptor.format, TextureFormat::Rgba8UnormSrgb);
+        assert_eq!((img.width(), img.height()), (6, 5));
+        let data = img.data.as_ref().unwrap();
+        assert_eq!(data.len(), 6 * 5 * 4);
+        assert!(data.chunks(4).all(|t| t[3] == 255));
+        // Decoded on the CPU, so a GPU without BC formats shows it too.
+        assert!(dds_image(&dds(b"DXT5", 6, 5, &payload), true, false).is_ok());
+        // 8x8 with 8 bytes over: the blocks go to the GPU as they are.
+        let mut long = payload.clone();
+        long.extend_from_slice(&[0xAB; 8]);
+        let img = dds_image(&dds(b"DXT5", 8, 8, &long), false, true).unwrap();
+        assert_eq!(img.texture_descriptor.format, TextureFormat::Bc3RgbaUnorm);
+        assert_eq!(img.data.as_ref().unwrap().len(), 64);
     }
 
     #[test]
