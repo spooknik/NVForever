@@ -135,3 +135,65 @@ switch, so the INI read never reports one overridden.
   reads <name>` at the start and whenever it changes while the pause menu is open.
 - Smoke: `settings-quality-presets`, `settings-quality-presets-missing`,
   `settings-quality-presets-part`, `settings-enhanced-effects`.
+
+## Main-menu edit measurement (#2248)
+
+[design, #2248: engine/nvforever/src/quality_probe.rs;
+engine/nvf-play/src/settings.rs] While the main menu is open, each effective
+Quality choice or mapped row edit logs `quality measure begin:` and then one
+`quality measure:` line. A preset's nested row setters are one measurement. No-op
+sliders and already chosen list entries start no measurement. The window follows
+the setter for `FOLLOW_SECS` (three real seconds), retaining any frame crossing
+its deadline; overlapping windows remain independent. No renderer or gameplay
+default is changed by this diagnostic.
+
+[design: quality_probe.rs `watching`] Asset and entity sampling runs only while
+the main menu is open or an edit's measurement is still active.
+
+[design: quality_probe.rs] `longest_frame_ms` is the largest wall-clock interval
+between main-frame starts, including the entire frame containing the edit. It
+includes scheduling and renderer backpressure, rather than only CPU execution or
+GPU time. `setter_ms` times the outer setter and its persistence. `elapsed_secs`
+includes that setter and the follow-up; `frames` counts sampled main intervals.
+`main_menu=true` means the menu remained open at every sampled interval; it does
+not prove that the black UI cover was drawn on the GPU.
+
+[design: quality_probe.rs, world.rs, graphics.rs, draw_distance.rs, pipeline_gate.rs]
+The other fields describe work during the interval, including unrelated work:
+
+- `cell_starts` and `reference_attempts`: cumulative calls to cell construction
+  (`begin_cell`) and reference spawning (`spawn_ref`), including attempts which
+  produce no visual. These cover new construction as well as repeated work; they
+  are not a count of disk reads. Startup construction before an edit is excluded.
+- `world_roots` and `visual_parts`: added world-root and RefVisual components;
+  multiple parts can belong to the same reference. Deferred additions are counted
+  at the end of the frame, rather than at the original request.
+- `camera_spawns`, `shadow_updates`: added camera components (including secondary
+  views) and calls to the sun-shadow setter (`sky.rs`), even without a sun entity.
+- `graphics_applies`, `range_passes`, `range_meshes`: graphics application passes
+  past the unchanged-state guard, whole-scene distance passes, and meshes visited
+  by those distance passes.
+- `pipelines_asked`, `pipelines_pending_peak`, `render_frames`: new pipeline
+  requests, the largest pending count sampled by the main world, and completed
+  render frames. A compile that starts and ends between samples may not appear in
+  the peak. The existing `NVF_PLAY_TEST_PIPELINE_LOG=1` aid adds pipeline labels
+  and request-to-ready times; neither aid times individual driver shader compiles.
+- `mesh_events`, `image_events`: `[added, modified, removed]` asset events, sampled
+  at frame end. Images include menu slides and UI assets; these are not necessarily
+  world reloads. Events delayed until frame end can include earlier frame activity.
+- `window_changes`: sampled changes to a window's identity, physical size, scale,
+  mode or presentation mode. This does not count backend swapchain recreations.
+- `ini_write_attempts`: settings-file write attempts, including failed writes;
+  nested row writes and the enclosing preset write all count.
+
+[design, #2248: tools/smoke/scenarios.toml] `quality-main-menu-measure` opens
+Settings from the main menu, takes all four made-up preset fixtures, and then
+edits each of the nine mapped rows alone, eight seconds apart. Stage 1 requires
+the thirteen summary lines, with no frame-time limits or zero-load expectations.
+Run it on Windows and Linux before choosing a fix. [hypothesis, #2248] Pipeline
+compilation or presentation behavior may differ by GPU, driver and window backend;
+source inspection alone does not establish the reported Linux hitch or the cover
+becoming invisible. The repeated synchronous INI writes are present in the shared
+setters [design: settings.rs `take`, `flip`, `set_slider`, `store`]; their share of
+the hitch still needs measurement. Stage 2 remains deferred until the cause is
+clear. No observer check or gameplay choice is added.

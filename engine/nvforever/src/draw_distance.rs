@@ -188,8 +188,13 @@ pub(crate) fn apply_ranges(
     parents: Query<&ChildOf>,
     marks: Query<(Has<CellEntity>, Has<ActorRig>, Has<DroppedRoot>)>,
     mut known: Local<HashMap<u32, DrawClass>>,
+    work: Option<ResMut<crate::quality_probe::Work>>,
 ) {
     let entities: Vec<Entity> = if distances.is_changed() { all.iter().collect() } else { changed.iter().collect() };
+    if let Some(mut work) = work.filter(|_| distances.is_changed()) {
+        work.ranges += 1;
+        work.range_meshes += entities.len() as u64;
+    }
     if distances.is_changed() && !distances.is_added() {
         info!(
             "draw distances: objects {:.0}%, actors {:.0}%, items {:.0}% of {:.0} units ({} meshes)",

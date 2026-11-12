@@ -51,6 +51,29 @@
 use bevy::prelude::*;
 use fnv_install::{guard_write, ini_get, ini_set, EngineHome, HOME_ENV};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+/// Optional renderer diagnostic around an edit, including nested row setters and INI
+/// persistence [design, #2248: nvforever/quality_probe.rs].
+#[derive(Resource)]
+pub struct EditProbe(pub fn(&mut World, &str, EditPhase));
+
+#[derive(Clone, Copy)]
+pub enum EditPhase {
+    Begin,
+    End { applied: bool },
+}
+
+/// Attempted INI writes, including failures; present only with the edit diagnostic
+/// [design, #2248: store]. Interior mutability keeps `store`'s read-only world API.
+#[derive(Resource, Default)]
+pub struct StoreAttempts(pub AtomicU64);
+
+fn probe(world: &mut World, key: &str, phase: EditPhase) {
+    if let Some(callback) = world.get_resource::<EditProbe>().map(|p| p.0) {
+        callback(world, key, phase);
+    }
+}
 
 /// The INI section the switches are kept in.
 pub const SECTION: &str = "Settings";
@@ -400,7 +423,9 @@ fn take(world: &mut World, i: usize, apply: impl FnOnce(&mut World) -> bool) -> 
     let Some(settings) = world.get_resource::<Settings>() else { return false };
     let (Some(s), Some(c)) = (settings.list().get(i).copied(), settings.choices(i)) else { return false };
     let before = (c.save)(world);
+    probe(world, s.key, EditPhase::Begin);
     if !apply(world) {
+        probe(world, s.key, EditPhase::End { applied: false });
         warn!("settings: {} has no such choice", s.key);
         return false;
     }
@@ -417,6 +442,7 @@ fn take(world: &mut World, i: usize, apply: impl FnOnce(&mut World) -> bool) -> 
         own(world, i);
     }
     store(world);
+    probe(world, s.key, EditPhase::End { applied: true });
     true
 }
 
@@ -458,11 +484,13 @@ pub fn flip(world: &mut World, i: usize) -> Option<bool> {
         return None;
     }
     let on = !(s.get)(world);
+    probe(world, s.key, EditPhase::Begin);
     (s.set)(world, on);
     pipeline_change(world, s.key, (s.get)(world) == on);
     info!("settings: {} {}", s.key, if on { "on" } else { "off" });
     own(world, i);
     store(world);
+    probe(world, s.key, EditPhase::End { applied: true });
     Some(on)
 }
 
@@ -485,11 +513,13 @@ pub fn set_slider(world: &mut World, i: usize, v: f32) -> Option<f32> {
     let v = slider.fit(v);
     if (slider.get)(world) != v {
         let before = (slider.get)(world);
+        probe(world, s.key, EditPhase::Begin);
         (slider.set)(world, v);
         pipeline_change(world, s.key, (slider.get)(world) != before);
         info!("settings: {} {}", s.key, slider.text(v));
         own(world, i);
         store(world);
+        probe(world, s.key, EditPhase::End { applied: true });
     }
     Some(v)
 }
@@ -738,6 +768,9 @@ fn store(world: &World) {
             (None, _, _) => (s.key, s.stored_text(s.value(world))),
         })
         .collect();
+    if let Some(attempts) = world.get_resource::<StoreAttempts>() {
+        attempts.0.fetch_add(1, Relaxed);
+    }
     match write(&path, &states) {
         Ok(()) => debug!("settings: {} switch(es) written to {}", states.len(), path.display()),
         Err(e) => warn!("settings: not saved: {e}"),
@@ -760,6 +793,44 @@ fn write(path: &Path, states: &[(&str, String)]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Resource, Default)]
+    struct ProbeEvents(Vec<(String, bool, bool)>);
+
+    #[test]
+    fn edit_probe_covers_nested_setters_and_rejected_choices_but_skips_unchanged_sliders() {
+        let mut app = App::new();
+        app.init_resource::<Lamp>().insert_resource(Reach(0.5)).init_resource::<ProbeEvents>();
+        app.insert_resource(EditProbe(|world, key, phase| {
+            let (begin, applied) = match phase {
+                EditPhase::Begin => (true, false),
+                EditPhase::End { applied } => (false, applied),
+            };
+            world.resource_mut::<ProbeEvents>().0.push((key.into(), begin, applied));
+        }));
+        add_setting(&mut app, setting("lamp", "Test"));
+        add_setting(&mut app, slider("reach"));
+        add_choice_list(&mut app, setting("bundle", "Test"), ChoiceList {
+            names: |_| vec!["change".into()], chosen: |_| "before".into(), save: |_| "before".into(),
+            load: |_, _| false, ask_keep: false,
+            pick: |world, name| {
+                if name != "change" { return false; }
+                flip(world, 0);
+                set_slider(world, 1, 0.8);
+                true
+            },
+        });
+        let world = app.world_mut();
+        set_slider(world, 1, 0.5);
+        assert!(world.resource::<ProbeEvents>().0.is_empty());
+        assert!(pick(world, 2, "change"));
+        assert!(!pick(world, 2, "invalid"));
+        assert_eq!(world.resource::<ProbeEvents>().0, [
+            ("bundle".into(), true, false), ("lamp".into(), true, false), ("lamp".into(), false, true),
+            ("reach".into(), true, false), ("reach".into(), false, true), ("bundle".into(), false, true),
+            ("bundle".into(), true, false), ("bundle".into(), false, false),
+        ]);
+    }
 
     #[test]
     fn pipeline_rows_latch_effective_pause_edits_including_defaults() {

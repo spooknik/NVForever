@@ -245,6 +245,10 @@ pub enum CellKey {
 
 #[derive(Debug, Default, Clone)]
 pub struct StreamStats {
+    /// Cumulative cell construction and reference spawn attempts, including work that
+    /// produces no visual [design, #2248: begin_cell, spawn_ref; quality_probe.rs].
+    pub cell_starts: u64,
+    pub reference_attempts: u64,
     pub cells_loaded: usize,
     pub refs_drawn: usize,
     pub refs_skipped_disabled: usize,
@@ -997,6 +1001,7 @@ fn begin_cell(
     streamer: &mut Streamer,
 ) -> (Entity, Vec<u32>, Vec3) {
     let stats = &mut streamer.stats;
+    stats.cell_starts += 1;
     let (origin, cell, name) = match key {
         CellKey::Exterior(g) => {
             (Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0), world.grid_cell(g), format!("Cell {},{}", g.0, g.1))
@@ -1051,6 +1056,7 @@ fn spawn_ref(
 ) {
     // Once the start's cells are in, an actor whose parts are not read yet is drawn when
     // they are (`draw_waiting_actors`); before, behind the loading screen, at once.
+    streamer.stats.reference_attempts += 1;
     let waits = streamer.settled;
     let override_model = streamer.model_overrides.get(&r).cloned();
     let (hide, light_scale, managed, stats, waiting) = (&streamer.hide, streamer.light_scale, &streamer.managed, &mut streamer.stats, &mut streamer.waiting);

@@ -25949,3 +25949,32 @@ expect = [
   { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
 ]
+
+
+[[scenario]]
+name = "quality-main-menu-measure"
+source = "[design, #2248] Main menu -> Settings -> four invented presets, then each of their nine rows alone; quality_probe.rs records wall-clock frames and correlated work. Stage 1 requires measurement lines without performance or load limits."
+note = "[design, #2248] Eight seconds between edits permits a three-second sample after each setter; overlapping samples remain independent if a stall makes several aid steps due together. No New Game action is sent. Pipeline labels/times use the existing pipeline log aid."
+areas = ["main-menu", "settings", "renderer"]
+paths = ["engine/nvforever/src/quality_probe.rs", "engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/main_menu.rs", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/draw_distance.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/pipeline_gate.rs", "engine/nvforever/src/sky.rs", "tools/smoke/fixtures/quality-presets/"]
+env = { NVFOREVER_HOME = "quality-main-menu-measure-home", NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "8:settings", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_SETTINGS = "12:quality=Low,20:quality=Medium,28:quality=High,36:quality=Very High,44:shadow-distance=0.5,52:sun-shadows,60:shadow-filter=0,68:actor-distance=0.5,76:object-distance=0.5,84:item-distance=0.5,92:grass-distance=0.5,100:water-mirror,108:glow" }
+args = ["--play", "--menu", "--no-voice", "--no-messages", "--no-lodgen", "--size", "1280x720"]
+run_seconds = 180
+expect = [
+  "main menu: open",
+  "main menu: Settings",
+  "pause menu: Settings { selected: None } page for another menu",
+  { re = 'quality measure: key=quality value=Low main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=quality value=Medium main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=quality value=High main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=quality value=Very High main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=shadow-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=sun-shadows value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=shadow-filter value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=actor-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=object-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=item-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=grass-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=water-mirror value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=glow value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+]

@@ -1543,6 +1543,9 @@ pub fn sun_height_and_fade(sky: &SkyState) -> (f32, f32) {
 /// Switch the sun's shadows on or off now (the settings page); they reach
 /// [`SkyState::shadow_distance`].
 pub fn set_shadows(world: &mut World, on: bool) {
+    if let Some(mut work) = world.get_resource_mut::<crate::quality_probe::Work>() {
+        work.shadow_updates += 1;
+    }
     let distance = {
         let mut sky = world.resource_mut::<SkyState>();
         sky.shadows = on;
