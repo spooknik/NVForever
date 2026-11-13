@@ -11,8 +11,8 @@
 //! blurred over those 4 x 4 texels at about the same distance and multiplied
 //! into the picture after tonemapping, before the image-space grade and its blur
 //! (imagespace.rs). It darkens all light, not only the ambient light as the lighting
-//! itself could [engineering choice: the strength is kept low for that]. While a temporal
-//! upscaler (FSR, DLSS) upscales it runs at the render size on the HDR picture before the
+//! itself could [engineering choice: the strength is kept low for that]. While an upscaler
+//! (FSR, DLSS or Bilinear) upscales it runs at the render size on the HDR picture before the
 //! upscaler instead ([`ao_before_fsr`]; the names say FSR, the first to use it).
 //!
 //! On the main camera only, while it carries [`AmbientOcclusion`].
@@ -342,16 +342,17 @@ fn occlusion_pass(
     pass.draw(0..3, 0..1);
 }
 
-/// While a temporal upscaler upscales: the occlusion worked out at its render size from the
-/// depth as drawn (before the common passes expand it) and multiplied into the render-size
-/// rectangle of the HDR picture the upscaler reads, and, under FSR, of FSR's opaque copy, so
-/// its masks compare the two as before. The upscaler then accumulates it with everything
-/// else: the occlusion is jittered with the scene and smoothed by it, at about half the cost
-/// of the pass at the display size (FSR Quality: the render size has 0.44 of the pixels). It
-/// darkens the HDR light before tonemapping, so bright surfaces lose less than when it is
-/// multiplied into the tonemapped picture. Runs before every upscaler's pass
-/// (`fsr::fsr_pass`, `dlss::dlss_pass`; `upscaler::bilinear::bilinear_pass` orders itself after
-/// it).
+/// While an upscaler upscales: the occlusion worked out at its render size from the depth as
+/// drawn (before the common passes expand it) and multiplied into the render-size rectangle
+/// of the HDR picture the upscaler reads, and, under FSR, of FSR's opaque copy, so its masks
+/// compare the two as before. A temporal upscaler (FSR, DLSS) then accumulates it with
+/// everything else: the occlusion is jittered with the scene and smoothed by it; Bilinear
+/// (#2414) stretches it with the picture, unjittered. Either way at about half the cost of the
+/// pass at the display size (FSR Quality: the render size has 0.44 of the pixels). It darkens
+/// the HDR light before tonemapping, so bright surfaces lose less than when it is multiplied
+/// into the tonemapped picture. Runs before every upscaler's pass (`fsr::fsr_pass` and
+/// `dlss::dlss_pass` are ordered after it here; `upscaler::bilinear::bilinear_pass` orders
+/// itself after it, `upscaler/prep.rs` `PrepPlugin`).
 #[allow(clippy::type_complexity)]
 pub(crate) fn ao_before_fsr(
     view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, &crate::upscaler::prep::PreparedUpscale, Option<&crate::fsr::PreparedFsr>)>,

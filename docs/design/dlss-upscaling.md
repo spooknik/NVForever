@@ -285,9 +285,9 @@ detail in the module notes of the file named.
   scenarios written for it keep working. Both rows' notes name `--upscaler`,
   `--upscaler-quality` and `--fsr`, so a test run that gives any of them keeps both at the
   command line's choice. (Steps 7, 8; the play-test follow-up.)
-- **The anti-aliasing row** reads "Off (upscaling active)" while FSR, DLSS or Bilinear draws
-  (`upscaler::upscaling_active`; Bilinear since #2414) and the saved choice comes back when
-  Upscaler is Off. DLSS
+- **The anti-aliasing row** reads "Off (upscaling active)" while FSR or DLSS draws
+  (`upscaler::temporal_active`) and the saved choice comes back when Upscaler is Off. Bilinear
+  (#2414) leaves it editable: FXAA and SMAA apply after it, multisampling and TAA wait. DLSS
   sharpens nothing itself: the Sharpening switch drives the separate sharpening pass with DLSS,
   as it does natively. (Step 8.)
 - **Frame generation is off with DLSS** (`frame_gen::usable`). FSR's frame generation assumes
@@ -422,10 +422,11 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
   `upscaler::follow_request` makes the status on the first frame and refreshes it every frame
   before `graphics::apply` puts the effective choice on the camera. `dlss_unavailable` is the
   reason the DLSS entries are dimmed, by the same rule.
-- `upscaler::effective`, `upscaling_active` and `temporal_active`: what the shared parts ask.
-  `upscaling_active` (any upscaler, Bilinear too): the HDR view, the anti-aliasing lock;
-  `temporal_active` (FSR or DLSS): the motion prepass, cut-outs drawn alpha-tested, DLSS frame
-  generation's inputs. The ambient occlusion at the render size goes with the prepared view.
+- `upscaler::effective` and `temporal_active`: what the shared parts ask. Any upscaler
+  (Bilinear too): the HDR, single-sampled view without TAA (`graphics::apply`);
+  `temporal_active` (FSR or DLSS): the motion prepass, cut-outs drawn alpha-tested, FXAA and
+  SMAA replaced (the anti-aliasing row's lock), DLSS frame generation's inputs. The ambient
+  occlusion at the render size goes with the prepared view.
   `graphics::fsr_active` stays FSR's own question (its sharpening, frame generation). All go
   by the effective choice.
 - `DlssUpscaling` (a component): DLSS on a camera, the counterpart of `fsr::FsrUpscaling`, and

@@ -603,15 +603,23 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
   (`upscaler::resolve` never refuses it) and switched at once, no restart.
 - **The camera** gets `BilinearUpscaling`, with the HDR view and the depth prepass the main
   camera always has; no `MotionVectorPrepass`, `TemporalJitter` or `MipBias` (so no jittered
-  pipeline variant either). Multisampling is off and FXAA, SMAA and TAA are replaced while it
-  is on, as for FSR: the anti-aliasing row reads `Off (upscaling active)` and the saved choice
-  comes back with Off (`upscaler::upscaling_active`). The Sharpening switch drives the separate
-  sharpening pass, as natively. It is not temporal (`upscaler::temporal_active` is false), so
-  blended cut-outs stay blended and neither frame generation runs over it (FSR's needs FSR,
-  DLSS's says `Not with Bilinear`).
+  pipeline variant either). Multisampling and TAA are off while it is on, as for FSR (the view
+  must be single-sampled, and TAA needs the jitter and motion it does without), but FXAA and
+  SMAA stay as the anti-aliasing row chooses: Bilinear smooths nothing, and they run after
+  tonemapping on the stretched picture at the window's size [design: the main session's review
+  of #2414]. So the row stays editable (it reads `Off (upscaling active)` only for FSR and
+  DLSS, `upscaler::temporal_active`); a multisampling level or TAA chosen there waits for
+  Upscaler Off. The Sharpening switch drives the separate sharpening pass, as natively. It is
+  not temporal, so blended cut-outs stay blended and neither frame generation runs over it
+  (FSR's needs FSR, DLSS's says `Not with Bilinear`). A live switch from FSR takes FSR's own
+  state away (`fsr::keeps_fsr_state`); one from DLSS frees DLSS's resources
+  (`dlss::release_now`).
 - **The common preparation** (`prep::prepare`, Bilinear's `policy`: FSR's ratio, no jitter
   phases, no bias): the render-size override, the ambient occlusion at the render size before
-  the upscaler, the corrected and expanded depth. The main-pass shaders that read a screen
+  the upscaler, the depth expanded to the window's size afterwards. The render-size corrected
+  depth FSR and DLSS read is made with the prepared view but never drawn for Bilinear (one
+  render-size depth texture, kept to leave the prepared view the same for every backend). The
+  main-pass shaders that read a screen
   position follow `view.main_pass_viewport` as they do for FSR (`nif_material.wesl`,
   `water.wesl`); terrain, grass, trees and the sky read none, so none needed a change.
 - **The pass** (`bilinear_pass`), where FSR's is, after the occlusion before the upscaler and
@@ -625,8 +633,8 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
 - **What it says**: `Bilinear stretch active: 640x360 -> 1280x720` once per prepared view (each
   switch on, each new size); the performance overlay's Upscaling row
   `Bilinear Performance  640x360 -> 1280x720`. Smoke: `bilinear-quality` (Goodsprings,
-  enhanced, from the command line), `bilinear-switch` (picked, changed and switched off on
-  the settings page while playing).
+  enhanced, from the command line), `bilinear-switch` (FSR 3.1, then Bilinear picked, its
+  mode changed, the window resized, FSR again and Off, on the settings page while playing).
 - **Not measured yet**: what it saves on the N150 [hypothesis: about what the issue's
   1280x720 and 960x540 runs save, less one display-size pass and the AO at its size].
 

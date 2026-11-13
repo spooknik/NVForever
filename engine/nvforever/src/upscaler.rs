@@ -20,13 +20,15 @@
 //!   the spatial fallback and the alpha copy. FSR adds its own state after it; DLSS gets it
 //!   without any of FSR's.
 //! - [`temporal_active`] is the question the temporal parts ask (the motion-vector prepass,
-//!   cut-outs drawn alpha-tested, the inputs DLSS frame generation takes), [`upscaling_active`]
-//!   the one every upscaler shares (the HDR view, the anti-aliasing lock); the ambient occlusion
-//!   at the render size goes with the prepared view (`prep::prepare`). `graphics::fsr_active`
-//!   stays FSR's own (its sharpening, frame generation). All go by the effective choice
-//!   ([`effective`]). Bilinear is an upscaler but not a temporal one [design, #2414]: it draws
-//!   the scene at the quality's render size and stretches it to the window with a bilinear
-//!   filter, with no jitter, motion vectors or history, on every GPU and at once.
+//!   cut-outs drawn alpha-tested, the inputs DLSS frame generation takes, the anti-aliasing
+//!   row's lock: they smooth the picture themselves); any upscaler at all (`effective` not
+//!   Off) asks for the HDR, single-sampled view without TAA (`graphics::apply`); the ambient
+//!   occlusion at the render size goes with the prepared view (`prep::prepare`).
+//!   `graphics::fsr_active` stays FSR's own (its sharpening, frame generation). All go by the
+//!   effective choice ([`effective`]). Bilinear is an upscaler but not a temporal one [design,
+//!   #2414]: it draws the scene at the quality's render size and stretches it to the window
+//!   with a bilinear filter, with no jitter, motion vectors or history, on every GPU and at
+//!   once; FXAA and SMAA still smooth the picture after it (the main session's review).
 //!
 //! **Start** (step 8) [design]: the requested choice is the command line's
 //! ([`command_line_choice`]: `--upscaler`, `--upscaler-quality`, the older `--fsr`), then the
@@ -717,17 +719,12 @@ pub fn effective(world: &World) -> UpscalerChoice {
 
 /// Whether a temporal upscaler (FSR or DLSS) draws the main camera on this device: the
 /// question for what only they need (the motion-vector prepass, cut-outs drawn alpha-tested,
-/// the inputs DLSS frame generation takes from them). Bilinear is not temporal [design,
-/// #2414]; [`upscaling_active`] asks for any upscaler. `graphics::fsr_active` is FSR's own.
+/// the inputs DLSS frame generation takes from them) and for the anti-aliasing row's lock (they
+/// smooth the picture themselves). Bilinear is not temporal [design, #2414]: it keeps
+/// multisampling and TAA off (`graphics::apply`) but leaves FXAA and SMAA to the row.
+/// `graphics::fsr_active` is FSR's own.
 pub fn temporal_active(world: &World) -> bool {
     effective(world).is_temporal()
-}
-
-/// Whether any upscaler (FSR, DLSS or Bilinear) draws the main camera on this device: the
-/// question for what they all need (the HDR, single-sampled view; the native anti-aliasing
-/// replaced and the settings' anti-aliasing row locked).
-pub fn upscaling_active(world: &World) -> bool {
-    effective(world) != UpscalerChoice::Off
 }
 
 #[cfg(test)]

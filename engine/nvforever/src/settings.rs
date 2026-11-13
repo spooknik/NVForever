@@ -698,7 +698,7 @@ pub(crate) const LEGACY_KEY: &str = "fsr-upscaling";
 /// any of them keeps both rows at the command line's choice over the INI
 /// (`nvf_play::settings::GivenSwitches`), at the start ([`upscaler_after_ini`]) as at
 /// `PostStartup`.
-pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, or only stretch it there with Bilinear (softer; the cheapest, on any graphics card), at the Upscaling mode below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. FSR 3.1 and DLSS require Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs FSR 3.1 or DLSS. (--upscaler, --upscaler-quality, --fsr)";
+pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, or only stretch it there with Bilinear (softer; the cheapest, on any graphics card), at the Upscaling mode below. Disables MSAA and TAA while active; FSR 3.1 and DLSS also disable FXAA and SMAA. Menus stay sharp. FSR 3.1 and DLSS require Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs FSR 3.1 or DLSS. (--upscaler, --upscaler-quality, --fsr)";
 pub(crate) const QUALITY_NOTE: &str = "The share of the screen's width and height the world is drawn at; the upscaler rebuilds the rest. Native AA: full resolution, anti-aliasing only (DLSS: DLAA; Bilinear: no change). Quality: the sharpest upscaled look, for 1440p and 4K. Balanced: more speed with little visible loss. Performance: the highest frame rate, for 4K or heavy scenes. Ultra Performance: for very high resolutions only. Takes effect at once. With Upscaler Off there is nothing to set. (--upscaler-quality, --upscaler, --fsr)";
 
 /// The DLSS model row's key, right under Upscaling mode (#2198, the user's request): which
@@ -798,7 +798,7 @@ fn register_graphics(app: &mut App) {
             "anti-aliasing",
             GROUP_GRAPHICS,
             "Anti-aliasing",
-            "How edges are smoothed: multisampling Off, 2x, 4x or 8x (--msaa; the cut-out edges of plants too), or the picture smoothed afterwards: FXAA (cheapest, softest), SMAA (sharper, a little dearer) or TAA (over the frames; plants too, soft while moving; --graphics-only fxaa, smaa or taa). Multisampling is the dearest, more at each step: at 1920x1080 on an RTX 4070, 2x added about 0.8 ms a frame, 4x about 1.3 ms and 8x about 2.3 ms (Goodsprings and Novac at noon); FXAA, SMAA and TAA cost less than 4x. Where the processor sets the pace (the Strip at night) the choice costs next to nothing. While an upscaler is on this row reads Off (upscaling active): FSR 3.1 and DLSS do the anti-aliasing themselves, Bilinear does none; your choice comes back when Upscaler is Off.",
+            "How edges are smoothed: multisampling Off, 2x, 4x or 8x (--msaa; the cut-out edges of plants too), or the picture smoothed afterwards: FXAA (cheapest, softest), SMAA (sharper, a little dearer) or TAA (over the frames; plants too, soft while moving; --graphics-only fxaa, smaa or taa). Multisampling is the dearest, more at each step: at 1920x1080 on an RTX 4070, 2x added about 0.8 ms a frame, 4x about 1.3 ms and 8x about 2.3 ms (Goodsprings and Novac at noon); FXAA, SMAA and TAA cost less than 4x. Where the processor sets the pace (the Strip at night) the choice costs next to nothing. While FSR 3.1 or DLSS is on this row reads Off (upscaling active): they do the anti-aliasing themselves; your choice comes back when Upscaler is Off. With Bilinear, which smooths nothing, FXAA and SMAA still apply after it; multisampling and TAA wait until Upscaler is Off.",
             Slider::choice(graphics::AA_CHOICES.len(), |w| choice_part(graphics::aa_choice(w), graphics::AA_CHOICES.len()), |w, v| graphics::set_aa_choice(w, choice_index(v, graphics::AA_CHOICES.len())), |v| {
                 graphics::AA_CHOICES[choice_index(v, graphics::AA_CHOICES.len())].0.to_string()
             }),
@@ -822,7 +822,9 @@ fn register_graphics(app: &mut App) {
     for s in choices {
         add_setting(app, s);
     }
-    nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| crate::upscaler::upscaling_active(w).then_some("Off (upscaling active)"));
+    // FSR and DLSS smooth the picture themselves; Bilinear does not, so FXAA and SMAA stay
+    // the row's to choose while it draws (#2414; multisampling and TAA wait, graphics.rs).
+    nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| crate::upscaler::temporal_active(w).then_some("Off (upscaling active)"));
     // Frame generation: Off, FSR 3.1 or DLSS (#2317), each choice dimmed with its reason; the
     // INI's old on/off still reads. Then DLSS's frames per real frame.
     add_choice_list(
@@ -1255,7 +1257,8 @@ fn upscaler_unavailable(world: &World, name: &str) -> Option<String> {
 /// The older row's name for the request now (the test aid's `settings: fsr-upscaling <name>`).
 fn legacy_chosen(world: &World) -> String {
     let requested = world.resource::<Graphics>().upscaler;
-    graphics::FSR_UPSCALING_CHOICES.iter().find(|(_, choice)| *choice == requested).map_or("Off", |(name, _)| *name).to_string()
+    // Bilinear (#2414) is none of the older row's choices: named as the log names it.
+    graphics::FSR_UPSCALING_CHOICES.iter().find(|(_, choice)| *choice == requested).map_or_else(|| requested.describe(), |(name, _)| (*name).to_string())
 }
 
 /// The test aid's `fsr-upscaling=<name>`: the older row's whole choice, set on both rows.
@@ -1531,10 +1534,12 @@ mod fsr_settings_tests {
         assert_eq!(locked(&app), None);
     }
 
-    /// Bilinear (#2414) locks the anti-aliasing row as FSR and DLSS do, in any session (no FSR,
-    /// no DLSS), picked on the Upscaler row and switched at once; Off gives the row back.
+    /// Bilinear (#2414) is in reach in any session (no FSR, no DLSS), picked on the Upscaler row
+    /// and switched at once. It leaves the anti-aliasing row editable, unlike FSR and DLSS: FXAA
+    /// and SMAA apply after it (multisampling and TAA wait, `graphics::apply`); Off keeps the
+    /// row's choice.
     #[test]
-    fn native_aa_row_is_locked_while_bilinear_draws_on_a_device_without_fsr_or_dlss() {
+    fn the_aa_row_stays_editable_while_bilinear_draws_on_a_device_without_fsr_or_dlss() {
         use crate::upscaler::{DlssState, Session, Unavailable, UpscalerStatus};
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla))
@@ -1555,13 +1560,22 @@ mod fsr_settings_tests {
         follow(&mut app);
         assert_eq!(app.world().resource::<Graphics>().upscaler, UpscalerChoice::Bilinear(UpscaleQuality::Performance));
         assert_eq!(app.world().resource::<UpscalerStatus>().effective(), UpscalerChoice::Bilinear(UpscaleQuality::Performance), "draws at once");
-        assert_eq!(locked(&app), Some("Off (upscaling active)"));
-        assert!(nvf_play::settings::set_slider(app.world_mut(), aa, 0.0).is_none());
+        assert_eq!(locked(&app), None, "FXAA and SMAA still apply with Bilinear");
+        assert_eq!(graphics::aa_choice(app.world()), 2, "the saved 4x, kept for Off");
+        let fxaa = graphics::AA_CHOICES.iter().position(|(n, ..)| *n == "FXAA").unwrap();
+        assert!(nvf_play::settings::set_slider(app.world_mut(), aa, choice_part(fxaa, graphics::AA_CHOICES.len())).is_some());
+        assert_eq!(app.world().resource::<Graphics>().screen_aa, graphics::ScreenAa::Fxaa);
         assert_eq!(app.world().resource::<nvf_play::settings::Settings>().choice_label(app.world(), u, "Bilinear"), "Bilinear");
+        assert_eq!(legacy_chosen(app.world()), "Bilinear Performance", "the test aid's older row names it");
         assert!(nvf_play::settings::pick(app.world_mut(), u, "Off"));
         follow(&mut app);
         assert_eq!(locked(&app), None);
-        assert_eq!(graphics::aa_choice(app.world()), 2, "the saved 4x is back");
+        assert_eq!(graphics::aa_choice(app.world()), fxaa, "the choice made meanwhile stays");
+        // FSR or DLSS, by contrast, lock the row (they smooth the picture themselves).
+        app.insert_resource(UpscalerStatus::new(Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None }));
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "DLSS"));
+        follow(&mut app);
+        assert_eq!(locked(&app), Some("Off (upscaling active)"));
     }
 
     use crate::upscaler::{DlssState, Session, Unavailable, UpscalerStatus};
