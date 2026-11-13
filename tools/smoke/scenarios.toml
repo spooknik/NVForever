@@ -24136,38 +24136,49 @@ paths = ["engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "bilinear", "--upscaler-quality", "performance", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
 run_seconds = 18
-expect = ["upscaler: Bilinear Performance asked for, Bilinear Performance draws", "graphics: Bilinear Performance active; native anti-aliasing off", "Bilinear stretch active: 640x360 -> 1280x720"]
-forbid = [{ text = "FSR 3.1.4:", label = "FSR's state made for Bilinear" }, { text = "FSR dispatch", label = "an FSR dispatch" }, { text = "requires a single-sampled HDR view", label = "an unusable view: drawn natively" }, "Shader validation error", "Validation Error"]
+expect = ["upscaler: Bilinear Performance asked for, Bilinear Performance draws", "graphics: Bilinear Performance active", "Bilinear stretch active: 640x360 -> 1280x720"]
+forbid = [{ text = "FSR 3.1.4:", label = "FSR's state made for Bilinear" }, { text = "FSR dispatch", label = "an FSR dispatch" }, { text = "requires a single-sampled HDR view", label = "an unusable view: drawn natively" }, "Shader validation error", "Validation Error", { text = "panicked", label = "a panic on a thread that does not end the game" }]
 
 [[scenario]]
 name = "bilinear-switch"
-source = "#2414, docs/design/fsr-upscaling.md \"Bilinear\": the Bilinear upscaler picked on the settings page while playing, its mode changed twice and switched Off again, each at once; the scene drawn at FSR's share of 1280x720 and stretched, no rendering errors"
-note = "upscaler.rs, upscaler/bilinear.rs. The Upscaler row's pick takes the mode the quality row shows (Quality, KeptQuality's default), then Performance and Ultra Performance are picked on the quality row; each pause is resumed so the stretch draws while playing. 640x360 and 426x240 are FSR's ratios 2 and 3 at 1280x720 (fsr.rs FsrQuality::render_size); the stretch says its sizes once per prepared view (bilinear_pass). No FSR line may appear: Bilinear makes none of FSR's state"
+source = "#2414, docs/design/fsr-upscaling.md \"Bilinear\": live switches on the settings page while playing: FSR 3.1 Quality at start, then Bilinear (FSR's own state let go), its mode changed, the window resized while it draws, its mode changed again, back to FSR 3.1 at the new size, then Off; the scene drawn at FSR's share of the window and stretched, no rendering errors"
+note = "upscaler.rs, upscaler/bilinear.rs, fsr.rs keeps_fsr_state (the review of 2026-11-13: FSR's state stayed on a view switched to Bilinear, which has no TemporalJitter). The Upscaler row's pick takes the mode the quality row shows (Quality, from --upscaler-quality); each pause is resumed so the picture is drawn while playing. 640x360, 800x450 and 533x300 are FSR's ratios 2 and 3 at 1280x720 and 1600x900 (fsr.rs FsrQuality::render_size); the stretch says its sizes once per prepared view (bilinear_pass). resolution=1600x900 is kept with the keep prompt as in fsr-resize"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/fsr_fallback.wgsl", "engine/nvforever/src/fsr_depth.wgsl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/ssao.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
-env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "bilinear-switch-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:15,18:20", NVF_PLAY_TEST_SETTINGS = "8.5:upscaler=Bilinear,9:upscaler-quality=Performance,13.5:upscaler-quality=Ultra Performance,18.5:upscaler=Off" }
-args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--msaa", "4", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
-run_seconds = 23
+paths = ["engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/fsr*", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/ssao.rs", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "bilinear-switch-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:18,21:23,26:28", NVF_PLAY_TEST_SETTINGS = "8.5:upscaler=Bilinear,9:upscaler-quality=Performance,14:resolution=1600x900,16.5:upscaler-quality=Ultra Performance,21.5:upscaler=FSR 3.1,26.5:upscaler=Off", NVF_PLAY_TEST_PAUSE_MENU = "15.5:keep" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "fsr", "--upscaler-quality", "quality", "--msaa", "4", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
+run_seconds = 30
 expect = [
+  { text = "FSR dispatch active: 3.1.4, 853x480 -> 1280x720", label = "FSR draws at start" },
   "settings: upscaler Bilinear",
   "upscaler: Bilinear Quality asked for, Bilinear Quality draws",
-  "graphics: Bilinear Quality active; native anti-aliasing off",
+  "graphics: Bilinear Quality active",
+  { text = "FSR 3.1: its own state let go, the view is not FSR's now", label = "FSR's state taken away on the switch to Bilinear" },
   "settings: upscaler-quality Performance",
   "upscaler: Bilinear Performance asked for, Bilinear Performance draws",
   { text = "Bilinear stretch active: 640x360 -> 1280x720", label = "Performance drawn at half the width and height and stretched" },
+  { text = "Bilinear stretch active: 800x450 -> 1600x900", label = "the window resized while Bilinear draws" },
   "settings: upscaler-quality Ultra Performance",
-  { text = "Bilinear stretch active: 426x240 -> 1280x720", label = "Ultra Performance drawn at a third and stretched" },
+  { text = "Bilinear stretch active: 533x300 -> 1600x900", label = "Ultra Performance drawn at a third and stretched" },
+  "settings: upscaler FSR 3.1",
+  "upscaler: FSR 3.1 Ultra Performance asked for, FSR 3.1 Ultra Performance draws",
+  { text = "FSR 3.1.4: UltraPerformance, 533x300 -> 1600x900", label = "FSR made again at the new size after Bilinear" },
   "settings: upscaler Off",
   "upscaler: Off asked for, Off draws",
   { text = "graphics: multisampling 4x", label = "Off gives the saved 4x multisampling back" },
 ]
 order = [[
+  "FSR dispatch active: 3.1.4, 853x480 -> 1280x720",
   "upscaler: Bilinear Quality asked for, Bilinear Quality draws",
+  "FSR 3.1: its own state let go, the view is not FSR's now",
   "Bilinear stretch active: 640x360 -> 1280x720",
-  "Bilinear stretch active: 426x240 -> 1280x720",
+  "Bilinear stretch active: 800x450 -> 1600x900",
+  "Bilinear stretch active: 533x300 -> 1600x900",
+  "upscaler: FSR 3.1 Ultra Performance asked for, FSR 3.1 Ultra Performance draws",
+  "FSR 3.1.4: UltraPerformance, 533x300 -> 1600x900",
   "upscaler: Off asked for, Off draws",
 ]]
-forbid = [{ text = "FSR 3.1.4:", label = "FSR's state made for Bilinear" }, { text = "FSR dispatch", label = "an FSR dispatch" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "panicked", label = "a panic" }]
+forbid = [{ text = "requires a single-sampled HDR view", label = "an unusable view: drawn natively" }, { text = "FSR dispatch failed", label = "an FSR dispatch failing" }, { re = 'FSR reactive reference: .* not drawn', label = "FSR's reference pass failing" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "panicked", label = "a panic" }]
 
 [[scenario]]
 name = "fsr-moving-weapon"
