@@ -103,12 +103,14 @@ pub struct MainLoop {
 enum Slot {
     On,
     Arg(usize),
+    /// A required animation code: zero is a value, not an actor wildcard.
+    ExactArg(usize),
 }
 
 fn slots(event: &str) -> &'static [Slot] {
     match event {
         "hit" | "healthdamage" | "crippledlimb" | "fireweapon" | "projectileimpact" => &[Slot::On],
-        "animaction" | "playgroup" => &[Slot::On, Slot::Arg(0)],
+        "animaction" | "playgroup" => &[Slot::On, Slot::ExactArg(0)],
         "criticalhit" => &[Slot::On, Slot::Arg(0), Slot::Arg(1)],
         "queststage" => &[Slot::Arg(0), Slot::Arg(1)],
         "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "controldown" | "controlup" | "triggerdown" | "triggerup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
@@ -203,12 +205,12 @@ impl Game<'_> {
 
     fn jip_matches(&self, h: &JipHandler, on: Option<FormId>, args: &[XVal]) -> bool {
         slots(&h.event).iter().zip(&h.filters).all(|(s, f)| {
-            if self.jip_wildcard(f) {
+            if !matches!(s, Slot::ExactArg(_)) && self.jip_wildcard(f) {
                 return true;
             }
             let v = match s {
                 Slot::On => on.map(|r| XVal::Ref(r.0)),
-                Slot::Arg(i) => args.get(*i).cloned(),
+                Slot::Arg(i) | Slot::ExactArg(i) => args.get(*i).cloned(),
             };
             v.is_some_and(|v| self.filter_matches(f, &v, false))
         })
@@ -220,9 +222,28 @@ impl Game<'_> {
         match f {
             XVal::Num(x) => *x == 0.0,
             XVal::Ref(0) | XVal::Ref(XMARKER) => true,
-            XVal::Ref(r) => self.data.sig(FormId(*r)) == Some(*b"FLST") && crate::functions::list_members(self, FormId(*r)).is_empty(),
+            XVal::Ref(r) => self.jip_empty_form_list(FormId(*r)),
             _ => false,
         }
+    }
+
+    /// Resolve a materialized clone's declared type, keeping its own list edits.
+    /// Unmaterialized clones cannot use an absent copied list as a wildcard
+    /// (docs/spec-notes/jip-cloned-list-wildcard.md).
+    fn jip_empty_form_list(&self, list: FormId) -> bool {
+        if self.clones.contains_key(&list) && !self.list_edits.contains_key(&list) && !self.form_lists.contains_key(&list) {
+            return false;
+        }
+        let mut original = list;
+        // At most one step per alias plus its terminal authored record. Public
+        // TempCloneForm makes acyclic chains; malformed cycles fail closed here.
+        for _ in 0..=self.clones.len() {
+            match self.clones.get(&original) {
+                Some(&next) => original = next,
+                None => return self.data.sig(original) == Some(*b"FLST") && crate::functions::list_members(self, list).is_empty(),
+            }
+        }
+        false
     }
 
     /// Whether a quest-stage registration that matches asked to skip the stage's result

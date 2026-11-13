@@ -632,7 +632,8 @@ impl Posed {
 /// menus (`PipBoyScreen::pointer`); a click on a button shows its page. The pointer on a
 /// button does nothing else: the button's light follows the page shown. The shapes are
 /// posed as the arm's bones hold them this frame. The test aid's target (`PipBoyAid`)
-/// stands in for the window's pointer.
+/// stands in for the window's pointer. A window pointer asleep under the controller
+/// (`nvf_play::pad::pointer`, #2310) is on nothing.
 #[allow(clippy::too_many_arguments)]
 fn follow_pointer(
     pip: Res<PipBoy>,
@@ -646,6 +647,7 @@ fn follow_pointer(
     mut aid: ResMut<PipBoyAid>,
     mut aid_over: Local<Option<Page>>,
     mut out: MessageWriter<PipBoyInput>,
+    pad_pointer: Option<Res<nvf_play::pad::pointer::PadPointer>>,
 ) {
     let mouse = mouse.snapshot();
     let Some(mut screen) = screen else { return };
@@ -681,7 +683,8 @@ fn follow_pointer(
     if aid.target.is_some() && target.is_none() {
         warn!("test aid: pipboy target {:?} is not in view", aid.target);
     }
-    let cursor = if aid.target.is_some() { target } else { window.cursor_position() };
+    let sleeping = nvf_play::pad::pointer::asleep(pad_pointer.as_deref());
+    let cursor = if aid.target.is_some() { target } else { window.cursor_position().filter(|_| !sleeping) };
     let Some(ray) = cursor.and_then(|c| cam.viewport_to_world(at, c).ok()) else { return };
     let (origin, dir) = (ray.origin, Vec3::from(ray.direction));
     let hit = posed.iter().filter_map(|(p, s)| s.hit(origin, dir).map(|(t, uv)| (t, *p, uv))).min_by(|a, b| a.0.total_cmp(&b.0));

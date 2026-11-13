@@ -312,6 +312,27 @@ Start cannot be bound.
   Not followed: the hint words the tiled Wait/Sleep, tutorial and message menus take
   from their files' `_PCButtonText` (opt-in `[UI] TileMenus`), and the original's own
   button pictures (NVForever draws its own glyphs in their place, §3a).
+- **The mouse pointer sleeps with the controller** [design, #2310; whether the original
+  hides its pointer with a controller is a hypothesis not checked]. With Input Device =
+  Controller the window's pointer is hidden in every menu, box and conversation
+  (`player::grab_cursor`) and points at nothing: no button, row or tab is hovered under
+  where the mouse was left (`ui_pointer`, the menus drawn from their files in
+  `tiles::input`, the Pip-Boy's flat image `pipboy::flat_pointer` and its screen on the
+  arm, nvforever `pipboy_arm`). It wakes when the mouse is used (8 pixels of motion in
+  all, a button or the wheel; `pad::pointer::WAKE_TRAVEL`) and then shows and hovers as
+  with the keyboard and mouse; it sleeps again on the next controller button or stick
+  push, and whenever the device turns to Controller. Mouse motion still selects no device
+  (§1): it only wakes the pointer. `pad/pointer.rs` (`PadPointer`, `step`) holds the
+  rule and logs `pointer: asleep …` / `pointer: awake …`. The test aids' own pointers
+  (`NVF_PLAY_TEST_PIPBOY`'s `point=`, `NVF_PLAY_TEST_POINTER`) stand in for the mouse and
+  do not sleep.
+- **Only a pointer that moves takes a list's selection** (#2310): a row redrawn or
+  scrolled under a resting pointer as the D-pad or the keys step the list leaves their
+  choice alone. The Pip-Boy's hand-built lists (ITEMS, the repair list, the mod menu,
+  DATA's rows) read `pipboy::PointerMoved` (the screen's pointer moved this frame,
+  `pipboy::drive_pointer`); the window menus (`menu::menu_mouse`, `repair`, `crafting`,
+  `pause`) and the pages drawn from their files (`tiles::container_menu::hover_selects`,
+  `tiles::item_menu::hover_selects`, the STATS page's `drawn_at`) already had the rule.
 
 ## 3a. PlayStation names (#1452)
 

@@ -7,6 +7,11 @@
 //! - The key counts as held from a press made while playing; a hold of [`HOLD_SECONDS`]
 //!   toggles the light at once (the key still down), and letting go after it opens
 //!   nothing. A key that was down when a menu closed (Tab closes them) is not a press.
+//! - A press another system has used already ([`MenuKeyHold::consume`]) opens nothing
+//!   and toggles nothing: a Menu Mode press made in VATS mode (B on a controller, Tab on
+//!   the keyboard) only leaves it, or on the controller's classic screen returns
+//!   (`crate::vats_mode::read_keys`) [design, #2311: B is a controller's back button;
+//!   leaving and opening the Pip-Boy on its release was reported as a bug].
 //! - The light is not held by a script's `DisablePlayerControls` (the Pip-Boy flag holds
 //!   only the inventory, `menu::open_menus`) [design].
 //! - nvforever draws it (`flashlight.rs`): a spot light on the player's camera while
@@ -84,6 +89,13 @@ impl MenuKeyHold {
             KeyOutcome::OpenInventory
         }
     }
+
+    /// Use up the press being held: its release opens nothing and its hold toggles
+    /// nothing, until the next press. For a system that acted on the press itself (a
+    /// mode the press ended); run after [`PlaySet::Input`], where the press is recorded.
+    pub fn consume(&mut self) {
+        self.held = None;
+    }
 }
 
 pub struct FlashlightPlugin;
@@ -94,7 +106,7 @@ impl Plugin for FlashlightPlugin {
     }
 }
 
-fn menu_key(
+pub(crate) fn menu_key(
     input: ControlInput,
     time: Res<Time<Real>>,
     state: Res<State<PlayState>>,
@@ -142,6 +154,27 @@ mod tests {
         assert_eq!(hold_for(&mut h, 3.0, 1.0 / 60.0), vec![KeyOutcome::ToggleLight]);
         // Just short of the hold: still a tap.
         assert_eq!(hold_for(&mut h, HOLD_SECONDS - 0.1, 1.0 / 60.0), vec![KeyOutcome::OpenInventory]);
+    }
+
+    #[test]
+    fn a_consumed_press_opens_nothing_and_toggles_nothing() {
+        let dt = 1.0 / 60.0;
+        // A tap whose press ended a mode (#2311): let go, nothing opens.
+        let mut h = MenuKeyHold::default();
+        assert_eq!(h.step(true, true, dt, true), KeyOutcome::Nothing);
+        h.consume();
+        assert_eq!(h.step(false, false, dt, true), KeyOutcome::Nothing);
+        // Held past the light's time: nothing toggles, and its release opens nothing.
+        assert_eq!(h.step(true, true, dt, true), KeyOutcome::Nothing);
+        h.consume();
+        let mut t = 0.0;
+        while t < 3.0 {
+            assert_eq!(h.step(true, false, dt, true), KeyOutcome::Nothing);
+            t += dt;
+        }
+        assert_eq!(h.step(false, false, dt, true), KeyOutcome::Nothing);
+        // The next press is a tap again.
+        assert_eq!(hold_for(&mut h, 0.2, dt), vec![KeyOutcome::OpenInventory]);
     }
 
     #[test]

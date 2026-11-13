@@ -11874,6 +11874,79 @@ expect = [
 forbid = [{ text = "vats mode: firing", label = "nothing was fired" }]
 
 [[scenario]]
+name = "vats-dead-eye-pad-b-leaves"
+source = "issue #2311: on a controller B (Menu Mode) leaves Dead Eye VATS and must not also open the Pip-Boy on its release or switch the flashlight when held (docs/design/vats-mode.md §11.8)"
+note = "vats-mode-actions-leave's setup with Input Device = Controller (pause menu 1 s to 2.5 s, the device picked at 2 s, a scratch home for the INI). RB at 10 s enters VATS, RT at 10.32 marks the aimed dog, B at 10.45 held 1.5 s (past the flashlight's 1 s) leaves with the mark dropped: no Pip-Boy, no light. B at 14 s, out of the mode, opens the Pip-Boy as usual, the only open of the run. Before the fix the held B switched the light on and nothing opened; a tap opened the Pip-Boy on the release"
+areas = ["combat", "vats", "controller"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/flashlight.rs"]
+env = { NVFOREVER_HOME = "vats-dead-eye-pad-b-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "1:2.5", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:pad-RB,10.32:pad-RT,10.45:pad-B:1.5,14:pad-B", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "RB enters VATS mode" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "RT marks" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; Pip-Boy pressed\)', label = "B ends the mode, nothing spent" },
+  { text = "test aid: real input Pad(East) pressed", label = "B again, out of the mode" },
+  { re = 'menu: open Inventory', label = "the second B opens the Pip-Boy" },
+]]
+expect = [
+  { re = 'menu: open Inventory', count = 1, label = "the B that left opened no Pip-Boy" },
+]
+forbid = [
+  { text = "flashlight: on", label = "the held B switched the flashlight" },
+  { text = "vats mode: firing", label = "nothing was fired" },
+]
+
+[[scenario]]
+name = "vats-dead-eye-tab-leaves"
+source = "issue #2311: Tab (Menu Mode) leaves Dead Eye VATS and must not also open the Pip-Boy on its release or switch the flashlight when held (docs/design/vats-mode.md §11.8)"
+note = "vats-mode-actions-leave's setup on the keyboard: V at 10 s enters, a mark at 10.32, Tab at 10.36 held 1.5 s (past the flashlight's 1 s) leaves with the mark dropped: no Pip-Boy, no light. Tab at 14 s, out of the mode, opens the Pip-Boy as usual, the only open of the run"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:tab:1.5,14:tab", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode for Tab to leave" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "a mark is made before Tab" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; Pip-Boy pressed\)', label = "Tab ends the mode, nothing spent" },
+  { text = "test aid: real input Key(Tab) pressed", label = "Tab again, out of the mode" },
+  { re = 'menu: open Inventory', label = "the second Tab opens the Pip-Boy" },
+]]
+expect = [
+  { re = 'menu: open Inventory', count = 1, label = "the Tab that left opened no Pip-Boy" },
+]
+forbid = [
+  { text = "flashlight: on", label = "the held Tab switched the flashlight" },
+  { text = "vats mode: firing", label = "nothing was fired" },
+]
+
+[[scenario]]
+name = "vats-classic-pad-b-returns"
+source = "issue #2311: on the controller's classic VATS screen B is both Menu Mode and the screen's Return; its press returns (with nothing queued, leaves) and must not also open the Pip-Boy on its release or switch the flashlight when held (docs/design/vats-mode.md §11.8)"
+note = "vats-dead-eye-pad-b-leaves' setup in the classic style: RB at 10 s finds the targets and stops the clock (the aids' clock then counts real time), B at 11 s held 1.5 s (past the flashlight's 1 s) with nothing queued leaves the screen: no Pip-Boy, no light. B at 14 s, out of the mode, opens the Pip-Boy as usual, the only open of the run"
+areas = ["combat", "vats", "controller"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/flashlight.rs"]
+env = { NVFOREVER_HOME = "vats-classic-pad-b-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "1:2.5", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats", NVF_PLAY_TEST_KEYS = "10:pad-RB,11:pad-B:1.5,14:pad-B", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'vats mode: classic: \d+ targets, [0-9A-F]{8} selected; the clock at 0\.00', label = "RB opens the classic screen" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; right click with no marks\)', label = "B with nothing queued leaves the screen" },
+  { text = "test aid: real input Pad(East) pressed", label = "B again, off the classic screen" },
+  { re = 'menu: open Inventory', label = "the second B opens the Pip-Boy as usual" },
+]]
+expect = [
+  { re = 'menu: open Inventory', count = 1, label = "the B that returned opened no Pip-Boy" },
+]
+forbid = [
+  { text = "flashlight: on", label = "the held B on the screen switched the flashlight" },
+  { text = "vats mode: firing", label = "no queued attack was played" },
+]
+
+[[scenario]]
 name = "vats-mode-two-marks"
 source = "owner's todo 6: VATS mode, a Dead Eye-style mark and fire (docs/design/vats-mode.md §13)"
 note = "the two Goodsprings dogs (combat-dogs' spot) attack the player, who cannot die (GOD) and holds a .357 (WeapNV357Revolver 0008F216: 26 AP a shot from its DNAM override, 6 rounds; god mode keeps the magazine full). V at 10 s enters VATS mode (after the add-on packs' start-up boxes, about 6.5 s of game time: any menu ends the mode, and one cut the firing short at 6 s, coordinator run 2026-10-18); the clock then runs at 0.05, so the aids 10.3-10.42 s (game time) come about 1 s apart in real time; aimvats turns to the nearest unmarked living actor, the left button marks it, twice; E fires both at half speed. 2 x 26 = 52 AP"
@@ -14240,6 +14313,23 @@ expect = [
   { re = 'pipboy items: Blood Pack selected: .*effects: Some\("[^",]+ \+1"\)', label = "one HP +1 for the Blood Pack" },
   { re = 'pipboy items: Stimpak selected: .*effects: Some\("[^",]+ \+\d+"\)', label = "one HP line for the Stimpak" },
 ]
+
+[[scenario]]
+name = "pipboy-pad-pointer"
+source = "#2310: with Input Device = Controller the pointer sleeps (hidden, on nothing) until the mouse is used, and a Pip-Boy list redrawn under a resting pointer keeps the D-pad's choice: only a pointer that moved takes the selection (engine/nvf-play/src/pad/pointer.rs, pipboy.rs PointerMoved, pipboy/items.rs on_row_over; docs/design/controller.md section 3)"
+note = "the hand-built ITEMS page's Aid tab (four aid items added to what the General Store start carries, first rows Big Book of Science, Bleak Venom, Blood Pack, Doctor's Bag); the test aid's pointer (point=, the mouse's stand-in, not put to sleep) parked on the first row before three D-pad Downs; before the fix each step was taken back by the row redrawn under the pointer. A home of its own keeps the Controller choice away from the other scenarios"
+areas = ["pipboy", "controller"]
+paths = ["engine/nvf-play/src/pad/pointer.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-pad-pointer-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:MagazineNVScience:1,9.2:call:player:AddItem:BloodPack:1,9.4:call:player:AddItem:Stimpak:2,9.6:call:player:AddItem:BookSkillScience:1", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=items,21.5:tab=2,22:point=260:150,28:close", NVF_PLAY_TEST_KEYS = "23:pad-D-Pad Down,24.5:pad-D-Pad Down,26:pad-D-Pad Down" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { text = "controls: input device Controller", label = "the Controls tab picks the controller" },
+  { text = "pointer: asleep (the controller has the controls)", label = "the window's pointer sleeps with the controller" },
+  { text = "test aid: real input Pad(DPadDown) pressed", count = 3, label = "three D-pad Downs" },
+  { text = "pipboy items: Doctor's Bag selected", label = "the third D-pad Down reaches the fourth Aid row" },
+]
+order = [["pipboy items: Big Book of Science selected", "test aid: real input Pad(DPadDown) pressed", "pipboy items: Bleak Venom selected", "test aid: real input Pad(DPadDown) pressed", "pipboy items: Blood Pack selected", "test aid: real input Pad(DPadDown) pressed", "pipboy items: Doctor's Bag selected"]]
 
 [[scenario]]
 name = "pipboy-misc-folders"

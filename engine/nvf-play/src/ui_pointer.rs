@@ -13,7 +13,9 @@
 //! - on release it turns `Hovered` if the pointer is still over it, `None` otherwise;
 //! - a node that is hovered and not pressed is `Hovered`, any other `None`;
 //! - the topmost node under the pointer whose [`FocusPolicy`] is `Block` stops the nodes
-//!   beneath it from being hovered or pressed; a hidden node is always `None`.
+//!   beneath it from being hovered or pressed; a hidden node is always `None`;
+//! - the mouse's pointer is over nothing while it sleeps under the controller
+//!   (`crate::pad::pointer`) [design, #2310]; touches still count.
 //!
 //! These are the rules Bevy 0.20's `ui_focus_system` applies to `Interaction`, written out
 //! again for our component (which Bevy's system no longer sees). `RelativeCursorPosition`
@@ -155,8 +157,11 @@ fn update_pointer_state(
     ui_stack: Res<UiStack>,
     nodes: Query<NodeData>,
     mut states: Query<(Entity, &mut PointerState)>,
+    pad_pointer: Option<Res<crate::pad::pointer::PadPointer>>,
 ) {
     let mouse = mouse.snapshot();
+    // A pointer asleep under the controller is on nothing (`crate::pad::pointer`, #2310).
+    let sleeping = crate::pad::pointer::asleep(pad_pointer.as_deref());
     let primary_window = primary_window.iter().next();
     let released = mouse.just_released(MouseButton::Left) || touches.any_just_released();
     let clicked = mouse.just_pressed(MouseButton::Left) || touches.any_just_pressed();
@@ -172,6 +177,7 @@ fn update_pointer_state(
             let origin = camera.physical_viewport_rect().map(|r| r.min.as_vec2()).unwrap_or_default();
             window
                 .physical_cursor_position()
+                .filter(|_| !sleeping)
                 .or_else(|| touches.first_pressed_position().map(|p| p * window.scale_factor()))
                 .map(|p| (entity, p - origin))
         })

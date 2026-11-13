@@ -937,3 +937,184 @@ fn trait_write_counts_tell_a_write_from_a_change() {
     ui.set_trait(screen, "width", Value::Num(1920.0));
     assert_eq!(ui.trait_write_counts(), (writes + 3, changes + 2));
 }
+
+/// Independently authored plain/derived values, includes and a template; no game XML.
+fn serial_files() -> MemSource {
+    MemSource::default()
+        .with("menus\\serial.xml", r#"<menu name="SerialMenu">
+            <_source>4</_source><_n>12</_n><_word>same</_word>
+            <_constant><copy>12</copy></_constant>
+            <_computed><copy src="me()" trait="_source"/><add>1</add></_computed>
+            <image name="First"><filename>owned.dds</filename><x>12</x></image>
+            <image name="Second"><filename>other.dds</filename><x>24</x></image>
+            <template name="row"><rect name="Made"><include src="serial_value.xml"/></rect></template>
+        </menu>"#)
+        .with("menus\\prefabs\\serial_value.xml", "<_n>12</_n>")
+}
+
+fn serial_tree() -> (Ui, crate::tree::TileId) {
+    let mut ui = Ui::new();
+    let root = ui.load_menu(&serial_files(), "menus\\serial.xml").unwrap();
+    ui.update();
+    (ui, root)
+}
+
+#[test]
+fn trait_write_serial_equal_values_and_each_setter() {
+    let (mut ui, root) = serial_tree();
+    let initial_changed = ui.tile(root).traits[ui.tile(root).trait_index("_n").unwrap()].changed;
+    let counts = ui.trait_write_counts();
+    let writes: [fn(&mut Ui, crate::tree::TileId); 5] = [
+        |ui, _| assert!(ui.set("SerialMenu/_n", Value::Num(12.0))),
+        |ui, _| assert!(ui.set_float("SerialMenu/_n", 12.0)),
+        |ui, t| assert!(ui.set_existing(t, "_n", Value::Num(12.0))),
+        |ui, _| assert!(ui.mod_float("SerialMenu/_n", 0.0)),
+        |ui, t| ui.set_trait(t, "_n", Value::Num(12.0)),
+    ];
+    let mut last = ui.trait_write_serial(root, "_n").unwrap();
+    for write in writes {
+        write(&mut ui, root);
+        let now = ui.trait_write_serial(root, "_n").unwrap();
+        assert_ne!(now, last);
+        last = now;
+    }
+    let word = ui.trait_write_serial(root, "_word").unwrap();
+    assert!(ui.set_string("SerialMenu/_word", "same"));
+    assert_ne!(ui.trait_write_serial(root, "_word"), Some(word));
+    assert_eq!(ui.tile(root).traits[ui.tile(root).trait_index("_n").unwrap()].changed, initial_changed);
+    assert_eq!(ui.trait_write_counts(), (counts.0 + 6, counts.1));
+    assert!(!ui.dirty());
+    assert_eq!(ui.update(), 0);
+    assert!(!ui.set_float("SerialMenu/missing", 1.0));
+    assert!(!ui.set_existing(root, "missing", Value::Num(1.0)));
+    assert_eq!(ui.trait_write_serial(root, "missing"), None);
+    assert_eq!(ui.trait_write_serial(root, "_n"), Some(last));
+    ui.set_trait(root, "_n", Value::Num(13.0));
+    ui.set_trait(root, "_n", Value::Num(12.0));
+    assert_ne!(ui.trait_write_serial(root, "_n"), Some(last), "changing away and back never restores a token");
+}
+
+#[test]
+fn trait_write_serial_unrelated_writes_and_case_aliases() {
+    let (mut ui, root) = serial_tree();
+    let first = ui.find_tile("SerialMenu/First").unwrap();
+    let second = ui.find_tile("SerialMenu/Second").unwrap();
+    let stamp = ui.trait_write_serial(first, "filename").unwrap();
+    ui.set_trait(second, "filename", Value::Str("changed.dds".into()));
+    ui.set_trait(first, "x", Value::Num(13.0));
+    assert_eq!(ui.trait_write_serial(first, "FILENAME"), Some(stamp));
+    ui.set_trait(first, "FiLeNaMe", Value::Str("owned.dds".into()));
+    assert_ne!(ui.trait_write_serial(first, "filename"), Some(stamp));
+    assert!(ui.trait_write_serial(root, "_n").is_some());
+}
+
+#[test]
+fn trait_write_serial_changed_only_wrapper_keeps_no_write_semantics() {
+    let (mut ui, root) = serial_tree();
+    let original = ui.trait_write_serial(root, "_n").unwrap();
+    ui.write_changed(root, "_n", Value::Num(12.0));
+    let first = ui.trait_write_serial(root, "_n").unwrap();
+    assert_ne!(first, original, "first accepted code write counts even when equal");
+    let counts = ui.trait_write_counts();
+    ui.write_changed(root, "_n", Value::Num(12.0));
+    assert_eq!(ui.trait_write_serial(root, "_n"), Some(first));
+    assert_eq!(ui.trait_write_counts(), counts);
+    ui.set_trait(root, "_n", Value::Num(20.0));
+    let external = ui.trait_write_serial(root, "_n").unwrap();
+    ui.write_changed(root, "_n", Value::Num(12.0));
+    assert_eq!(ui.tile(root).get("_n"), Some(&Value::Num(20.0)));
+    assert_eq!(ui.trait_write_serial(root, "_n"), Some(external));
+    ui.write_changed(root, "_n", Value::Num(13.0));
+    assert_ne!(ui.trait_write_serial(root, "_n"), Some(external));
+    assert_eq!(ui.tile(root).get("_n"), Some(&Value::Num(13.0)));
+}
+
+#[test]
+fn trait_write_serial_xml_include_and_template_replacement() {
+    let (mut ui, root) = serial_tree();
+    let src = serial_files();
+    let first = ui.trait_write_serial(root, "_n").unwrap();
+    assert!(ui.inject_text(&src, "SerialMenu", "<_n>12</_n>"));
+    let direct = ui.trait_write_serial(root, "_n").unwrap();
+    assert_ne!(first, direct);
+    assert!(ui.inject_text(&src, "SerialMenu", "<include src=\"serial_value.xml\"/>"));
+    assert_ne!(ui.trait_write_serial(root, "_n"), Some(direct));
+    let made = ui.add_from_template(&src, "SerialMenu", "row", Some("Instance")).unwrap();
+    let from_template = ui.trait_write_serial(made, "_n").unwrap();
+    assert!(ui.inject_file(&src, "SerialMenu/Instance", "menus\\prefabs\\serial_value.xml"));
+    assert_ne!(ui.trait_write_serial(made, "_n"), Some(from_template));
+    assert_eq!(ui.tile(made).get("_n"), Some(&Value::Num(12.0)));
+}
+
+#[test]
+fn trait_write_serial_expression_replacement_never_reuses_plain_token() {
+    let (mut ui, root) = serial_tree();
+    let src = serial_files();
+    let plain = ui.trait_write_serial(root, "_n").unwrap();
+    assert!(ui.inject_text(&src, "SerialMenu", "<_n><copy>12</copy></_n>"));
+    let expression = ui.trait_write_serial(root, "_n").unwrap();
+    assert_ne!(plain, expression);
+    let k = ui.tile(root).trait_index("_n").unwrap();
+    assert!(ui.tile(root).traits[k].expr.is_some());
+    ui.update();
+    assert_eq!(ui.trait_write_serial(root, "_n"), Some(expression));
+    assert_eq!(ui.tile(root).get("_n"), Some(&Value::Num(12.0)));
+    assert!(ui.inject_text(&src, "SerialMenu", "<_n>12</_n>"));
+    let restored_plain = ui.trait_write_serial(root, "_n").unwrap();
+    assert_ne!(restored_plain, plain);
+    assert_ne!(restored_plain, expression);
+    assert!(ui.tile(root).traits[ui.tile(root).trait_index("_n").unwrap()].expr.is_none());
+}
+
+#[test]
+fn trait_write_serial_expression_evaluation_and_direct_override_remain_distinct() {
+    let (mut ui, root) = serial_tree();
+    let computed = ui.trait_write_serial(root, "_computed").unwrap();
+    let constant = ui.trait_write_serial(root, "_constant").unwrap();
+    let k = ui.tile(root).trait_index("_computed").unwrap();
+    let generation = ui.tile(root).traits[k].changed;
+    ui.set_trait(root, "_source", Value::Num(6.0));
+    let counts = ui.trait_write_counts();
+    ui.update();
+    assert_eq!(ui.tile(root).get("_computed"), Some(&Value::Num(7.0)));
+    assert!(ui.tile(root).traits[k].changed > generation);
+    assert_eq!(ui.trait_write_serial(root, "_computed"), Some(computed));
+    assert_eq!(ui.trait_write_serial(root, "_constant"), Some(constant));
+    assert_eq!(ui.trait_write_counts(), counts, "evaluation is not an external setter");
+    ui.set_trait(root, "_computed", Value::Num(99.0));
+    let written = ui.trait_write_serial(root, "_computed").unwrap();
+    assert_ne!(written, computed);
+    assert!(ui.tile(root).traits[k].expr.is_some());
+    ui.update();
+    assert_eq!(ui.tile(root).get("_computed"), Some(&Value::Num(99.0)));
+    ui.set_trait(root, "_source", Value::Num(8.0));
+    ui.update();
+    assert_eq!(ui.tile(root).get("_computed"), Some(&Value::Num(9.0)));
+    assert_eq!(ui.trait_write_serial(root, "_computed"), Some(written));
+}
+
+#[test]
+fn trait_write_serial_removal_slot_reuse_and_tree_identity() {
+    let (mut ui, root) = serial_tree();
+    let before = ui.trait_write_serial(root, "_n").unwrap();
+    assert!(ui.remove_trait(root, "_source"));
+    assert_eq!(ui.trait_write_serial(root, "_n"), Some(before), "index shifts keep the trait's identity");
+    assert!(ui.remove_trait(root, "_n"));
+    assert_eq!(ui.trait_write_serial(root, "_n"), None);
+    ui.set_trait(root, "_n", Value::Num(12.0));
+    assert_ne!(ui.trait_write_serial(root, "_n"), Some(before));
+    ui.unload_tile(root);
+    assert_eq!(ui.trait_write_serial(root, "_n"), None);
+    let replacement = ui.load_menu(&serial_files(), "menus\\serial.xml").unwrap();
+    assert_eq!(root.index(), replacement.index(), "the test actually reuses the slot");
+    assert_ne!(root, replacement);
+    let replacement_stamp = ui.trait_write_serial(replacement, "_n").unwrap();
+    ui.set_trait(root, "_n", Value::Num(100.0));
+    assert!(!ui.set_existing(root, "_n", Value::Num(100.0)));
+    assert_eq!(ui.trait_write_serial(root, "_n"), None);
+    assert_eq!(ui.trait_write_serial(replacement, "_n"), Some(replacement_stamp));
+    let (other, other_root) = serial_tree();
+    assert_eq!(root.index(), other_root.index());
+    assert_eq!(other.trait_write_serial(root, "_n"), None);
+    assert_eq!(ui.trait_write_serial(other_root, "_n"), None);
+}

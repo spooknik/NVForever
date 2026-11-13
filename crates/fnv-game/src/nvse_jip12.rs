@@ -210,7 +210,7 @@ pub fn light_at(field: &LightField, at: [f32; 3]) -> f64 {
 pub fn marker_model(path: &str) -> bool {
     let p = path.to_ascii_lowercase().replace('/', "\\");
     let file = p.rsplit('\\').next().unwrap_or("");
-    file.starts_with("marker") || p.contains("\\markers\\")
+    file.starts_with("marker") || p.starts_with("markers\\") || p.contains("\\markers\\")
 }
 
 impl Game<'_> {

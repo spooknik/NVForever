@@ -2838,7 +2838,12 @@ fn on_popup_click(e: On<PointerClick>, hits: Query<&PopupHit>, state: Option<Res
     }
 }
 
-fn on_row_over(e: On<PointerOver>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>) {
+/// A row the pointer moved onto (`super::hover_takes`, #2310): one redrawn under a resting
+/// pointer as the keys or the D-pad step leaves their choice alone.
+fn on_row_over(e: On<PointerOver>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>, moved: Option<Res<super::PointerMoved>>) {
+    if !super::hover_takes(moved.as_deref()) {
+        return;
+    }
     if let (Ok(r), Some(mut s)) = (rows.get(e.entity), state) {
         s.acts.push(Act::Hover(r.0, r.1));
     }
@@ -3551,6 +3556,29 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2310: a row that comes under a resting pointer (the list redrawn as the D-pad or the
+    /// keys step it) takes nothing; one the pointer moved onto takes the selection.
+    #[test]
+    fn only_a_pointer_that_moved_takes_a_row() {
+        use bevy::camera::NormalizedRenderTarget;
+        use bevy::picking::backend::HitData;
+        use bevy::picking::events::Pointer;
+        use bevy::picking::pointer::{Location, PointerId};
+        let mut app = App::new();
+        app.init_resource::<DataState>().init_resource::<super::super::PointerMoved>();
+        let row = app.world_mut().spawn(RowHit(QUESTS, 2)).observe(on_row_over).id();
+        let over = || PointerOver {
+            entity: row,
+            pointer: Pointer::new(PointerId::Mouse, Location { target: NormalizedRenderTarget::None { width: 1, height: 1 }, position: Vec2::ZERO }),
+            hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
+        };
+        app.world_mut().trigger(over());
+        assert!(app.world().resource::<DataState>().acts.is_empty(), "a resting pointer");
+        app.world_mut().insert_resource(super::super::PointerMoved(true));
+        app.world_mut().trigger(over());
+        assert_eq!(app.world().resource::<DataState>().acts, vec![Act::Hover(QUESTS, 2)], "the pointer moved onto it");
+    }
 
     /// A world with what the page's systems read, the DATA page's state fresh, `MapMenu` on or off
     /// and the Pip-Boy as given; no hand-built body (the frame did not run).

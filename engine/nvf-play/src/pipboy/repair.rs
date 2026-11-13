@@ -108,8 +108,10 @@ struct RepairCancel;
 ///
 /// Not while the page drawn from its file has yet to decide (`crate::tiles::repair_menu::RepairTiles::waiting`):
 /// this list stands for that frame, and a pointer at rest would open the page on a part.
-fn on_row_over(over: On<PointerOver>, rows: Query<&RepairRow>, repair: Res<PipRepair>, tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, mut out: MessageWriter<RepairInput>) {
-    if tiles.is_some_and(|t| t.waiting) {
+/// Only a pointer that moved (`super::hover_takes`, #2310): the rows redrawn under a resting
+/// pointer as the keys or the D-pad step leave their choice alone.
+fn on_row_over(over: On<PointerOver>, rows: Query<&RepairRow>, repair: Res<PipRepair>, tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, moved: Option<Res<super::PointerMoved>>, mut out: MessageWriter<RepairInput>) {
+    if tiles.is_some_and(|t| t.waiting) || !super::hover_takes(moved.as_deref()) {
         return;
     }
     let (Ok(r), Some(s)) = (rows.get(over.entity), repair.0.as_ref()) else { return };

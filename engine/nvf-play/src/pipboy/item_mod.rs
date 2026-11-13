@@ -131,9 +131,11 @@ struct ModAct;
 
 /// Only a row not chosen yet (as the repair list's rows, `super::repair`). Not while the
 /// menu drawn from its file has yet to decide (`crate::tiles::item_mod_menu::ItemModTiles::waiting`):
-/// these rows stand for that frame, and a pointer at rest would choose a mod.
-fn on_row_over(over: On<PointerOver>, rows: Query<&ModRow>, menu: Res<PipItemMod>, tiles: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>, mut out: MessageWriter<ModInput>) {
-    if tiles.is_some_and(|t| t.waiting) {
+/// these rows stand for that frame, and a pointer at rest would choose a mod. Only a pointer
+/// that moved (`super::hover_takes`, #2310): the rows redrawn under a resting pointer as the
+/// keys or the D-pad step leave their choice alone.
+fn on_row_over(over: On<PointerOver>, rows: Query<&ModRow>, menu: Res<PipItemMod>, tiles: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>, moved: Option<Res<super::PointerMoved>>, mut out: MessageWriter<ModInput>) {
+    if tiles.is_some_and(|t| t.waiting) || !super::hover_takes(moved.as_deref()) {
         return;
     }
     let (Ok(r), Some(s)) = (rows.get(over.entity), menu.0.as_ref()) else { return };

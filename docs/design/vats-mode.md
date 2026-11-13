@@ -427,7 +427,15 @@ marks) or if he dies. i dont want the player to get stuck in vats" [design].
   what it does outside it. The one exception is Activate while marking with a mark
   made: that accepts (§11.5). So E with nothing marked activates what is under the
   crosshair, and Wait opens the Wait menu (or is refused as usual, the mode ended all the
-  same). The check runs in `read_keys`, before activation, so the same frame's E
+  same). The other exception is the Pip-Boy (Menu Mode), whose own action comes on the
+  release (a tap opens the Pip-Boy) or after a hold (the flashlight, `flashlight.rs`): a
+  Menu Mode press made while the mode is on (Drawing, Marking or Firing) is the mode's
+  and is used up (`flashlight::MenuKeyHold::consume`), so it only leaves, or on the
+  controller's classic screen, where B is also the screen's Return, only returns; its
+  release opens no Pip-Boy and its hold switches no flashlight, and the next press out
+  of the mode opens the Pip-Boy as usual [design, #2311: B, a controller's back button,
+  left Dead Eye and opened the Pip-Boy on its release; Tab the same]. The
+  check runs in `read_keys`, before activation, so the same frame's E
   reaches the target. Use, Block, V, movement, looking and Toggle POV stay the mode's
   or go on as before. Log: `vats mode: off (…; Wait pressed)`, the control's name from
   `bindings::label`.

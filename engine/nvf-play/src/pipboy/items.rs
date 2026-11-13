@@ -416,10 +416,12 @@ pub fn keys(
     }
 }
 
-/// The row the pointer comes onto takes the selection, unless the wheel holds it
+/// The row the pointer comes onto takes the selection, if the pointer moved onto it
+/// (`super::hover_takes`: the list redrawn under a resting pointer as the keys or the D-pad
+/// step it leaves their choice alone, #2310) and the wheel does not hold it
 /// (`crate::menu::WheelHold`: a list redrawn under a resting pointer would undo the wheel).
-fn on_row_over(over: On<PointerOver>, rows: Query<&RowButton>, active: Res<ActiveMenu>, hold: Option<Res<crate::menu::WheelHold>>, mut out: MessageWriter<MenuInput>) {
-    if hold.is_some_and(|h| h.held()) {
+fn on_row_over(over: On<PointerOver>, rows: Query<&RowButton>, active: Res<ActiveMenu>, hold: Option<Res<crate::menu::WheelHold>>, moved: Option<Res<super::PointerMoved>>, mut out: MessageWriter<MenuInput>) {
+    if hold.is_some_and(|h| h.held()) || !super::hover_takes(moved.as_deref()) {
         return;
     }
     let (Ok(r), Some(m)) = (rows.get(over.entity), active.0.as_ref()) else { return };

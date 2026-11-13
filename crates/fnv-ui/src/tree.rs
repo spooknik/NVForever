@@ -9,6 +9,7 @@ use crate::xml::{self, Element, Node};
 use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use std::num::NonZeroU64;
 use std::panic::Location;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -199,6 +200,11 @@ impl Origin {
     }
 }
 
+/// An external write's opaque identity within its Ui, not writable authority.
+/// Pair with the full TileId and trait name, never a value or vector index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TraitWriteSerial(NonZeroU64);
+
 /// One trait of a tile.
 #[derive(Clone, Debug)]
 pub struct Trait {
@@ -209,6 +215,8 @@ pub struct Trait {
     pub expr: Option<Vec<Op>>,
     /// The tree's change count when the value last changed.
     pub changed: u64,
+    /// Every external setter/XML replacement, even equal values; never expression work.
+    write_serial: Option<TraitWriteSerial>,
     /// The change count when the expression was last worked out (0: never).
     evaluated: u64,
     /// [design] The lower-case setting whose built-in label this trait holds, as the file
@@ -224,7 +232,7 @@ pub struct Trait {
 
 impl Trait {
     fn new(name: String, value: Value, expr: Option<Vec<Op>>, changed: u64) -> Trait {
-        Trait { name, value, expr, changed, evaluated: 0, built_in_label: None, sources: Vec::new(), seen: 0 }
+        Trait { name, value, expr, changed, write_serial: None, evaluated: 0, built_in_label: None, sources: Vec::new(), seen: 0 }
     }
 }
 
@@ -327,6 +335,8 @@ pub struct Ui {
     /// read a flag in the same place.
     trait_writes: u64,
     trait_changes: u64,
+    /// Ui-local external-write clock; exhausted writes are unownable, never wrapped.
+    last_write_serial: u64,
     /// How many live mod-added tiles (an `Injected`, `Template` or loose file origin, or
     /// a loose UIO include's) each root tile holds, itself included, by root: kept where
     /// tiles are made, unloaded or change origin, so [`Ui::has_mod_added_tiles`] walks
@@ -766,8 +776,10 @@ impl Ui {
         }
         self.gen += 1;
         let gen = self.gen;
+        let write_serial = self.next_write_serial();
         let t = self.tile_mut(tile);
         let mut new = Trait::new(e.name.clone(), value, expr, gen);
+        new.write_serial = write_serial;
         new.built_in_label = built_in_label;
         match t.trait_index(&e.name) {
             Some(k) => t.traits[k] = new,
@@ -983,11 +995,27 @@ impl Ui {
         (self.trait_writes, self.trait_changes)
     }
 
+    /// Last accepted external setter/XML insertion or replacement, including equal values.
+    /// None for a missing/stale target or an exhausted clock. Expression evaluation does
+    /// not advance it; an expression may have a serial but is not thereby a writable sink.
+    pub fn trait_write_serial(&self, tile: TileId, name: &str) -> Option<TraitWriteSerial> {
+        let t = self.tile(tile);
+        t.traits.get(t.trait_index(name)?)?.write_serial
+    }
+
+    fn next_write_serial(&mut self) -> Option<TraitWriteSerial> {
+        let next = self.last_write_serial.checked_add(1)?;
+        self.last_write_serial = next;
+        NonZeroU64::new(next).map(TraitWriteSerial)
+    }
+
     fn set_at(&mut self, t: TileId, k: usize, v: Value) {
         self.gen += 1;
         self.trait_writes += 1;
         let gen = self.gen;
+        let write_serial = self.next_write_serial();
         let tr = &mut self.tiles[t.index as usize].traits[k];
+        tr.write_serial = write_serial;
         if v.differs(&tr.value) {
             tr.changed = gen;
             self.dirty = true;
@@ -1472,5 +1500,40 @@ fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
                 acc
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod write_serial_tests {
+    use super::*;
+
+    #[test]
+    fn trait_write_serial_exhaustion_keeps_legacy_values_without_reusing_tokens() {
+        let mut ui = Ui::new();
+        let screen = ui.screen();
+        ui.set_trait(screen, "x", Value::Num(12.0));
+        let old = ui.trait_write_serial(screen, "x").unwrap();
+        let clock = ui.last_write_serial;
+        assert!(!ui.set_float("screen()/missing", 1.0));
+        assert!(!ui.set_existing(screen, "missing", Value::Num(1.0)));
+        assert_eq!(ui.last_write_serial, clock);
+        ui.last_write_serial = u64::MAX - 1;
+        ui.set_trait(screen, "x", Value::Num(12.0));
+        let last = ui.trait_write_serial(screen, "x").unwrap();
+        assert_ne!(old, last);
+        assert_eq!(ui.last_write_serial, u64::MAX);
+        ui.set_trait(screen, "x", Value::Num(13.0));
+        assert_eq!(ui.trait_write_serial(screen, "x"), None);
+        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(13.0)));
+        ui.set_trait(screen, "x", Value::Num(14.0));
+        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(14.0)));
+        assert_eq!(ui.trait_write_serial(screen, "x"), None);
+        let src = MemSource::default();
+        assert!(ui.inject_text(&src, "screen()", "<x>15</x><y>24</y>"));
+        assert_eq!(ui.tile(screen).get("x"), Some(&Value::Num(15.0)));
+        assert_eq!(ui.tile(screen).get("y"), Some(&Value::Num(24.0)));
+        assert_eq!(ui.trait_write_serial(screen, "x"), None);
+        assert_eq!(ui.trait_write_serial(screen, "y"), None);
+        assert_eq!(ui.last_write_serial, u64::MAX);
     }
 }

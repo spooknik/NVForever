@@ -31,6 +31,7 @@
 use bevy::prelude::*;
 
 pub(crate) mod device;
+pub mod pointer;
 pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, SwitchingInput};
 
 /// A controller input a control can be bound to: a button, or the left stick pushed one
@@ -1373,7 +1374,11 @@ impl Plugin for PadPlugin {
             .init_resource::<ButtonStyle>()
             .init_resource::<PadInUse>()
             .init_resource::<PadGlyphs>()
+            .init_resource::<pointer::PadPointer>()
+            .add_message::<bevy::window::CursorMoved>()
             .add_systems(PreUpdate, (track_pad, update_stick_buttons, menu_keys, sync_labels).chain().after(InputSystems).after(device::automatic))
+            // The pointer sleeps with the controller (#2310): before UI focus and picking read it.
+            .add_systems(PreUpdate, pointer::follow.after(InputSystems).after(device::automatic).before(bevy::ui::UiSystems::Focus).before(bevy::picking::PickingSystems::ProcessInput))
             .add_systems(Update, (log_pads, load_pad_glyphs.before(crate::PlaySet::Ui)));
         crate::settings::add_choice_list(
             app,

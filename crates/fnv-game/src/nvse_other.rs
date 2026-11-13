@@ -266,6 +266,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
     let zero = XVal::Num(0.0);
     let v = match name {
+        // Four-character record signature, separate from GetObjectType's numeric
+        // result (docs/spec-notes/form-type-source-call.md).
+        "getisformtype" => {
+            let wanted = match args.first() { Some(XVal::Str(s)) => s.as_bytes(), _ => &[] };
+            let actual = subject.and_then(|reference| g.data.sig(base(g, reference)));
+            yes(wanted.len() == 4 && actual.is_some_and(|signature| signature.eq_ignore_ascii_case(wanted)))
+        }
         // [documented: AddItemOwnership; AddItemHealthPercentOwner] `item count [health
         // 0–1] owner rank`: the items come owned (the rank is not kept [hypothesis]), at
         // full health, not AddItem's 99.9% [observed: nvse-fifth, pistol 80 of 80, owner

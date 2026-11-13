@@ -85,3 +85,15 @@ path = "tests/synthetic.rs"
 [[test]]
 name = "compile_script_paths"
 path = "tests/compile_script_paths.rs"
+
+[[test]]
+name = "runtime_origin"
+path = "tests/runtime_origin.rs"
+
+[[test]]
+name = "jip_cloned_list_wildcard"
+path = "tests/jip_cloned_list_wildcard.rs"
+
+[[test]]
+name = "jip_required_animation_codes"
+path = "tests/jip_required_animation_codes.rs"

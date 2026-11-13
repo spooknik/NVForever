@@ -100,6 +100,8 @@ mod zones;
 
 /// With `autotests = false` Cargo builds only the files named, so a new file in `tests/`
 /// would never run: every one is a `mod` here or a `[[test]]` in Cargo.toml, not both.
+mod world_model_fields;
+
 #[test]
 fn every_test_file_is_built() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

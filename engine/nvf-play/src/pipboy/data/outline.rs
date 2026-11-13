@@ -26,6 +26,11 @@ use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
+// The checked admission API is a prerequisite; a recipient adapter is not wired yet.
+#[allow(dead_code)]
+mod grid;
+use grid::OutlineGrid;
+
 /// The local map's scale indoors, game units to a canvas unit at a magnification of 1
 /// [design: outdoors it is 28, fitted to the owner's screenshot; a house at that scale is
 /// a speck, so indoors the map is drawn 3.5 times closer].
@@ -108,18 +113,12 @@ impl Outline {
 
     /// [`Outline::new`]'s grid with no room made for its samples.
     fn sized(interior: Option<u32>, world: u32, centre: [f32; 2], feet: f32, window: Vec2, scale: f32) -> Outline {
-        let step = if interior.is_some() { INTERIOR_STEP } else { EXTERIOR_STEP };
-        let extent = extent(interior.is_some(), window, scale);
-        let snap = extent / 4.0;
-        let key = Outline::key_for(interior, world, centre, feet, window, scale);
-        let anchor = key.2;
-        let mid = [anchor[0] as f32 * snap.x, anchor[1] as f32 * snap.y];
-        let size = [(extent.x / step).ceil() as usize, (extent.y / step).ceil() as usize];
+        let grid = OutlineGrid::legacy(interior, world, centre, feet, window, scale);
         Outline {
-            key,
-            origin: [mid[0] - size[0] as f32 * step / 2.0, mid[1] + size[1] as f32 * step / 2.0],
-            step,
-            size,
+            key: grid.key(),
+            origin: grid.origin(),
+            step: grid.step(),
+            size: grid.size(),
             interior: interior.is_some(),
             feet,
             heights: Vec::new(),

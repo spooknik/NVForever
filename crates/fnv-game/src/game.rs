@@ -6367,7 +6367,10 @@ impl Host for Exec<'_, '_> {
 
     fn calling_plugin(&mut self) -> Option<String> {
         let p = &self.unit.unit.plugin;
-        (!matches!(p.as_str(), "query" | "console")).then(|| p.to_ascii_lowercase())
+        // Diagnostic runtime unit names are not load-order plugin identities.
+        let runtime = matches!(p.as_str(), "query" | "console" | "CompileScript")
+            || matches!(&self.unit.unit.owner, fnv_script::UnitOwner::Other { sig, .. } if sig == "SR");
+        (!runtime).then(|| p.to_ascii_lowercase())
     }
 
     fn current_script(&mut self) -> Option<u32> {

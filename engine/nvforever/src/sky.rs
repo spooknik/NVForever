@@ -283,6 +283,12 @@ pub struct SkyState {
     /// The game clock has moved the sky (fades take game time; without a clock a change
     /// is at once).
     pub(crate) clock_seen: bool,
+    /// The game clock's hour as it is this frame (`--play`), which the sun light's
+    /// direction follows; `hour` follows it in half-game-minute steps
+    /// ([`Self::follow_game_clock`]), and turning the light by each step made every sun
+    /// shadow jump about once a real second. `None` until the clock is seen, and again
+    /// after the hour is set another way. [engineering choice]
+    sun_hour: Option<f32>,
     /// The list (region FormID, `None` for the climate) and its eligible weathers the
     /// last roll was made for.
     rolled_for: Option<(Option<u32>, Vec<u32>)>,
@@ -495,6 +501,7 @@ impl SkyState {
             source: None,
             placed: false,
             clock_seen: false,
+            sun_hour: None,
             rolled_for: None,
             pick: wid,
             rolls: 0,
@@ -751,6 +758,7 @@ impl SkyState {
     /// Set the hour; `instant` skips weather fades (a jump rather than time passing).
     pub fn set_hour(&mut self, hour: f32, instant: bool) {
         self.hour = hour.rem_euclid(24.0);
+        self.sun_hour = None;
         self.follow_climate(instant);
         self.changed = true;
     }
@@ -770,6 +778,15 @@ impl SkyState {
             self.days_passed = days_passed.floor();
             self.set_hour(hour, true);
         }
+        // Between the steps the sun light still moves with the clock (`sun_hour`).
+        let ahead = (hour - self.hour).rem_euclid(24.0);
+        self.sun_hour = (ahead < 1.0 / 120.0).then_some(hour.rem_euclid(24.0));
+    }
+
+    /// The hour the sun light's direction is taken from: the game clock's own between the
+    /// sky's half-minute steps, otherwise the sky's.
+    pub fn sun_light_hour(&self) -> f32 {
+        self.sun_hour.unwrap_or(self.hour)
     }
 
     /// Advance a weather fade by `hours` of game time.
@@ -1863,9 +1880,7 @@ pub fn update_sky(
         info!("interior lighting: fog {:.0}..{:.0} power {:.2}", l.fog_near, l.fog_far, l.fog_power);
         return;
     }
-    let (h, c) = (sky.hour, &sky.climate);
-    let sun_dir_game = Vec3::from_array(sun_direction(c, h, SUN_SOUTH));
-    let sun_dir = to_bevy.rotation * sun_dir_game;
+    let c = &sky.climate;
 
     // Follow the camera every frame; clouds drift with their ONAM speeds. The dome is
     // shrunk to nothing in interiors: give it its size back (the sun disc and glare are
@@ -1877,6 +1892,12 @@ pub fn update_sky(
             info!("sky: outdoors again, the sky dome (with the sun disc and glare) shown");
         }
         t.scale = sky_transform(cam_pos).scale;
+    }
+    // The sun light turns with the game clock every frame, not with the sky's half-minute
+    // steps (`SkyState::sun_light_hour`); its colour still changes with the sky below.
+    let light_dir = to_bevy.rotation * Vec3::from_array(sun_direction(c, sky.sun_light_hour(), SUN_SOUTH));
+    if let Ok((mut light, mut t)) = sun.single_mut() {
+        aim_sun(&mut light, &mut t, light_dir, to_bevy.rotation * Vec3::Y, PI * unit * sky.sun_scale() * sun_mod);
     }
     if !changed {
         return;
@@ -1930,17 +1951,8 @@ pub fn update_sky(
     clear.0 = to_color(lower);
 
     let sunlight = sky.color(ColorType::Sunlight);
-    if let Ok((mut light, mut t)) = sun.single_mut() {
-        // Below the horizon the light comes from the opposite side (moonlight colour is
-        // the weather's night "sunlight") [hypothesis].
-        let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };
-        *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
+    if let Ok((mut light, _)) = sun.single_mut() {
         light.color = crate::lights::display_color(sunlight.map(crate::lights::linear_to_display));
-        // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
-        // switch between the two does not flip shadows at full strength [interim].
-        // Scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's
-        // sun is about twice it, Dead Money's West Town's under half) [hypothesis].
-        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale() * sun_mod * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
     }
     let amb = sky.color(ColorType::Ambient);
     ambient.color = crate::lights::display_ambient([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z].map(crate::lights::linear_to_display));
@@ -1979,6 +1991,29 @@ pub fn update_sky(
 
 pub fn initial_fog() -> DistanceFog {
     DistanceFog { color: Color::WHITE, falloff: FogFalloff::Linear { start: 8_000.0, end: 20_000.0 }, ..default() }
+}
+
+/// Aim the sun light along `sun_dir` (towards the sun, Bevy axes) and set its strength
+/// from `full` (the light at full strength before the sun/moon share).
+///
+/// `axis` is the line the sun's path turns about (`fnv_world::sky::sun_direction` keeps
+/// the game's north axis fixed). Taken as the light's up, the shadow maps turn rigidly
+/// about it as the sun moves, instead of also rolling as they did with the world's up:
+/// less crawl along the shadows' edges while the sun light follows the clock every frame
+/// (`SkyState::sun_light_hour`). [engineering choice]
+fn aim_sun(light: &mut Mut<DirectionalLight>, t: &mut Mut<Transform>, sun_dir: Vec3, axis: Vec3, full: f32) {
+    // Below the horizon the light comes from the opposite side (moonlight colour is the
+    // weather's night "sunlight") [hypothesis].
+    let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };
+    t.set_if_neq(Transform::IDENTITY.looking_to(-from, axis));
+    // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
+    // switch between the two does not flip shadows at full strength [interim]. `full` is
+    // scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's sun
+    // is about twice it, Dead Money's West Town's under half) [hypothesis].
+    let illuminance = full * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
+    if light.illuminance != illuminance {
+        light.illuminance = illuminance;
+    }
 }
 
 /// The direction towards an interior's directional light, in game axes, from its XCLL
@@ -2043,6 +2078,7 @@ mod tests {
             source: None,
             placed: false,
             clock_seen: false,
+            sun_hour: None,
             rolled_for: None,
             pick: SAVED,
             rolls: 0,
@@ -2108,6 +2144,7 @@ mod tests {
             source: None,
             placed: false,
             clock_seen: false,
+            sun_hour: None,
             rolled_for: None,
             pick: HELD,
             rolls: 0,
@@ -2120,6 +2157,25 @@ mod tests {
             moon_textures: Default::default(),
             lightning_request: false,
         }
+    }
+
+    #[test]
+    fn the_sun_light_follows_the_clock_between_the_skys_steps() {
+        let mut sky = sky_started_on_held();
+        sky.set_hour(12.0, true);
+        assert_eq!(sky.sun_light_hour(), 12.0);
+        // Less than the sky's half-minute step: the sky holds, the sun light moves.
+        let a_little = 12.0 + 1.0 / 600.0;
+        sky.follow_game_clock(a_little, 25.0);
+        assert_eq!((sky.hour, sky.sun_light_hour()), (12.0, a_little));
+        // A whole step: both at the clock.
+        let a_step = 12.0 + 1.0 / 100.0;
+        sky.follow_game_clock(a_step, 25.0);
+        assert_eq!((sky.hour, sky.sun_light_hour()), (a_step, a_step));
+        // An hour set another way wins over the last clock reading.
+        sky.follow_game_clock(a_step + 1.0 / 600.0, 25.0);
+        sky.set_hour(18.0, true);
+        assert_eq!(sky.sun_light_hour(), 18.0);
     }
 
     fn saved_held() -> serde_json::Value {

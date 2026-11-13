@@ -69,6 +69,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"REGN", &regn),
         top(b"SPEL", &spel),
         top(b"QUST", &qust),
+        top(b"NPC_", &record(b"NPC_", 0, FormId::PLAYER_BASE.0, &[sub(b"EDID", z("Player"))])),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[outside, inside, children].concat()))),
         top(b"WRLD", &wrld),
     ]
@@ -106,6 +107,26 @@ fn game(f: &Fixture) -> Game<'_> {
     g.ui_tree.load_menu(&src, "menus\\type.xml").unwrap();
     g.ui_tree.update();
     g
+}
+
+#[test]
+fn source_get_is_form_type_uses_the_reference_base_signature() {
+    let f = fixture();
+    let mut g = game(&f);
+    for (expression, expected) in [
+        ("TestBoxRef.GetIsFormType \"ACTI\"", 1.0),
+        ("TestBoxRef.GetIsFormType \"acti\"", 1.0),
+        ("TestBoxRef.GetIsFormType \"REFR\"", 0.0),
+        ("TestBoxRef.GetIsFormType \"MISC\"", 0.0),
+        ("TestGun.GetIsFormType \"WEAP\"", 1.0),
+        ("TestGun.GetIsFormType \"Weapon\"", 0.0),
+        ("GetIsFormType \"ACTI\"", 0.0),
+    ] {
+        assert_eq!(g.run_query(&format!("Begin Function {{}}\nSetFunctionValue ({expression})\nEnd"), Default::default()).unwrap(), XVal::Num(expected), "{expression}");
+    }
+    let XVal::Ref(temporary) = g.run_query("Begin Function {}\nplayer.AddItem TestGun 1\nSetFunctionValue (player.GetFirstRefForItem TestGun)\nEnd", Default::default()).unwrap() else { panic!("expected an inventory reference") };
+    assert_ne!(temporary, 0);
+    assert_eq!(fnv_game::nvse::call(&mut g, &Default::default(), "getisformtype", Some(FormId(temporary)), &[XVal::Str("WEAP".into())]), Some(Ok(XVal::Num(1.0))));
 }
 
 /// A data folder made for the run: the KF files the kNVSE functions look for, Stewie's
