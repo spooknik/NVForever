@@ -168,13 +168,20 @@ pub struct DlssgRequest {
 /// fork-notes `fg-spike-results.md`; documented: "VSync with Frame Generation is only supported
 /// on D3D12", `ProgrammingGuideDLSS_G.md` §22.5]).
 pub fn dlss_unavailable_reason(world: &World) -> Option<&'static str> {
-    if let Some(why) = crate::dlss::frame_generation_unavailable() {
+    dlss_reason(crate::dlss::frame_generation_unavailable(), crate::upscaler::effective(world), || world.resource::<crate::frame_pace::FramePace>().sync.vsync())
+}
+
+/// [`dlss_unavailable_reason`]'s rule over its inputs: the loader's reason, the effective
+/// upscaler (DLSS-G takes a temporal upscaler's depth and motion; Bilinear makes none, #2414)
+/// and whether vsync is on (asked only when it decides).
+fn dlss_reason(loader: Option<&'static str>, effective: crate::upscaler::UpscalerChoice, vsync: impl FnOnce() -> bool) -> Option<&'static str> {
+    if let Some(why) = loader {
         Some(why)
-    } else if crate::upscaler::effective(world).bilinear().is_some() {
+    } else if effective.bilinear().is_some() {
         Some("Not with Bilinear")
-    } else if !crate::upscaler::temporal_active(world) {
+    } else if !effective.is_temporal() {
         Some("Needs an upscaler")
-    } else if world.resource::<crate::frame_pace::FramePace>().sync.vsync() {
+    } else if vsync() {
         Some("Needs vsync off")
     } else {
         None
@@ -668,8 +675,9 @@ fn prepare(
 ) {
     for (entity, prepared, fsr_draws, mut usages, old) in &mut views {
         // Only a view FSR draws (frame generation is FSR's own); its sizes are the common
-        // prepared view's.
-        let Some(fsr) = prepared.filter(|f| fsr_draws && request.on && supports_size(f.output_size)) else {
+        // prepared view's. Its settings asked too: in the frame of a switch away from FSR
+        // (to Bilinear, #2414) FSR's state is still there until `fsr::prepare`'s removal lands.
+        let Some(fsr) = prepared.filter(|f| fsr_draws && crate::fsr::keeps_fsr_state(Some(f.camera.settings)) && request.on && supports_size(f.output_size)) else {
             if old.is_some() {
                 commands.entity(entity).remove::<PreparedFrameGen>();
             }
@@ -1346,6 +1354,21 @@ mod tests {
         assert_eq!(unavailable_reason(app.world()), Some("Needs FSR 3.1"));
         assert!(!usable(app.world()) && !crate::upscaler::temporal_active(app.world()));
         assert!(dlss_unavailable_reason(app.world()).is_some());
+    }
+
+    /// DLSS frame generation's reasons in their order: the loader's first, then Bilinear (no
+    /// depth and motion to take, #2414), no temporal upscaler, vsync on.
+    #[test]
+    fn dlss_frame_generation_says_not_with_bilinear() {
+        use crate::upscaler::{UpscaleQuality::Quality, UpscalerChoice};
+        let never = || -> bool { panic!("vsync is not asked here") };
+        assert_eq!(dlss_reason(None, UpscalerChoice::Bilinear(Quality), never), Some("Not with Bilinear"));
+        assert_eq!(dlss_reason(Some("Not on this GPU"), UpscalerChoice::Bilinear(Quality), never), Some("Not on this GPU"), "the loader's reason first");
+        assert_eq!(dlss_reason(None, UpscalerChoice::Off, never), Some("Needs an upscaler"));
+        for upscaler in [UpscalerChoice::Fsr(Quality), UpscalerChoice::Dlss(Quality)] {
+            assert_eq!(dlss_reason(None, upscaler, || true), Some("Needs vsync off"), "{upscaler:?}");
+            assert_eq!(dlss_reason(None, upscaler, || false), None, "{upscaler:?}");
+        }
     }
 
     /// FSR picked while frame generation is on: the switch follows in the same frame as the

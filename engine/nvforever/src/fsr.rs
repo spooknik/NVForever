@@ -285,12 +285,21 @@ pub(crate) struct PreparedFsr {
     sky_logged: AtomicBool,
 }
 
+/// Whether a view keeps (or gets) FSR's own state: only while its prepared view is FSR's. A view
+/// without a prepared view (native, an unusable view) or drawn by another upscaler (DLSS,
+/// Bilinear, #2414) loses it.
+pub(crate) fn keeps_fsr_state(prepared: Option<UpscaleSettings>) -> bool {
+    matches!(prepared, Some(UpscaleSettings::Fsr(_)))
+}
+
 /// FSR's part of the view preparation, after the common one (`upscaler::prep::prepare`, which
 /// checked the view, applied FSR's [`policy`] and made or kept the [`PreparedUpscale`]): the
 /// pipelines, the main textures' usages FSR needs, and [`PreparedFsr`], made again when the
 /// prepared view's sizes change or what should reconstruct it did (its FidelityFX API library
-/// was given up on, or the FSR library setting was switched). A view without a prepared view,
-/// or drawn by another upscaler, loses its FSR state.
+/// was given up on, or the FSR library setting was switched). Every view that has FSR's state
+/// and should not keep it ([`keeps_fsr_state`]) loses it, whatever else it has: a Bilinear view
+/// has a prepared view but no `TemporalJitter` (#2414), so FSR's views are matched with the
+/// jitter optional.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn prepare(
     mut commands: Commands,
@@ -299,26 +308,26 @@ pub(crate) fn prepare(
     mut renderer: ResMut<FsrRenderer>,
     upscale: Res<UpscaleRenderer>,
     frame_generation: Option<Res<crate::frame_gen::FrameGenRequest>>,
-    mut views: Query<(Entity, &PreparedUpscale, &TemporalJitter, &mut CameraMainTextureUsages, Option<&PreparedFsr>)>,
-    stale: Query<Entity, (With<PreparedFsr>, Without<PreparedUpscale>)>,
+    mut views: Query<(Entity, &PreparedUpscale, Option<&TemporalJitter>, &mut CameraMainTextureUsages, Option<&PreparedFsr>)>,
+    with_state: Query<(Entity, Option<&PreparedUpscale>), With<PreparedFsr>>,
 ) {
-    for entity in &stale {
-        commands.entity(entity).remove::<PreparedFsr>();
+    for (entity, prepared) in &with_state {
+        if !keeps_fsr_state(prepared.map(|p| p.camera.settings)) {
+            // Once per switch away from FSR (the smoke scenario bilinear-switch waits for it).
+            info!("FSR 3.1: its own state let go, the view is not FSR's now");
+            commands.entity(entity).remove::<PreparedFsr>();
+        }
     }
     for (entity, prepared, jitter, mut usages, old) in &mut views {
-        let UpscaleSettings::Fsr(settings) = prepared.camera.settings else {
-            if old.is_some() {
-                commands.entity(entity).remove::<PreparedFsr>();
-            }
-            continue;
-        };
+        let UpscaleSettings::Fsr(settings) = prepared.camera.settings else { continue };
         debug_assert!(prep::allocates_fsr_state(prepared.camera.settings.upscaler()));
         // Made with the prepared view (`prep::prepare`).
         let Some(common) = &upscale.0 else { continue };
         renderer.auxiliary.get_or_insert_with(|| AuxiliaryPipelines::new(device.wgpu_device(), common));
         usages.0 |= wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC;
-        // FSR's jitter (AMD's sign): the common preparation gave Bevy its opposite.
-        let offset = -jitter.offset;
+        // FSR's jitter (AMD's sign): the common preparation gave Bevy its opposite. An FSR
+        // camera always has the component (`FsrUpscaling` requires it).
+        let offset = jitter.map_or(Vec2::ZERO, |jitter| -jitter.offset);
         let (render_size, output_size) = (prepared.render_size, prepared.output_size);
         match old {
             Some(old) if old.render_size == render_size && old.output_size == output_size && old.through_api() == crate::ffx_api::library().is_some() => {
@@ -772,6 +781,17 @@ mod tests {
     use super::*;
     // The camera history and its cuts moved to the common preparation unchanged.
     use crate::upscaler::prep::UpscaleCamera as FsrCamera;
+
+    /// FSR's state goes with FSR alone: a live switch to Bilinear (a prepared view, no jitter)
+    /// or DLSS, or to native (no prepared view), takes it away (#2414's review).
+    #[test]
+    fn fsr_state_is_kept_only_while_fsr_draws_the_view() {
+        use crate::upscaler::UpscaleQuality::*;
+        assert!(keeps_fsr_state(Some(UpscaleSettings::Fsr(FsrUpscaling::default()))));
+        assert!(!keeps_fsr_state(Some(UpscaleSettings::Bilinear(Quality))), "FSR -> Bilinear");
+        assert!(!keeps_fsr_state(Some(UpscaleSettings::Dlss(Quality))), "FSR -> DLSS");
+        assert!(!keeps_fsr_state(None), "FSR -> off, or an unusable view");
+    }
 
     #[test]
     fn quality_modes_have_standard_ratios() {

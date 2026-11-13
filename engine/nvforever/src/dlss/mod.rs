@@ -896,16 +896,23 @@ fn release_now(main: DlssMainState, dlss_view: bool) -> bool {
     main.drawing == Some(false) && !dlss_view
 }
 
+/// The DLSS quality of a prepared view DLSS draws; `None` for FSR's and Bilinear's, which are
+/// no DLSS view for [`configure`] (so after a live switch to either, [`release_now`] frees
+/// DLSS's resources).
+fn dlss_view_quality(settings: UpscaleSettings) -> Option<UpscaleQuality> {
+    match settings {
+        UpscaleSettings::Dlss(quality) => Some(quality),
+        UpscaleSettings::Fsr(_) | UpscaleSettings::Bilinear(_) => None,
+    }
+}
+
 /// The options for the DLSS camera's key (mode, output size, HDR-ness) and the DLSS model, set
 /// before anything of the frame is recorded: on a change the GPU is drained and the viewport's
 /// resources freed first (`win::configure`). One viewport, so the first DLSS camera only. Once
 /// DLSS stops drawing ([`release_now`]), its resources are freed the same way (`win::release`),
 /// also when DLSS was given up on.
 pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes: Res<OptimalSizes>, main: Res<DlssMainState>) {
-    let dlss_view = views.iter().find_map(|(view, prepared)| match prepared.camera.settings {
-        UpscaleSettings::Dlss(quality) => Some((view, quality)),
-        UpscaleSettings::Fsr(_) | UpscaleSettings::Bilinear(_) => None,
-    });
+    let dlss_view = views.iter().find_map(|(view, prepared)| dlss_view_quality(prepared.camera.settings).map(|quality| (view, quality)));
     if release_now(*main, dlss_view.is_some()) {
         release();
     }
@@ -1103,6 +1110,19 @@ mod tests {
         assert!(!release_now(state(Some(true)), true));
         assert!(!release_now(state(None), false), "no status yet");
         assert_eq!(DlssMainState::default(), DlssMainState { model: DlssModel::Default, drawing: None });
+    }
+
+    /// DLSS -> Bilinear (or FSR) live: the view is no DLSS view any more, so with DLSS no longer
+    /// the effective choice its resources are freed; DLSS keeps no per-view component of its
+    /// own (#2414's review).
+    #[test]
+    fn a_switch_to_bilinear_or_fsr_leaves_no_dlss_view_and_frees_dlss() {
+        assert_eq!(dlss_view_quality(UpscaleSettings::Dlss(UpscaleQuality::Balanced)), Some(UpscaleQuality::Balanced));
+        for other in [UpscaleSettings::Bilinear(UpscaleQuality::Balanced), UpscaleSettings::Fsr(crate::fsr::FsrUpscaling::default())] {
+            assert_eq!(dlss_view_quality(other), None, "{other:?}");
+            let main = DlssMainState { model: DlssModel::Default, drawing: Some(false) };
+            assert!(release_now(main, dlss_view_quality(other).is_some()), "{other:?}: freed");
+        }
     }
 
     #[test]

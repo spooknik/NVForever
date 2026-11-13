@@ -309,7 +309,8 @@ pub(crate) struct PreparedUpscale {
     /// A camera cut this frame ([`UpscaleCamera::cut_from`]), or a new prepared view.
     pub(crate) reset: bool,
     /// The depth the upscaler reads (render size, first-person depth unsqueezed); frame
-    /// generation's prepare pass reads it too.
+    /// generation's prepare pass reads it too. Made for a Bilinear view as well but never drawn
+    /// there (#2414: nothing reads it; one render-size Depth32Float texture per prepared view).
     pub(crate) depth: wgpu::Texture,
     expanded_depth: wgpu::Texture,
     resolution: wgpu::Buffer,
@@ -799,18 +800,17 @@ mod tests {
         assert_eq!((jitter.offset, bias.0), (Vec2::new(0.25, -0.5), -1.5), "untouched: they were not given");
     }
 
-    /// Bilinear's policy through the backend switch: FSR's ratio at every quality, no jitter
-    /// phases, no bias, DLSS never asked, and a size even where FSR gives none (#2414).
+    /// Bilinear's policy through the backend switch, in literal sizes at 1280x720: FSR's shares,
+    /// no jitter phases, no bias, DLSS never asked, and a size even where FSR gives none (#2414).
     #[test]
-    fn the_bilinear_policy_is_fsrs_ratio_without_jitter_or_bias() {
+    fn the_bilinear_policy_draws_fsrs_shares_without_jitter_or_bias() {
         let limits = wgpu::Limits::default();
         let never = |_| -> Option<crate::dlss::sizing::Optimal> { panic!("Bilinear never asks DLSS") };
-        for output in [UVec2::new(1280, 720), UVec2::new(1920, 1080), UVec2::new(2560, 1440)] {
-            for quality in UpscaleQuality::ALL {
-                let policy = policy(UpscaleSettings::Bilinear(quality), output, &limits, never).expect("always a size");
-                assert_eq!(policy, Policy { render_size: quality.render_size(output), jitter_phases: 0, mip_bias: 0.0 }, "{quality:?} at {output}");
-                assert_eq!(drawn(UpscalerChoice::Bilinear(quality), Some(policy.render_size), output, true), DrawnUpscale::Upscaled { choice: UpscalerChoice::Bilinear(quality), render: policy.render_size, output });
-            }
+        let output = UVec2::new(1280, 720);
+        let expected = [(NativeAa, UVec2::new(1280, 720)), (Quality, UVec2::new(853, 480)), (Balanced, UVec2::new(752, 423)), (Performance, UVec2::new(640, 360)), (UltraPerformance, UVec2::new(426, 240))];
+        for (quality, render) in expected {
+            let policy = policy(UpscaleSettings::Bilinear(quality), output, &limits, never).expect("always a size");
+            assert_eq!(policy, Policy { render_size: render, jitter_phases: 0, mip_bias: 0.0 }, "{quality:?}");
         }
         // Below FSR's smallest render size (FSR renders natively there) Bilinear still draws
         // smaller.
