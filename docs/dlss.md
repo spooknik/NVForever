@@ -17,7 +17,7 @@ NVForever ships no NVIDIA file. NVIDIA's files come under NVIDIA's own licence t
 ## Getting the files from the settings: Download DLSS…
 
 While the four files are missing, the Upscaler row (pause menu, **Settings > Graphics**) offers
-**Download DLSS…** beside Off, FSR 3.1 and DLSS (Windows only, with the Vulkan renderer).
+**Download DLSS…** beside Off, Bilinear, FSR 3.1 and DLSS (Windows only, with the Vulkan renderer).
 Choosing it changes nothing in the row; it opens a dialog:
 
 1. **NVIDIA's licence.** The dialog says what is fetched and shows NVIDIA's licence for
@@ -151,7 +151,7 @@ Upscaler is Off. (It is not the Quality preset row, Low to Very High: it only
 says how much smaller the world is drawn before the upscaler rebuilds it.)
 
 With the four files in the `dlss` folder when the game starts, every change takes effect at
-once: Off, FSR 3.1 and DLSS, and every mode. Files put into the folder while the game runs
+once: Off, Bilinear, FSR 3.1 and DLSS, and every mode. Files put into the folder while the game runs
 are found at the next start: until then a DLSS choice reads **DLSS (restart)** and the picture
 stays as it was. That holds too when the game started with DLSS chosen and the files missing:
 once all four are in the folder, DLSS is no longer greyed out and reads DLSS (restart). Loading
@@ -217,7 +217,7 @@ It needs:
 - Windows' **hardware-accelerated GPU scheduling** turned on (Windows Settings > System >
   Display > Graphics > Change default graphics settings), then a restart of Windows;
 - an upscaler: FSR 3.1 or DLSS, any mode (frame generation reads the upscaler's depth and
-  motion);
+  motion, which Bilinear does not make);
 - **Display sync: Off**: on Vulkan, NVIDIA's frame generation does not run with vertical sync.
   A G-Sync screen still shows the frames as they come;
 - the game's window in front: while another window is in front, no frames are generated.

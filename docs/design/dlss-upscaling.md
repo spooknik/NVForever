@@ -285,8 +285,9 @@ detail in the module notes of the file named.
   scenarios written for it keep working. Both rows' notes name `--upscaler`,
   `--upscaler-quality` and `--fsr`, so a test run that gives any of them keeps both at the
   command line's choice. (Steps 7, 8; the play-test follow-up.)
-- **The anti-aliasing row** reads "Off (upscaling active)" while FSR or DLSS draws
-  (`upscaler::temporal_active`) and the saved choice comes back when Upscaler is Off. DLSS
+- **The anti-aliasing row** reads "Off (upscaling active)" while FSR, DLSS or Bilinear draws
+  (`upscaler::upscaling_active`; Bilinear since #2414) and the saved choice comes back when
+  Upscaler is Off. DLSS
   sharpens nothing itself: the Sharpening switch drives the separate sharpening pass with DLSS,
   as it does natively. (Step 8.)
 - **Frame generation is off with DLSS** (`frame_gen::usable`). FSR's frame generation assumes
@@ -389,10 +390,14 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
 
 `engine/nvforever/src/upscaler.rs` holds the types every step shares:
 
-- `Upscaler`: `Off`, `Fsr`, `Dlss`, the backend kind (`--upscaler`).
-- `UpscaleQuality`: the five qualities above, the one list both upscalers use.
-  `fsr::FsrQuality` is an alias of it, and FSR's ratios stay in `fsr.rs`.
-- `UpscalerChoice`: `Off`, `Fsr(quality)` or `Dlss(quality)`, the **requested** choice. It is
+- `Upscaler`: `Off`, `Bilinear`, `Fsr`, `Dlss`, the backend kind (`--upscaler`). Bilinear
+  (#2414) is the plain stretch without history ([fsr-upscaling](fsr-upscaling.md),
+  "Bilinear").
+- `UpscaleQuality`: the five qualities above, the one list every upscaler uses.
+  `fsr::FsrQuality` is an alias of it, and FSR's ratios stay in `fsr.rs` (Bilinear draws at
+  them too).
+- `UpscalerChoice`: `Off`, `Bilinear(quality)`, `Fsr(quality)` or `Dlss(quality)`, the
+  **requested** choice. It is
   the one authoritative setting, `Graphics::upscaler`; `Graphics::fsr()` and `set_fsr()` read
   and write it the way the old `Graphics.fsr` field was used, so FSR's call sites did not change
   meaning. There is no second toggle that could disagree with it.
@@ -417,12 +422,15 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
   `upscaler::follow_request` makes the status on the first frame and refreshes it every frame
   before `graphics::apply` puts the effective choice on the camera. `dlss_unavailable` is the
   reason the DLSS entries are dimmed, by the same rule.
-- `upscaler::effective` and `temporal_active`: what the shared parts ask (HDR, prepasses,
-  cut-outs drawn alpha-tested, the anti-aliasing lock, the ambient occlusion at the render
-  size); `graphics::fsr_active` stays FSR's own question (its sharpening, frame generation).
-  Both go by the effective choice.
-- `DlssUpscaling` (a component): DLSS on a camera, the counterpart of `fsr::FsrUpscaling`; the
-  graphics settings put one or the other on the main camera, never both.
+- `upscaler::effective`, `upscaling_active` and `temporal_active`: what the shared parts ask.
+  `upscaling_active` (any upscaler, Bilinear too): the HDR view, the anti-aliasing lock;
+  `temporal_active` (FSR or DLSS): the motion prepass, cut-outs drawn alpha-tested, DLSS frame
+  generation's inputs. The ambient occlusion at the render size goes with the prepared view.
+  `graphics::fsr_active` stays FSR's own question (its sharpening, frame generation). All go
+  by the effective choice.
+- `DlssUpscaling` (a component): DLSS on a camera, the counterpart of `fsr::FsrUpscaling`, and
+  `BilinearUpscaling` Bilinear's; the graphics settings put one of them on the main camera,
+  never two.
 
 **The prepared-view seam** (`upscaler/prep.rs`, step 4): the FSR-independent part of the view
 preparation (camera history and cuts, the render-size override, jitter and mip bias applied to

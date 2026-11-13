@@ -12,13 +12,15 @@ built on top of it, is
 [frame-generation](frame-generation.md). What FSR
 needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md). NVIDIA DLSS
 is the other upscaler of the same settings row, on the same common preparation:
-[dlss-upscaling](dlss-upscaling.md).
+[dlss-upscaling](dlss-upscaling.md). The row's third upscaler, Bilinear, stretches the
+smaller picture without rebuilding it ("Bilinear", below).
 
 ## Using it
 
-**Settings > Graphics > Picture > Upscaler** offers Off (the default), FSR 3.1 and DLSS
-([dlss-upscaling](dlss-upscaling.md)); **Upscaling mode** below it, Native AA, Quality,
-Balanced, Performance and Ultra Performance, for either (dimmed while Upscaler is Off). They
+**Settings > Graphics > Picture > Upscaler** offers Off (the default), Bilinear ("Bilinear",
+below), FSR 3.1 and DLSS ([dlss-upscaling](dlss-upscaling.md)); **Upscaling mode** below it,
+Native AA, Quality, Balanced, Performance and Ultra Performance, for each (dimmed while
+Upscaler is Off). They
 are saved as `upscaler` and `upscaler-quality`; an older INI's single `fsr-upscaling` line,
 with the names FSR's choices were always saved by (`Off`, `Native AA`, `Quality`, …), still
 loads into both, and the test aids still take `fsr-upscaling=<choice>`. `--fsr <mode>`
@@ -578,6 +580,55 @@ libraries' sources and headers.
   not be made, and a dispatch failure. The observations above came from a development trace
   (entry-point owners, every call, a read-back of the output) used while the path was built
   and removed before review; it is in this branch's history (`ffx_api_trace.rs`).
+
+## Bilinear
+
+The Upscaler row's third choice (#2414), for a GPU where FSR costs more than it saves, or
+that runs neither FSR nor DLSS. The 3D view is drawn at the mode's render size, the same
+share of the window as FSR's (1, 1/1.5, 1/1.7, 1/2 or 1/3 per axis, `FsrQuality::render_size`),
+and stretched to the window with a bilinear filter. Nothing is rebuilt: no jitter, no motion
+vectors, no history, no mip bias. The picture is softer than FSR's at the same mode and its
+edges are not smoothed; it is the cheapest way to draw fewer pixels. `--upscaler bilinear
+--upscaler-quality <mode>` starts with it; saved as `upscaler=Bilinear`.
+
+Why: on an Intel N150's integrated graphics the game is GPU-bound. Upstream main at the Low
+preset, MSAA off, took 63 ms a frame at 1920x1080, 36 ms at 1280x720 and 27.5 ms at 960x540
+[observed, #2414]. FSR adds a motion-vector prepass over every mesh and its compute passes at
+the display size [design: this note's "Render contract"], too heavy there; DLSS needs an
+NVIDIA RTX card.
+
+How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
+
+- **Off by default**, like the row; no default changes. On every GPU and backend
+  (`upscaler::resolve` never refuses it) and switched at once, no restart.
+- **The camera** gets `BilinearUpscaling`, with the HDR view and the depth prepass the main
+  camera always has; no `MotionVectorPrepass`, `TemporalJitter` or `MipBias` (so no jittered
+  pipeline variant either). Multisampling is off and FXAA, SMAA and TAA are replaced while it
+  is on, as for FSR: the anti-aliasing row reads `Off (upscaling active)` and the saved choice
+  comes back with Off (`upscaler::upscaling_active`). The Sharpening switch drives the separate
+  sharpening pass, as natively. It is not temporal (`upscaler::temporal_active` is false), so
+  blended cut-outs stay blended and neither frame generation runs over it (FSR's needs FSR,
+  DLSS's says `Not with Bilinear`).
+- **The common preparation** (`prep::prepare`, Bilinear's `policy`: FSR's ratio, no jitter
+  phases, no bias): the render-size override, the ambient occlusion at the render size before
+  the upscaler, the corrected and expanded depth. The main-pass shaders that read a screen
+  position follow `view.main_pass_viewport` as they do for FSR (`nif_material.wesl`,
+  `water.wesl`); terrain, grass, trees and the sky read none, so none needed a change.
+- **The pass** (`bilinear_pass`), where FSR's is, after the occlusion before the upscaler and
+  before bloom and the bright pass: the fallback's bilinear filter (`fsr_fallback.wgsl`
+  `fragment`) from the render rectangle into the view's other main texture, the scene's alpha
+  restored where the Pip-Boy's screen marks it (as FSR and DLSS do), then the depth prepass
+  expanded to the window's size for the screen-space effects after it. One full-screen pass
+  at the display size, a second only while the Pip-Boy's screen is on its model. The HUD and
+  menus draw after it, at the window's size.
+- **Native AA** with Bilinear draws at full size and changes nothing but adds the copy.
+- **What it says**: `Bilinear stretch active: 640x360 -> 1280x720` once per prepared view (each
+  switch on, each new size); the performance overlay's Upscaling row
+  `Bilinear Performance  640x360 -> 1280x720`. Smoke: `bilinear-quality` (Goodsprings,
+  enhanced, from the command line), `bilinear-switch` (picked, changed and switched off on
+  the settings page while playing).
+- **Not measured yet**: what it saves on the N150 [hypothesis: about what the issue's
+  1280x720 and 960x540 runs save, less one display-size pass and the AO at its size].
 
 ## Limits
 
