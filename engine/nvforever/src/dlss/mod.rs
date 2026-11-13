@@ -904,7 +904,7 @@ fn release_now(main: DlssMainState, dlss_view: bool) -> bool {
 pub(crate) fn configure(views: Query<(&ExtractedView, &PreparedUpscale)>, sizes: Res<OptimalSizes>, main: Res<DlssMainState>) {
     let dlss_view = views.iter().find_map(|(view, prepared)| match prepared.camera.settings {
         UpscaleSettings::Dlss(quality) => Some((view, quality)),
-        UpscaleSettings::Fsr(_) => None,
+        UpscaleSettings::Fsr(_) | UpscaleSettings::Bilinear(_) => None,
     });
     if release_now(*main, dlss_view.is_some()) {
         release();

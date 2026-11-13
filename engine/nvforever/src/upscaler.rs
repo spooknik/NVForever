@@ -1,7 +1,8 @@
-//! The temporal upscaler choice shared by FSR 3.1 (`fsr.rs`) and DLSS (`dlss/`), #2198
-//! (docs/design/dlss-upscaling.md, "Internal interfaces").
+//! The upscaler choice shared by FSR 3.1 (`fsr.rs`) and DLSS (`dlss/`), #2198
+//! (docs/design/dlss-upscaling.md, "Internal interfaces"), and the plain Bilinear stretch
+//! ([`bilinear`], #2414).
 //!
-//! - [`UpscalerChoice`] is what the player asks for: off, FSR at a quality or DLSS at a quality.
+//! - [`UpscalerChoice`] is what the player asks for: off, or FSR, DLSS or Bilinear at a quality.
 //!   It is the one requested setting, `Graphics::upscaler`; FSR's call sites read it through
 //!   `Graphics::fsr` and write it through `Graphics::set_fsr`.
 //! - [`UpscaleQuality`] is the quality list both upscalers use (`fsr::FsrQuality` is an alias;
@@ -18,10 +19,14 @@
 //!   and cuts, the render-size override, jitter and mip bias, the corrected and expanded depth,
 //!   the spatial fallback and the alpha copy. FSR adds its own state after it; DLSS gets it
 //!   without any of FSR's.
-//! - [`temporal_active`] is the question the shared parts ask (HDR, prepasses, cut-outs drawn
-//!   alpha-tested, the anti-aliasing lock, the ambient occlusion at the render size), where
-//!   `graphics::fsr_active` stays FSR's own (its sharpening, frame generation). Both go by the
-//!   effective choice ([`effective`]).
+//! - [`temporal_active`] is the question the temporal parts ask (the motion-vector prepass,
+//!   cut-outs drawn alpha-tested, the inputs DLSS frame generation takes), [`upscaling_active`]
+//!   the one every upscaler shares (the HDR view, the anti-aliasing lock); the ambient occlusion
+//!   at the render size goes with the prepared view (`prep::prepare`). `graphics::fsr_active`
+//!   stays FSR's own (its sharpening, frame generation). All go by the effective choice
+//!   ([`effective`]). Bilinear is an upscaler but not a temporal one [design, #2414]: it draws
+//!   the scene at the quality's render size and stretches it to the window with a bilinear
+//!   filter, with no jitter, motion vectors or history, on every GPU and at once.
 //!
 //! **Start** (step 8) [design]: the requested choice is the command line's
 //! ([`command_line_choice`]: `--upscaler`, `--upscaler-quality`, the older `--fsr`), then the
@@ -34,6 +39,7 @@
 //! lines are applied again with the other rows at `PostStartup`; both read them by the rows'
 //! own rules, so they agree. [`follow_request`] then keeps the status.
 
+pub(crate) mod bilinear;
 pub(crate) mod prep;
 
 use bevy::camera::Hdr;
@@ -41,11 +47,14 @@ use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass};
 use bevy::prelude::*;
 use bevy::render::camera::{MipBias, TemporalJitter};
 
-/// The backend kind (`--upscaler off|fsr|dlss`).
+/// The backend kind (`--upscaler off|bilinear|fsr|dlss`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum Upscaler {
     #[default]
     Off,
+    /// The scene drawn smaller and stretched to the window by a bilinear filter, nothing
+    /// rebuilt ([`bilinear`], #2414).
+    Bilinear,
     Fsr,
     Dlss,
 }
@@ -53,21 +62,25 @@ pub enum Upscaler {
 impl Upscaler {
     // The tests' list of every kind.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub const ALL: [Upscaler; 3] = [Upscaler::Off, Upscaler::Fsr, Upscaler::Dlss];
+    pub const ALL: [Upscaler; 4] = [Upscaler::Off, Upscaler::Bilinear, Upscaler::Fsr, Upscaler::Dlss];
 
-    /// The name for log lines (not a settings label: those come from the language files).
+    /// The name for log lines and the Upscaler row's saved name. The settings page and the
+    /// performance overlay show `Off` and `Bilinear` through the language files, the brand
+    /// names `FSR 3.1` and `DLSS` as they are.
     pub fn name(self) -> &'static str {
         match self {
             Self::Off => "Off",
+            Self::Bilinear => "Bilinear",
             Self::Fsr => "FSR 3.1",
             Self::Dlss => "DLSS",
         }
     }
 }
 
-/// The qualities both upscalers offer, in the settings' order. Native AA reconstructs at 1:1
-/// (DLSS: DLAA). The `clap` names (`native-aa`, `quality`, `balanced`, `performance`,
-/// `ultra-performance`) are the ones `FsrQuality` had.
+/// The qualities the upscalers offer, in the settings' order. Native AA reconstructs at 1:1
+/// (DLSS: DLAA; Bilinear draws at full size and smooths nothing). The `clap` names
+/// (`native-aa`, `quality`, `balanced`, `performance`, `ultra-performance`) are the ones
+/// `FsrQuality` had.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum UpscaleQuality {
     NativeAa,
@@ -145,11 +158,13 @@ impl DlssModel {
 }
 
 /// What the player asks for: the one requested upscaler setting (`Graphics::upscaler`). One
-/// value, so FSR and DLSS can never both be asked for.
+/// value, so two upscalers can never both be asked for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum UpscalerChoice {
     #[default]
     Off,
+    /// The plain stretch, at FSR's ratio for the quality (#2414).
+    Bilinear(UpscaleQuality),
     Fsr(UpscaleQuality),
     Dlss(UpscaleQuality),
 }
@@ -158,6 +173,7 @@ impl UpscalerChoice {
     pub fn new(upscaler: Upscaler, quality: UpscaleQuality) -> Self {
         match upscaler {
             Upscaler::Off => Self::Off,
+            Upscaler::Bilinear => Self::Bilinear(quality),
             Upscaler::Fsr => Self::Fsr(quality),
             Upscaler::Dlss => Self::Dlss(quality),
         }
@@ -171,6 +187,7 @@ impl UpscalerChoice {
     pub fn upscaler(self) -> Upscaler {
         match self {
             Self::Off => Upscaler::Off,
+            Self::Bilinear(_) => Upscaler::Bilinear,
             Self::Fsr(_) => Upscaler::Fsr,
             Self::Dlss(_) => Upscaler::Dlss,
         }
@@ -179,11 +196,11 @@ impl UpscalerChoice {
     pub fn quality(self) -> Option<UpscaleQuality> {
         match self {
             Self::Off => None,
-            Self::Fsr(q) | Self::Dlss(q) => Some(q),
+            Self::Bilinear(q) | Self::Fsr(q) | Self::Dlss(q) => Some(q),
         }
     }
 
-    /// The quality when this is FSR; `None` for off and for DLSS.
+    /// The quality when this is FSR; `None` for off and for the others.
     pub fn fsr(self) -> Option<UpscaleQuality> {
         match self {
             Self::Fsr(q) => Some(q),
@@ -199,11 +216,25 @@ impl UpscalerChoice {
         }
     }
 
+    /// The quality when this is Bilinear.
+    pub fn bilinear(self) -> Option<UpscaleQuality> {
+        match self {
+            Self::Bilinear(q) => Some(q),
+            _ => None,
+        }
+    }
+
     pub fn is_dlss(self) -> bool {
         matches!(self, Self::Dlss(_))
     }
 
-    /// For log lines: `Off`, `FSR 3.1 Quality`, `DLSS Native AA`.
+    /// FSR or DLSS: an upscaler that rebuilds the picture over the frames, from jittered frames
+    /// and motion vectors. Bilinear is not one ([`temporal_active`]).
+    pub fn is_temporal(self) -> bool {
+        matches!(self, Self::Fsr(_) | Self::Dlss(_))
+    }
+
+    /// For log lines: `Off`, `FSR 3.1 Quality`, `DLSS Native AA`, `Bilinear Performance`.
     pub fn describe(self) -> String {
         match self.quality() {
             None => self.upscaler().name().to_string(),
@@ -324,6 +355,7 @@ pub struct Resolution {
 ///   restart is pending.
 /// - FSR asked for: FSR draws at once where it can run (with Streamline loaded or not), else
 ///   native with the reason.
+/// - Bilinear asked for: it draws at once, on every GPU and backend (#2414).
 /// - Off: native at once.
 pub fn resolve(requested: UpscalerChoice, previous: Option<UpscalerChoice>, session: Session) -> Resolution {
     let now = |effective: UpscalerChoice, reason: Option<Unavailable>| Resolution { effective, restart_pending: false, reason };
@@ -340,6 +372,7 @@ pub fn resolve(requested: UpscalerChoice, previous: Option<UpscalerChoice>, sess
             None => now(requested, None),
             Some(why) => now(UpscalerChoice::Off, Some(why)),
         },
+        UpscalerChoice::Bilinear(_) => now(requested, None),
         UpscalerChoice::Off => now(UpscalerChoice::Off, None),
     }
 }
@@ -480,7 +513,7 @@ pub fn platform_supports_dlss() -> bool {
     cfg!(windows) && vulkan_in_backends()
 }
 
-/// The requested choice from the command line: `--upscaler off|fsr|dlss` with
+/// The requested choice from the command line: `--upscaler off|bilinear|fsr|dlss` with
 /// `--upscaler-quality <q>` (default `quality`), or the older `--fsr <mode>` (`None`: not
 /// given, unlike `--fsr off`). Both given must say the same: `--fsr quality --upscaler fsr`
 /// agree, `--fsr quality --upscaler dlss` or `--fsr off --upscaler dlss` do not.
@@ -488,7 +521,7 @@ pub fn command_line_choice(fsr: Option<crate::graphics::FsrMode>, upscaler: Opti
     let from_fsr = fsr.map(|m| UpscalerChoice::from_fsr(m.quality()));
     let Some(upscaler) = upscaler else {
         if quality.is_some() {
-            return Err("--upscaler-quality needs --upscaler fsr or --upscaler dlss".into());
+            return Err("--upscaler-quality needs --upscaler bilinear, fsr or dlss".into());
         }
         return Ok(from_fsr.unwrap_or_default());
     };
@@ -621,6 +654,20 @@ pub struct DlssUpscaling {
     pub quality: UpscaleQuality,
 }
 
+/// Bilinear on a perspective HDR camera (#2414): the common preparation ([`prep`]) draws the
+/// scene at the quality's render size (FSR's ratio), and its pass ([`bilinear::bilinear_pass`])
+/// stretches it to the window before bloom. No motion-vector prepass, no `TemporalJitter` and
+/// no `MipBias`: nothing is jittered and textures keep their own mip levels [design: with no
+/// history to gather detail over frames, a negative bias would only make them shimmer]. The
+/// depth prepass the main camera always has (`main.rs` `setup`) is expanded for the
+/// screen-space effects, as for FSR. The graphics settings enforce `Msaa::Off` and no other
+/// anti-aliasing while it is on, as for FSR and DLSS (`graphics::apply`).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[require(Hdr, DepthPrepass)]
+pub struct BilinearUpscaling {
+    pub quality: UpscaleQuality,
+}
+
 /// What the render world last drew the main camera with (the first view with an upscaler
 /// camera, `prep::prepare`), for the performance overlay's Upscaling row (#2242). The sizes
 /// exist only in the render world, which prepares the view a frame after the main world asked
@@ -669,9 +716,17 @@ pub fn effective(world: &World) -> UpscalerChoice {
 }
 
 /// Whether a temporal upscaler (FSR or DLSS) draws the main camera on this device: the
-/// question for what both need (the HDR view, the prepasses, cut-outs drawn alpha-tested, the
-/// native anti-aliasing replaced). `graphics::fsr_active` is FSR's own.
+/// question for what only they need (the motion-vector prepass, cut-outs drawn alpha-tested,
+/// the inputs DLSS frame generation takes from them). Bilinear is not temporal [design,
+/// #2414]; [`upscaling_active`] asks for any upscaler. `graphics::fsr_active` is FSR's own.
 pub fn temporal_active(world: &World) -> bool {
+    effective(world).is_temporal()
+}
+
+/// Whether any upscaler (FSR, DLSS or Bilinear) draws the main camera on this device: the
+/// question for what they all need (the HDR, single-sampled view; the native anti-aliasing
+/// replaced and the settings' anti-aliasing row locked).
+pub fn upscaling_active(world: &World) -> bool {
     effective(world) != UpscalerChoice::Off
 }
 
@@ -700,7 +755,7 @@ mod tests {
 
     #[test]
     fn command_line_names_parse() {
-        for (name, upscaler) in [("off", Upscaler::Off), ("fsr", Upscaler::Fsr), ("dlss", Upscaler::Dlss)] {
+        for (name, upscaler) in [("off", Upscaler::Off), ("bilinear", Upscaler::Bilinear), ("fsr", Upscaler::Fsr), ("dlss", Upscaler::Dlss)] {
             assert_eq!(Upscaler::from_str(name, true), Ok(upscaler));
         }
         assert!(Upscaler::from_str("xess", true).is_err());
@@ -731,6 +786,8 @@ mod tests {
                 assert_eq!(choice.fsr(), (upscaler == Upscaler::Fsr).then_some(quality));
                 assert_eq!(choice.dlss(), (upscaler == Upscaler::Dlss).then_some(quality));
                 assert_eq!(choice.is_dlss(), upscaler == Upscaler::Dlss);
+                assert_eq!(choice.bilinear(), (upscaler == Upscaler::Bilinear).then_some(quality));
+                assert_eq!(choice.is_temporal(), matches!(upscaler, Upscaler::Fsr | Upscaler::Dlss), "{upscaler:?}: Bilinear is not temporal");
             }
         }
         assert_eq!(UpscalerChoice::from_fsr(None), UpscalerChoice::Off);
@@ -739,6 +796,7 @@ mod tests {
         assert_eq!(UpscalerChoice::Off.describe(), "Off");
         assert_eq!(UpscalerChoice::Fsr(Quality).describe(), "FSR 3.1 Quality");
         assert_eq!(UpscalerChoice::Dlss(NativeAa).describe(), "DLSS Native AA");
+        assert_eq!(UpscalerChoice::Bilinear(Performance).describe(), "Bilinear Performance");
     }
 
     #[test]
@@ -1009,6 +1067,11 @@ mod tests {
         assert!(cli(None, None, Some(Quality)).unwrap_err().contains("--upscaler-quality"));
         assert!(cli(Some(FsrMode::Quality), None, Some(Quality)).is_err(), "--upscaler-quality goes with --upscaler only");
         assert!(cli(None, Some(Upscaler::Off), Some(Quality)).is_err());
+        // Bilinear (#2414): its quality as for the others; --fsr asks for FSR, not for it.
+        assert_eq!(cli(None, Some(Upscaler::Bilinear), None), Ok(UpscalerChoice::Bilinear(Quality)), "quality by default");
+        assert_eq!(cli(None, Some(Upscaler::Bilinear), Some(Performance)), Ok(UpscalerChoice::Bilinear(Performance)));
+        assert!(cli(Some(FsrMode::Performance), Some(Upscaler::Bilinear), None).is_err());
+        assert!(cli(Some(FsrMode::Off), Some(Upscaler::Bilinear), Some(Balanced)).is_err());
     }
 
     /// The start's decision (#2198's play-test): DLSS chosen, or the files in the folder, runs
@@ -1086,6 +1149,34 @@ mod tests {
         assert_eq!(main.get(), Some(drawn), "the render world's write is the main world's read");
         render.set(None);
         assert_eq!(main.get(), None, "no upscaler camera: none");
+    }
+
+    /// Bilinear (#2414) needs nothing of the session: it draws at once whether Streamline was
+    /// loaded or not, whether FSR or DLSS can run or not, and whatever drew before; nothing waits
+    /// for a restart and there is never a reason.
+    #[test]
+    fn bilinear_draws_at_once_in_every_session() {
+        let no_fsr = Session { fsr: Some(Unavailable::FsrUnsupported), ..STOCK };
+        let no_dlss = Session { dlss: DlssState::Unavailable(Unavailable::NotVulkan), fsr: Some(Unavailable::FsrUnsupported), streamline_loaded: false };
+        let failed = Session { dlss: DlssState::Unavailable(Unavailable::EvaluateFailed), ..READY };
+        for session in [READY, STOCK, no_fsr, no_dlss, failed] {
+            for previous in [None, Some(UpscalerChoice::Off), Some(UpscalerChoice::Fsr(Quality)), Some(UpscalerChoice::Dlss(Balanced))] {
+                for quality in UpscaleQuality::ALL {
+                    let requested = UpscalerChoice::Bilinear(quality);
+                    assert_eq!(resolve(requested, previous, session), ok(requested), "{session:?} {previous:?} {quality:?}");
+                }
+            }
+        }
+        // Switched live from DLSS waiting for a restart, and back to off.
+        let mut status = UpscalerStatus::new(STOCK);
+        status.update(UpscalerChoice::Dlss(Quality));
+        assert!(status.restart_pending());
+        assert!(status.update(UpscalerChoice::Bilinear(Performance)));
+        assert_eq!((status.effective(), status.restart_pending(), status.reason()), (UpscalerChoice::Bilinear(Performance), false, None));
+        assert_eq!(status.describe(UpscalerChoice::Bilinear(Performance)), "Bilinear Performance asked for, Bilinear Performance draws");
+        assert_eq!(effective_temporal(None, false, Some(&status)), UpscalerChoice::Bilinear(Performance), "the status, not FSR's support, decides");
+        status.update(UpscalerChoice::Off);
+        assert_eq!(status.effective(), UpscalerChoice::Off);
     }
 
     #[test]

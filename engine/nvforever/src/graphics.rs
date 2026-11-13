@@ -45,7 +45,7 @@ use bevy::anti_alias::fxaa::Fxaa;
 use bevy::anti_alias::smaa::Smaa;
 use bevy::render::camera::{MipBias, TemporalJitter};
 use crate::fsr::{FsrQuality, FsrUpscaling};
-use crate::upscaler::{DlssModel, DlssUpscaling, UpscaleQuality, UpscalerChoice, UpscalerStatus};
+use crate::upscaler::{BilinearUpscaling, DlssModel, DlssUpscaling, UpscaleQuality, UpscalerChoice, UpscalerStatus};
 
 /// The command line and saved settings expose the same upscaling modes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -144,7 +144,7 @@ pub struct Graphics {
     pub sharpen: bool,
     pub anisotropic: bool,
     pub screen_aa: ScreenAa,
-    /// The requested temporal upscaler (`upscaler.rs`), the one setting for FSR and DLSS. What
+    /// The requested upscaler (`upscaler.rs`), the one setting for FSR, DLSS and Bilinear. What
     /// draws is the status's effective choice (`upscaler::UpscalerStatus`); it replaces the
     /// selected AA while active; UI is drawn at output resolution. FSR's code reads and writes
     /// it through [`Graphics::fsr`] and [`Graphics::set_fsr`].
@@ -287,6 +287,9 @@ impl Graphics {
         } else if self.upscaler.is_dlss() {
             on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
             on.push("DLSS upscaling");
+        } else if self.upscaler.bilinear().is_some() {
+            on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
+            on.push("bilinear upscaling");
         }
         if on.is_empty() {
             "vanilla (no engine-level improvements)".to_string()
@@ -687,11 +690,12 @@ fn sun_shadow_quality(
 /// Put the improvements that are on onto the main camera and the sun, take those that are
 /// off away (when a switch changes, and once at the start).
 ///
-/// What every temporal upscaler needs follows the effective upscaler (`temporal`: the HDR
-/// view, the depth and motion prepasses, the jitter and mip bias, blended cut-outs drawn
-/// alpha-tested, multisampling and the other anti-aliasing replaced); FSR's own sharpening and
-/// component follow FSR alone, and DLSS's component DLSS alone
-/// (`upscaler::effective_temporal`).
+/// What every upscaler needs follows the effective upscaler (`upscaling`: the HDR view,
+/// multisampling and the other anti-aliasing replaced), and what only the temporal ones need
+/// follows FSR or DLSS (`temporal`: the motion prepass, blended cut-outs drawn alpha-tested;
+/// their jitter and mip bias come with their components). FSR's own sharpening and component
+/// follow FSR alone, DLSS's component DLSS alone and Bilinear's Bilinear alone
+/// (`upscaler::effective_temporal`; Bilinear, #2414, has no jitter, bias or motion prepass).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn apply(
     mut commands: Commands,
@@ -700,7 +704,7 @@ fn apply(
     fsr_support: Res<crate::fsr::FsrSupport>,
     status: Option<Res<UpscalerStatus>>,
     mut sky: ResMut<SkyState>,
-    cams: Query<(Entity, &Msaa, Option<&FsrUpscaling>, Option<&DlssUpscaling>, Has<crate::taa::TemporalAa>, Has<Fxaa>, Has<Smaa>), With<FlyCam>>,
+    cams: Query<(Entity, &Msaa, (Option<&FsrUpscaling>, Option<&DlssUpscaling>, Option<&BilinearUpscaling>), Has<crate::taa::TemporalAa>, Has<Fxaa>, Has<Smaa>), With<FlyCam>>,
     suns: Query<(Entity, &DirectionalLight), With<Sun>>,
     eye: Res<crate::eye_adapt::EyeCurve>,
     cutouts: Option<ResMut<nvf_assets::nif_material::BlendedCutouts>>,
@@ -711,19 +715,22 @@ fn apply(
         return;
     }
     let upscaler = crate::upscaler::effective_temporal(g.fsr(), fsr_support.0, status.as_deref());
-    let (fsr, dlss) = (upscaler.fsr(), upscaler.dlss());
-    let temporal = upscaler != UpscalerChoice::Off;
+    let (fsr, dlss, bilinear) = (upscaler.fsr(), upscaler.dlss(), upscaler.bilinear());
+    let upscaling = upscaler != UpscalerChoice::Off;
+    let temporal = upscaler.is_temporal();
     // Blended shapes that draw the same as cut-outs (the corn rows) are cut-outs for a
     // temporal upscaler, which needs their depth and motion (nif_material::BlendedCutouts).
+    // Bilinear needs no motion: they stay blended, as natively.
     if let Some(mut cutouts) = cutouts {
         cutouts.set_if_neq(nvf_assets::nif_material::BlendedCutouts(temporal));
     }
-    let want_msaa = if g.screen_aa == ScreenAa::Off && !temporal { msaa.0 } else { Msaa::Off };
-    let aa_matches = cams.iter().all(|(_, actual_msaa, actual_fsr, actual_dlss, taa, fxaa, smaa)| {
+    let want_msaa = if g.screen_aa == ScreenAa::Off && !upscaling { msaa.0 } else { Msaa::Off };
+    let aa_matches = cams.iter().all(|(_, actual_msaa, (actual_fsr, actual_dlss, actual_bilinear), taa, fxaa, smaa)| {
         *actual_msaa == want_msaa && actual_fsr.map(|f| f.quality) == fsr && actual_dlss.map(|d| d.quality) == dlss
-            && taa == (g.screen_aa == ScreenAa::Taa && !temporal)
-            && fxaa == (g.screen_aa == ScreenAa::Fxaa && !temporal)
-            && smaa == (g.screen_aa == ScreenAa::Smaa && !temporal)
+            && actual_bilinear.map(|b| b.quality) == bilinear
+            && taa == (g.screen_aa == ScreenAa::Taa && !upscaling)
+            && fxaa == (g.screen_aa == ScreenAa::Fxaa && !upscaling)
+            && smaa == (g.screen_aa == ScreenAa::Smaa && !upscaling)
     });
     let mut entities: Vec<Entity> = cams.iter().map(|c| c.0).chain(suns.iter().map(|s| s.0)).collect();
     entities.sort_unstable();
@@ -737,6 +744,7 @@ fn apply(
     });
     let fsr_changed = done.as_ref().is_none_or(|(_, _, _, effective, _)| effective.fsr() != fsr);
     let dlss_changed = done.as_ref().is_none_or(|(_, _, _, effective, _)| effective.dlss() != dlss);
+    let bilinear_changed = done.as_ref().is_none_or(|(_, _, _, effective, _)| effective.bilinear() != bilinear);
     *done = Some((*g, msaa.0, fsr_support.0, upscaler, entities));
     for (cam, cam_msaa, ..) in &cams {
         let mut e = commands.entity(cam);
@@ -761,7 +769,7 @@ fn apply(
         } else {
             e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow)>();
         }
-        if temporal {
+        if upscaling {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
@@ -780,7 +788,7 @@ fn apply(
         if *cam_msaa != want_msaa {
             e.insert(want_msaa);
         }
-        if g.screen_aa == ScreenAa::Taa && !temporal {
+        if g.screen_aa == ScreenAa::Taa && !upscaling {
             e.insert(crate::taa::components());
         } else {
             e.remove::<(crate::taa::TemporalAa, TemporalJitter, MipBias)>();
@@ -807,15 +815,22 @@ fn apply(
         } else {
             e.remove::<DlssUpscaling>();
         }
+        // Bilinear (#2414): no motion prepass, jitter or mip bias (the TAA branch above took
+        // those away); the depth prepass the camera always has is expanded after it.
+        if let Some(quality) = bilinear {
+            e.insert((BilinearUpscaling { quality }, bevy::core_pipeline::prepass::DepthPrepass));
+        } else {
+            e.remove::<BilinearUpscaling>();
+        }
         if !temporal {
             e.remove::<bevy::core_pipeline::prepass::MotionVectorPrepass>();
         }
-        if g.screen_aa == ScreenAa::Fxaa && !temporal {
+        if g.screen_aa == ScreenAa::Fxaa && !upscaling {
             e.insert(Fxaa::default());
         } else {
             e.remove::<Fxaa>();
         }
-        if g.screen_aa == ScreenAa::Smaa && !temporal {
+        if g.screen_aa == ScreenAa::Smaa && !upscaling {
             e.insert(Smaa::default());
         } else {
             e.remove::<Smaa>();
@@ -853,6 +868,9 @@ fn apply(
     }
     if let Some(quality) = dlss.filter(|_| dlss_changed) {
         info!("graphics: DLSS {quality:?} active; native anti-aliasing off");
+    }
+    if let Some(quality) = bilinear.filter(|_| bilinear_changed) {
+        info!("graphics: Bilinear {quality:?} active; native anti-aliasing off");
     }
 }
 
@@ -1016,7 +1034,7 @@ mod tests {
         let entity = app.world().entity(camera);
         assert!(!entity.contains::<FsrUpscaling>(), "no FSR component");
         assert!(!fsr_active(app.world()) && crate::upscaler::temporal_active(app.world()));
-        let settings = prep::camera_settings(entity.get::<FsrUpscaling>(), entity.get::<DlssUpscaling>(), true).expect("a temporal camera");
+        let settings = prep::camera_settings(entity.get::<FsrUpscaling>(), entity.get::<DlssUpscaling>(), entity.get::<BilinearUpscaling>(), true).expect("a temporal camera");
         assert!(matches!(settings, UpscaleSettings::Dlss(UpscaleQuality::Performance)));
         assert!(!prep::allocates_fsr_state(settings.upscaler()), "the common prepared view only");
         let output = UVec2::new(1280, 720);
@@ -1040,6 +1058,56 @@ mod tests {
         assert!(!app.world().entity(camera).contains::<DlssUpscaling>());
         assert!(!crate::upscaler::temporal_active(app.world()) && !fsr_active(app.world()), "native, not FSR");
         assert_eq!(app.world().resource::<UpscalerStatus>().reason(), Some(Unavailable::EvaluateFailed));
+    }
+
+    /// Bilinear (#2414) locks the anti-aliasing as FSR and DLSS do (multisampling off, no TAA,
+    /// FXAA or SMAA) and keeps the HDR view, but puts nothing temporal on the camera: no motion
+    /// prepass, no jitter, no mip bias, blended cut-outs left blended. It draws on a device
+    /// without FSR, sharpening stays the separate pass, and Off gives the saved choice back.
+    #[test]
+    fn bilinear_owns_aa_without_anything_temporal_and_off_restores_the_saved_native_choice() {
+        use crate::upscaler::prep::{self, UpscaleSettings};
+        use crate::upscaler::{DlssState, Session, Unavailable};
+        for selected in [ScreenAa::Off, ScreenAa::Taa, ScreenAa::Fxaa, ScreenAa::Smaa] {
+            for quality in UpscaleQuality::ALL {
+                let (mut app, camera) = aa_app(selected, false);
+                app.init_resource::<nvf_assets::nif_material::BlendedCutouts>();
+                app.world_mut().resource_mut::<Graphics>().sharpen = true;
+                app.update();
+                assert_native_aa(&app, camera, selected);
+
+                let requested = UpscalerChoice::Bilinear(quality);
+                let no_fsr_no_dlss = Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::NotVulkan), fsr: Some(Unavailable::FsrUnsupported) };
+                let mut status = UpscalerStatus::new(no_fsr_no_dlss);
+                status.update(requested);
+                app.insert_resource(status);
+                app.world_mut().resource_mut::<Graphics>().upscaler = requested;
+                app.update();
+                let entity = app.world().entity(camera);
+                assert_eq!(entity.get::<BilinearUpscaling>().unwrap().quality, quality);
+                assert!(!entity.contains::<FsrUpscaling>() && !entity.contains::<DlssUpscaling>());
+                assert_eq!(*entity.get::<Msaa>().unwrap(), Msaa::Off);
+                assert!(!entity.contains::<crate::taa::TemporalAa>() && !entity.contains::<Fxaa>() && !entity.contains::<Smaa>());
+                assert!(!entity.contains::<TemporalJitter>() && !entity.contains::<MipBias>(), "no jitter, no bias");
+                assert!(!entity.contains::<bevy::core_pipeline::prepass::MotionVectorPrepass>(), "no motion vectors");
+                assert!(entity.contains::<bevy::core_pipeline::prepass::DepthPrepass>() && entity.contains::<bevy::camera::Hdr>());
+                assert!(entity.get::<PostEffects>().is_some_and(|p| p.params.w > 0.0), "the separate sharpening, as natively");
+                assert!(!app.world().resource::<nvf_assets::nif_material::BlendedCutouts>().0, "cut-outs stay blended");
+                assert!(crate::upscaler::upscaling_active(app.world()));
+                assert!(!crate::upscaler::temporal_active(app.world()) && !fsr_active(app.world()), "not temporal");
+                let settings = prep::camera_settings(entity.get::<FsrUpscaling>(), entity.get::<DlssUpscaling>(), entity.get::<BilinearUpscaling>(), false).expect("an upscaler camera");
+                assert!(matches!(settings, UpscaleSettings::Bilinear(q) if q == quality));
+                assert_eq!(app.world().resource::<Graphics>().screen_aa, selected, "Bilinear preserves the saved native AA choice");
+                assert!(app.world().resource::<Graphics>().describe().ends_with("bilinear upscaling"));
+
+                app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Off;
+                app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Off);
+                app.update();
+                assert_native_aa(&app, camera, selected);
+                assert!(!app.world().entity(camera).contains::<BilinearUpscaling>());
+                assert!(!crate::upscaler::upscaling_active(app.world()));
+            }
+        }
     }
 
     #[test]

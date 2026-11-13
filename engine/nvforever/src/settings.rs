@@ -366,7 +366,7 @@ pub fn register(app: &mut App) {
 pub(crate) const FPS_COUNTER_NOTE: &str = "On: a small panel of performance readings at the top right of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original. (--fps)";
 
 /// The upscaling row's note (#2242), NVForever's own words [design].
-pub(crate) const FPS_UPSCALING_NOTE: &str = "The upscaler that draws now: its name and mode, the size the world is drawn at and the size it is rebuilt to (with FSR 3.1 from its mode, with DLSS the size DLSS chose), and with DLSS the model asked for. Reads Off and the window's size while nothing upscales, also when the upscaler asked for cannot run on this computer. Follows a change within a frame or two, showing the upscaler without sizes until then.";
+pub(crate) const FPS_UPSCALING_NOTE: &str = "The upscaler that draws now: its name and mode, the size the world is drawn at and the size it is rebuilt to (with FSR 3.1 and Bilinear from its mode, with DLSS the size DLSS chose), and with DLSS the model asked for. Reads Off and the window's size while nothing upscales, also when the upscaler asked for cannot run on this computer. Follows a change within a frame or two, showing the upscaler without sizes until then.";
 
 /// The frame split row's note (no command-line switch: the INI's state always applies).
 pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread (the game's own work), on the render thread (preparing the picture, including the wait for the window's next image, shown in brackets: with vertical sync that wait is the display's time, not work) and on the graphics card (the render passes it times, from GPU timestamps), each the mean over half a second. A frame held up by the processor has a long main time, or a long render time beside a short wait; the GPU time is what tells a frame held up by the graphics card. The GPU part needs this row and the counter on when the game starts (it takes effect at the next start), and a graphics card that offers timestamps; without them it is left out. Unless a measuring aid also uses them, the timestamps are taken only while the row shows.";
@@ -698,8 +698,8 @@ pub(crate) const LEGACY_KEY: &str = "fsr-upscaling";
 /// any of them keeps both rows at the command line's choice over the INI
 /// (`nvf_play::settings::GivenSwitches`), at the start ([`upscaler_after_ini`]) as at
 /// `PostStartup`.
-pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, at the Upscaling mode below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs an upscaler. (--upscaler, --upscaler-quality, --fsr)";
-pub(crate) const QUALITY_NOTE: &str = "The share of the screen's width and height the world is drawn at; the upscaler rebuilds the rest. Native AA: full resolution, anti-aliasing only (DLSS: DLAA). Quality: the sharpest upscaled look, for 1440p and 4K. Balanced: more speed with little visible loss. Performance: the highest frame rate, for 4K or heavy scenes. Ultra Performance: for very high resolutions only. Takes effect at once. With Upscaler Off there is nothing to set. (--upscaler-quality, --upscaler, --fsr)";
+pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, or only stretch it there with Bilinear (softer; the cheapest, on any graphics card), at the Upscaling mode below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. FSR 3.1 and DLSS require Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs FSR 3.1 or DLSS. (--upscaler, --upscaler-quality, --fsr)";
+pub(crate) const QUALITY_NOTE: &str = "The share of the screen's width and height the world is drawn at; the upscaler rebuilds the rest. Native AA: full resolution, anti-aliasing only (DLSS: DLAA; Bilinear: no change). Quality: the sharpest upscaled look, for 1440p and 4K. Balanced: more speed with little visible loss. Performance: the highest frame rate, for 4K or heavy scenes. Ultra Performance: for very high resolutions only. Takes effect at once. With Upscaler Off there is nothing to set. (--upscaler-quality, --upscaler, --fsr)";
 
 /// The DLSS model row's key, right under Upscaling mode (#2198, the user's request): which
 /// of NVIDIA's DLSS models DLSS uses (`Graphics::dlss_model`).
@@ -716,9 +716,9 @@ pub(crate) const MODEL_NOTE: &str = "Which of NVIDIA's DLSS models rebuilds the 
 /// of them on, `vanilla` with none).
 fn register_graphics(app: &mut App) {
     type Switch = (&'static str, &'static str, &'static str, fn(&World) -> bool, fn(&mut World, bool));
-    // Two rows for the one temporal upscaler request (#2198): which upscaler, then its
-    // quality; both keep `Graphics::upscaler`. The quality row stands dimmed while no upscaler
-    // is chosen. The older single row's INI key and test-aid key still work.
+    // Two rows for the one upscaler request (#2198): which upscaler (Bilinear since #2414),
+    // then its quality; both keep `Graphics::upscaler`. The quality row stands dimmed while
+    // no upscaler is chosen. The older single row's INI key and test-aid key still work.
     add_choice_list(
         app,
         Setting { key: UPSCALER_KEY, group: GROUP_GRAPHICS, label: "Upscaler", note: UPSCALER_NOTE, get: |_| false, set: |_, _| {}, slider: None },
@@ -798,7 +798,7 @@ fn register_graphics(app: &mut App) {
             "anti-aliasing",
             GROUP_GRAPHICS,
             "Anti-aliasing",
-            "How edges are smoothed: multisampling Off, 2x, 4x or 8x (--msaa; the cut-out edges of plants too), or the picture smoothed afterwards: FXAA (cheapest, softest), SMAA (sharper, a little dearer) or TAA (over the frames; plants too, soft while moving; --graphics-only fxaa, smaa or taa). Multisampling is the dearest, more at each step: at 1920x1080 on an RTX 4070, 2x added about 0.8 ms a frame, 4x about 1.3 ms and 8x about 2.3 ms (Goodsprings and Novac at noon); FXAA, SMAA and TAA cost less than 4x. Where the processor sets the pace (the Strip at night) the choice costs next to nothing. While an upscaler (FSR 3.1 or DLSS) is on it does the anti-aliasing itself, so this row reads Off (upscaling active); your choice comes back when Upscaler is Off.",
+            "How edges are smoothed: multisampling Off, 2x, 4x or 8x (--msaa; the cut-out edges of plants too), or the picture smoothed afterwards: FXAA (cheapest, softest), SMAA (sharper, a little dearer) or TAA (over the frames; plants too, soft while moving; --graphics-only fxaa, smaa or taa). Multisampling is the dearest, more at each step: at 1920x1080 on an RTX 4070, 2x added about 0.8 ms a frame, 4x about 1.3 ms and 8x about 2.3 ms (Goodsprings and Novac at noon); FXAA, SMAA and TAA cost less than 4x. Where the processor sets the pace (the Strip at night) the choice costs next to nothing. While an upscaler is on this row reads Off (upscaling active): FSR 3.1 and DLSS do the anti-aliasing themselves, Bilinear does none; your choice comes back when Upscaler is Off.",
             Slider::choice(graphics::AA_CHOICES.len(), |w| choice_part(graphics::aa_choice(w), graphics::AA_CHOICES.len()), |w, v| graphics::set_aa_choice(w, choice_index(v, graphics::AA_CHOICES.len())), |v| {
                 graphics::AA_CHOICES[choice_index(v, graphics::AA_CHOICES.len())].0.to_string()
             }),
@@ -822,7 +822,7 @@ fn register_graphics(app: &mut App) {
     for s in choices {
         add_setting(app, s);
     }
-    nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| crate::upscaler::temporal_active(w).then_some("Off (upscaling active)"));
+    nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| crate::upscaler::upscaling_active(w).then_some("Off (upscaling active)"));
     // Frame generation: Off, FSR 3.1 or DLSS (#2317), each choice dimmed with its reason; the
     // INI's old on/off still reads. Then DLSS's frames per real frame.
     add_choice_list(
@@ -1022,8 +1022,9 @@ fn model_dimmed(world: &World) -> Option<&'static str> {
 }
 
 /// The Upscaler row's choices by the names the INI, the log and the test aids use (the page
-/// shows them by [`upscaler_label`]).
-const UPSCALERS: [(&str, Upscaler); 3] = [("Off", Upscaler::Off), ("FSR 3.1", Upscaler::Fsr), ("DLSS", Upscaler::Dlss)];
+/// shows them by [`upscaler_label`]). Bilinear (#2414) right after Off, the cheapest first,
+/// so Download DLSS… still follows DLSS.
+const UPSCALERS: [(&str, Upscaler); 4] = [("Off", Upscaler::Off), ("Bilinear", Upscaler::Bilinear), ("FSR 3.1", Upscaler::Fsr), ("DLSS", Upscaler::Dlss)];
 
 /// The quality the Upscaling mode row holds while the upscaler is Off, when the request
 /// (`Graphics::upscaler`) has none: an upscaler chosen again takes it up.
@@ -1100,8 +1101,8 @@ fn split_legacy(value: &str) -> Vec<(&'static str, String)> {
     rows
 }
 
-/// The Upscaler row's INI text applied to `state`: one of its own names (`Off`, `FSR 3.1`,
-/// `DLSS`) at the quality shown, or the older `fsr-upscaling` row's text, a whole choice (the
+/// The Upscaler row's INI text applied to `state`: one of its own names (`Off`, `Bilinear`,
+/// `FSR 3.1`, `DLSS`) at the quality shown, or the older `fsr-upscaling` row's text, a whole choice (the
 /// row reads that key while the INI lacks its own). The start reads the INI with it too
 /// ([`upscaler_after_ini`]), so the two cannot disagree.
 fn upscaler_text(state: RowsState, text: &str) -> Option<RowsState> {
@@ -1122,7 +1123,7 @@ fn upscaler_chosen(world: &World) -> String {
     UPSCALERS.iter().find(|(_, u)| *u == upscaler).map_or("Off", |(name, _)| *name).to_string()
 }
 
-/// The Upscaler row's choices: Off, FSR 3.1, DLSS, and Download DLSS… while DLSS's files are
+/// The Upscaler row's choices: Off, Bilinear, FSR 3.1, DLSS, and Download DLSS… while DLSS's files are
 /// missing (`dlss_download`: picking it opens its dialog; #2250).
 fn upscaler_names(world: &World) -> Vec<String> {
     let mut names: Vec<String> = UPSCALERS.iter().map(|(name, _)| (*name).to_string()).collect();
@@ -1168,15 +1169,15 @@ fn load_quality(world: &mut World, value: &str) -> bool {
 }
 
 /// The share of the screen's width and height (in percent) the world is drawn at in `mode` with
-/// `upscaler`; `None` with the upscaler Off. FSR's from its own ratio (`fsr::FsrQuality::ratio`,
-/// what `render_size` divides by); DLSS's from the render sizes DLSS 310.9.16 chose at
+/// `upscaler`; `None` with the upscaler Off. FSR's and Bilinear's from FSR's ratio
+/// (`fsr::FsrQuality::ratio`, what `render_size` divides by; `upscaler::bilinear::policy`); DLSS's from the render sizes DLSS 310.9.16 chose at
 /// 1280x720: 1280x720, 853x480, 742x418, 640x360, 427x240 [observed, 2026-11-12:
 /// the DLSS runs recorded with #2206], since DLSS's own sizes are known only once Streamline
 /// answers for a view (`dlss::sizing`) and may differ with the output size and DLSS's version.
 fn render_share(upscaler: Upscaler, mode: UpscaleQuality) -> Option<u32> {
     match upscaler {
         Upscaler::Off => None,
-        Upscaler::Fsr => Some((100.0 / mode.ratio()).round() as u32),
+        Upscaler::Fsr | Upscaler::Bilinear => Some((100.0 / mode.ratio()).round() as u32),
         Upscaler::Dlss => Some(match mode {
             UpscaleQuality::NativeAa => 100,
             UpscaleQuality::Quality => 67,
@@ -1200,8 +1201,8 @@ fn quality_label(world: &World, name: &str) -> String {
     }
 }
 
-/// The words the Upscaler row shows for a choice: `Off` in the language shown, `FSR 3.1`,
-/// `DLSS`; the requested DLSS as `DLSS (restart)` while a restart is pending for it
+/// The words the Upscaler row shows for a choice: `Off` and `Bilinear` in the language shown,
+/// `FSR 3.1`, `DLSS`; the requested DLSS as `DLSS (restart)` while a restart is pending for it
 /// (`upscaler::UpscalerStatus::restart_pending`; the row's note says why); Download DLSS…, or
 /// how far its download is (`dlss_download::choice_words`).
 fn upscaler_label(world: &World, name: &str) -> String {
@@ -1211,6 +1212,7 @@ fn upscaler_label(world: &World, name: &str) -> String {
     }
     match upscaler_named(name) {
         Some(Upscaler::Off) => tr_str("Off").to_string(),
+        Some(Upscaler::Bilinear) => tr_str("Bilinear").to_string(),
         Some(Upscaler::Dlss) => {
             let pending = world.get_resource::<crate::upscaler::UpscalerStatus>().is_some_and(|s| s.restart_pending());
             if pending && world.get_resource::<Graphics>().is_some_and(|g| g.upscaler.is_dlss()) {
@@ -1529,6 +1531,39 @@ mod fsr_settings_tests {
         assert_eq!(locked(&app), None);
     }
 
+    /// Bilinear (#2414) locks the anti-aliasing row as FSR and DLSS do, in any session (no FSR,
+    /// no DLSS), picked on the Upscaler row and switched at once; Off gives the row back.
+    #[test]
+    fn native_aa_row_is_locked_while_bilinear_draws_on_a_device_without_fsr_or_dlss() {
+        use crate::upscaler::{DlssState, Session, Unavailable, UpscalerStatus};
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla))
+            .insert_resource(graphics::MsaaSetting(Msaa::Sample4))
+            .insert_resource(crate::fsr::FsrSupport(false));
+        register_graphics(&mut app);
+        let settings = app.world().resource::<nvf_play::settings::Settings>();
+        let (aa, u, q) = (settings.index("anti-aliasing").unwrap(), settings.index(UPSCALER_KEY).unwrap(), settings.index(QUALITY_KEY).unwrap());
+        let neither = Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::NotVulkan), fsr: Some(Unavailable::FsrUnsupported) };
+        app.insert_resource(UpscalerStatus::new(neither));
+        let locked = |app: &App| app.world().resource::<nvf_play::settings::Settings>().disabled_status(app.world(), aa);
+        let follow = |app: &mut App| {
+            let requested = app.world().resource::<Graphics>().upscaler;
+            app.world_mut().resource_mut::<UpscalerStatus>().update(requested);
+        };
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "Bilinear"), "in reach without FSR or DLSS");
+        assert!(nvf_play::settings::pick(app.world_mut(), q, "Performance"));
+        follow(&mut app);
+        assert_eq!(app.world().resource::<Graphics>().upscaler, UpscalerChoice::Bilinear(UpscaleQuality::Performance));
+        assert_eq!(app.world().resource::<UpscalerStatus>().effective(), UpscalerChoice::Bilinear(UpscaleQuality::Performance), "draws at once");
+        assert_eq!(locked(&app), Some("Off (upscaling active)"));
+        assert!(nvf_play::settings::set_slider(app.world_mut(), aa, 0.0).is_none());
+        assert_eq!(app.world().resource::<nvf_play::settings::Settings>().choice_label(app.world(), u, "Bilinear"), "Bilinear");
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "Off"));
+        follow(&mut app);
+        assert_eq!(locked(&app), None);
+        assert_eq!(graphics::aa_choice(app.world()), 2, "the saved 4x is back");
+    }
+
     use crate::upscaler::{DlssState, Session, Unavailable, UpscalerStatus};
     use nvf_play::settings::{apply_stored, GivenSwitches, Settings, SettingsFile};
     use UpscaleQuality::*;
@@ -1568,12 +1603,12 @@ mod fsr_settings_tests {
         assert!(settings.index(LEGACY_KEY).is_none(), "the older row is no row of its own");
         let upscalers = settings.choices(u).expect("a native dropdown");
         let qualities = settings.choices(q).expect("a native dropdown");
-        assert_eq!((upscalers.names)(app.world()), ["Off", "FSR 3.1", "DLSS"]);
+        assert_eq!((upscalers.names)(app.world()), ["Off", "Bilinear", "FSR 3.1", "DLSS"]);
         assert_eq!((qualities.names)(app.world()), ["Native AA", "Quality", "Balanced", "Performance", "Ultra Performance"]);
         assert_eq!(settings.older_key(u), Some(LEGACY_KEY));
         assert_eq!(chosen(&app), ("Off".to_string(), "Quality".to_string()), "off, the quality kept at Quality");
-        for upscaler in [Upscaler::Fsr, Upscaler::Dlss] {
-            let name = if upscaler == Upscaler::Fsr { "FSR 3.1" } else { "DLSS" };
+        for upscaler in [Upscaler::Bilinear, Upscaler::Fsr, Upscaler::Dlss] {
+            let name = upscaler.name();
             assert!(nvf_play::settings::pick(app.world_mut(), u, name), "{name}");
             for quality in UpscaleQuality::ALL {
                 nvf_play::settings::pick(app.world_mut(), q, quality.name());
@@ -1610,8 +1645,14 @@ mod fsr_settings_tests {
         assert_eq!(labels(&app), ["Native AA (100%)", "Quality (67%)", "Balanced (58%)", "Performance (50%)", "Ultra Performance (33%)"]);
         app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Fsr(Balanced);
         assert_eq!(labels(&app), ["Native AA (100%)", "Quality (67%)", "Balanced (59%)", "Performance (50%)", "Ultra Performance (33%)"]);
+        app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Bilinear(Performance);
+        assert_eq!(labels(&app), ["Native AA (100%)", "Quality (67%)", "Balanced (59%)", "Performance (50%)", "Ultra Performance (33%)"], "Bilinear draws FSR's shares");
         for mode in UpscaleQuality::ALL {
             assert_eq!(render_share(Upscaler::Fsr, mode), Some((100.0 / mode.ratio()).round() as u32), "{mode:?}: FSR's own ratio");
+            assert_eq!(render_share(Upscaler::Bilinear, mode), render_share(Upscaler::Fsr, mode), "{mode:?}");
+            // Bilinear's share is what its policy draws at, to the percent.
+            let bilinear = crate::upscaler::bilinear::policy(mode, UVec2::new(2000, 1000)).render_size;
+            assert_eq!(render_share(Upscaler::Bilinear, mode), Some((bilinear.x as f32 / 20.0).round() as u32), "{mode:?}");
             // FSR's share is what render_size draws at, to the percent.
             let drawn = mode.render_size(UVec2::new(2000, 1000));
             assert_eq!(render_share(Upscaler::Fsr, mode), Some((drawn.x as f32 / 20.0).round() as u32), "{mode:?}");
@@ -1658,7 +1699,7 @@ mod fsr_settings_tests {
         let mut app = rows_app();
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
         let label = |app: &App, i: usize, name: &str| app.world().resource::<Settings>().choice_label(app.world(), i, name);
-        assert_eq!([label(&app, u, "Off"), label(&app, u, "FSR 3.1"), label(&app, u, "DLSS")], ["Off", "FSR 3.1", "DLSS"]);
+        assert_eq!([label(&app, u, "Off"), label(&app, u, "Bilinear"), label(&app, u, "FSR 3.1"), label(&app, u, "DLSS")], ["Off", "Bilinear", "FSR 3.1", "DLSS"]);
         for quality in UpscaleQuality::ALL {
             assert_eq!(label(&app, q, quality.name()), quality.name(), "Off: the plain names");
         }
@@ -1689,11 +1730,11 @@ mod fsr_settings_tests {
         let u = row(&app, UPSCALER_KEY);
         let names = |app: &App| (app.world().resource::<Settings>().choices(u).unwrap().names)(app.world());
         if !cfg!(windows) {
-            assert_eq!(names(&app), ["Off", "FSR 3.1", "DLSS"], "DLSS, and its download, are Windows only");
+            assert_eq!(names(&app), ["Off", "Bilinear", "FSR 3.1", "DLSS"], "DLSS, and its download, are Windows only");
             assert!(!pick_upscaler(app.world_mut(), CHOICE));
             return;
         }
-        assert_eq!(names(&app), ["Off", "FSR 3.1", "DLSS", CHOICE]);
+        assert_eq!(names(&app), ["Off", "Bilinear", "FSR 3.1", "DLSS", CHOICE]);
         let settings = app.world().resource::<Settings>();
         assert_eq!(settings.choice_unavailable(app.world(), u, CHOICE), None, "in reach while DLSS is not");
         assert_eq!(settings.choice_unavailable(app.world(), u, "DLSS").as_deref(), Some(Unavailable::FilesMissing.words()));
@@ -1712,7 +1753,7 @@ mod fsr_settings_tests {
         ] {
             let mut app = rows_app();
             app.insert_resource(UpscalerStatus::new(session));
-            assert_eq!(names(&app), ["Off", "FSR 3.1", "DLSS"], "{session:?}");
+            assert_eq!(names(&app), ["Off", "Bilinear", "FSR 3.1", "DLSS"], "{session:?}");
             assert!(!pick_upscaler(app.world_mut(), CHOICE), "{session:?}");
             assert!(!app.world().contains_resource::<Asked>());
         }

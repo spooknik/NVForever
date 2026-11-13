@@ -387,12 +387,13 @@ fn size(s: UVec2) -> String {
     format!("{}x{}", s.x, s.y)
 }
 
-/// A choice as the upscaling row names it: `Off` and the mode in the language shown, the
-/// upscaler by its own name (`Upscaler::name`, a brand name): `FSR 3.1 Balanced`, `DLSS Quality`.
+/// A choice as the upscaling row names it: `Off`, `Bilinear` and the mode in the language
+/// shown, the other upscalers by their own names (`Upscaler::name`, brand names the language
+/// files leave as they are): `FSR 3.1 Balanced`, `DLSS Quality`, `Bilinear Performance`.
 fn choice_text(choice: UpscalerChoice) -> String {
     match choice.quality() {
         None => fnv_util::words::tr("Off").to_string(),
-        Some(q) => format!("{} {}", choice.upscaler().name(), fnv_util::words::tr(q.name())),
+        Some(q) => format!("{} {}", fnv_util::words::tr(choice.upscaler().name()), fnv_util::words::tr(q.name())),
     }
 }
 
@@ -919,6 +920,10 @@ mod tests {
         assert_eq!(upscale_text(&reading(performance, upscaled(dlss, render))), "FSR 3.1 Performance  --", "another upscaler drawn");
         assert_eq!(upscale_text(&reading(dlss, None)), "DLSS Quality  --", "no camera drawn");
         assert_eq!(upscale_text(&reading(dlss, Some(DrawnUpscale::Native { choice: UpscalerChoice::Fsr(Quality), output }))), "DLSS Quality  --");
+        // Bilinear (#2414): FSR's sizes, no model.
+        let bilinear = UpscalerChoice::Bilinear(Performance);
+        assert_eq!(upscale_text(&reading(bilinear, upscaled(bilinear, UVec2::new(640, 360)))), "Bilinear Performance  640x360 -> 1280x720");
+        assert_eq!(upscale_text(&reading(bilinear, None)), "Bilinear Performance  --", "not drawn yet");
     }
 
     #[test]

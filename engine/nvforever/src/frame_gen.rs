@@ -162,13 +162,16 @@ pub struct DlssgRequest {
 
 /// Why the row's DLSS choice cannot run now, in the settings page's words: the loader's reason
 /// (`dlss::frame_generation_unavailable`: the files, the GPU, Windows' GPU scheduling, the
-/// driver), no upscaler drawing (DLSS-G takes the upscaler's depth and motion), or vsync on
+/// driver), no temporal upscaler drawing (DLSS-G takes the upscaler's depth and motion, which
+/// Bilinear does not make, #2414), or vsync on
 /// (DLSS-G requires vsync off on Vulkan [observed: its requirements' "vsync off required yes",
 /// fork-notes `fg-spike-results.md`; documented: "VSync with Frame Generation is only supported
 /// on D3D12", `ProgrammingGuideDLSS_G.md` §22.5]).
 pub fn dlss_unavailable_reason(world: &World) -> Option<&'static str> {
     if let Some(why) = crate::dlss::frame_generation_unavailable() {
         Some(why)
+    } else if crate::upscaler::effective(world).bilinear().is_some() {
+        Some("Not with Bilinear")
     } else if !crate::upscaler::temporal_active(world) {
         Some("Needs an upscaler")
     } else if world.resource::<crate::frame_pace::FramePace>().sync.vsync() {
@@ -1336,6 +1339,13 @@ mod tests {
         assert_eq!(unavailable_reason(app.world()), None);
         assert!(crate::graphics::fsr_active(app.world()));
         assert!(usable(app.world()));
+        // Bilinear (#2414) is no FSR and not temporal: frame generation waits for FSR, as with
+        // nothing on, and DLSS's has no depth and motion to take.
+        app.world_mut().resource_mut::<crate::graphics::Graphics>().upscaler = UpscalerChoice::Bilinear(UpscaleQuality::Quality);
+        app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Bilinear(UpscaleQuality::Quality));
+        assert_eq!(unavailable_reason(app.world()), Some("Needs FSR 3.1"));
+        assert!(!usable(app.world()) && !crate::upscaler::temporal_active(app.world()));
+        assert!(dlss_unavailable_reason(app.world()).is_some());
     }
 
     /// FSR picked while frame generation is on: the switch follows in the same frame as the

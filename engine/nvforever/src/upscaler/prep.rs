@@ -1,13 +1,16 @@
-//! The view preparation every temporal upscaler shares (#2198, docs/design/dlss-upscaling.md
+//! The view preparation every upscaler shares (#2198, docs/design/dlss-upscaling.md
 //! "The prepared-view seam"). Lifted out of `fsr.rs` unchanged; FSR uses it, and DLSS (`dlss::dlss_pass`)
-//! uses it without creating any of FSR's state.
+//! and Bilinear (`upscaler::bilinear`, #2414) use it without creating any of FSR's state.
 //!
-//! Per camera that asks for a temporal upscaler ([`FsrUpscaling`] or [`DlssUpscaling`]):
+//! Per camera that asks for an upscaler ([`FsrUpscaling`], [`DlssUpscaling`] or
+//! [`BilinearUpscaling`]):
 //! - [`extract`]: the camera's history metadata ([`UpscaleCamera`]), for cut detection;
 //! - [`prepare`] (`RenderSystems::PrepareViews`, before the view targets): the view checked,
 //!   the backend's [`Policy`] (render size, jitter phase count, mip bias: FSR's in `fsr.rs`,
-//!   DLSS's in `dlss/sizing.rs` from the size DLSS reports), the render-size override (`MainPassResolutionOverride`), the jitter and
-//!   mip bias applied to the camera, the ambient occlusion's render size, and the
+//!   DLSS's in `dlss/sizing.rs` from the size DLSS reports, Bilinear's in `bilinear.rs`: FSR's
+//!   ratio, no jitter, no bias), the render-size override (`MainPassResolutionOverride`), the
+//!   jitter and mip bias applied to the camera (a Bilinear camera has neither), the ambient
+//!   occlusion's render size, and the
 //!   [`PreparedUpscale`] (the corrected depth, the depth expanded afterwards, the resolution
 //!   uniform, whether the upscaler reconstructed this frame);
 //! - the passes in [`Pipelines`] that a backend's pass calls: the corrected depth before it,
@@ -38,7 +41,7 @@ use bevy::render::{
 };
 use wgpu::util::DeviceExt;
 
-use super::{DlssUpscaling, DrawnUpscale, UpscaleDrawn, UpscaleQuality, Upscaler, UpscalerChoice};
+use super::{BilinearUpscaling, DlssUpscaling, DrawnUpscale, UpscaleDrawn, UpscaleQuality, Upscaler, UpscalerChoice};
 use crate::fsr::FsrUpscaling;
 
 /// The common preparation's systems (graphics.rs adds it beside `fsr::FsrPlugin`, whose
@@ -57,7 +60,20 @@ impl Plugin for PrepPlugin {
             .init_resource::<UpscaleRenderer>()
             .init_resource::<crate::dlss::OptimalSizes>()
             .add_systems(ExtractSchedule, extract)
-            .add_systems(Render, prepare.in_set(RenderSystems::PrepareViews).before(prepare_view_targets));
+            .add_systems(Render, prepare.in_set(RenderSystems::PrepareViews).before(prepare_view_targets))
+            .add_systems(
+                bevy::core_pipeline::Core3d,
+                // Where `fsr_pass` and `dlss_pass` are (#2414): after the occlusion applied
+                // before the upscaler, before bloom and the bright pass, and before `fsr_pass`,
+                // which every other full-resolution effect (the eye's metering mask, frame
+                // generation's passes) follows.
+                super::bilinear::bilinear_pass
+                    .in_set(bevy::core_pipeline::Core3dSystems::EarlyPostProcess)
+                    .after(crate::ssao::ao_before_fsr)
+                    .before(crate::fsr::fsr_pass)
+                    .before(bevy::post_process::bloom::bloom)
+                    .before(crate::post::bright_pass_hdr),
+            );
     }
 }
 
@@ -68,6 +84,8 @@ pub(crate) enum UpscaleSettings {
     Fsr(FsrUpscaling),
     /// DLSS at a quality (`dlss::dlss_pass`).
     Dlss(UpscaleQuality),
+    /// Bilinear at a quality (`bilinear::bilinear_pass`, #2414).
+    Bilinear(UpscaleQuality),
 }
 
 impl Default for UpscaleSettings {
@@ -81,6 +99,7 @@ impl UpscaleSettings {
         match self {
             Self::Fsr(fsr) => UpscalerChoice::Fsr(fsr.quality),
             Self::Dlss(quality) => UpscalerChoice::Dlss(quality),
+            Self::Bilinear(quality) => UpscalerChoice::Bilinear(quality),
         }
     }
 
@@ -159,7 +178,8 @@ pub(crate) struct Policy {
 
 /// The backend's policy for a view: `fsr::policy` for FSR; for DLSS `dlss::sizing::policy`
 /// from the optimal settings `dlss_optimal` gives for the quality (DLSS's reported render size,
-/// never FSR's ratio; `None`: the view renders natively). FSR never calls `dlss_optimal`.
+/// never FSR's ratio; `None`: the view renders natively); `bilinear::policy` for Bilinear
+/// (always a size). Only DLSS calls `dlss_optimal`.
 pub(crate) fn policy(
     settings: UpscaleSettings,
     output: UVec2,
@@ -169,31 +189,37 @@ pub(crate) fn policy(
     match settings {
         UpscaleSettings::Fsr(fsr) => crate::fsr::policy(fsr.quality, output, limits),
         UpscaleSettings::Dlss(quality) => crate::dlss::sizing::policy(quality, output, dlss_optimal(quality)),
+        UpscaleSettings::Bilinear(quality) => Some(super::bilinear::policy(quality, output)),
     }
 }
 
 /// The jitter for `frame` among `phases` (AMD's Halton sequence from the wgpu-ffx port, in
-/// render pixels and AMD's sign; Bevy's `TemporalJitter` takes the opposite sign).
+/// render pixels and AMD's sign; Bevy's `TemporalJitter` takes the opposite sign). No phases
+/// (Bilinear's policy): none, without asking the sequence.
 pub(crate) fn jitter_offset(frame: u32, phases: i32) -> Vec2 {
+    if phases <= 0 {
+        return Vec2::ZERO;
+    }
     Vec2::from_array(wgpu_ffx::get_jitter_offset((frame % i32::MAX as u32) as i32, phases))
 }
 
 /// The upscaler a camera's components ask for: FSR where the device can run it, else DLSS's
-/// component. The graphics settings put `DlssUpscaling` on the camera only while DLSS is the
-/// effective choice (`graphics::apply`, `upscaler::UpscalerStatus`), and never both; FSR is
-/// taken first. A DLSS camera does not depend on FSR's support.
-pub(crate) fn camera_settings(fsr: Option<&FsrUpscaling>, dlss: Option<&DlssUpscaling>, fsr_supported: bool) -> Option<UpscaleSettings> {
-    match (fsr, dlss) {
-        (Some(fsr), _) => fsr_supported.then_some(UpscaleSettings::Fsr(*fsr)),
-        (None, Some(dlss)) => Some(UpscaleSettings::Dlss(dlss.quality)),
-        (None, None) => None,
+/// component, else Bilinear's. The graphics settings put one of them on the camera only while
+/// its upscaler is the effective choice (`graphics::apply`, `upscaler::UpscalerStatus`), and
+/// never two; FSR is taken first. A DLSS or Bilinear camera does not depend on FSR's support.
+pub(crate) fn camera_settings(fsr: Option<&FsrUpscaling>, dlss: Option<&DlssUpscaling>, bilinear: Option<&BilinearUpscaling>, fsr_supported: bool) -> Option<UpscaleSettings> {
+    match (fsr, dlss, bilinear) {
+        (Some(fsr), _, _) => fsr_supported.then_some(UpscaleSettings::Fsr(*fsr)),
+        (None, Some(dlss), _) => Some(UpscaleSettings::Dlss(dlss.quality)),
+        (None, None, Some(bilinear)) => Some(UpscaleSettings::Bilinear(bilinear.quality)),
+        (None, None, None) => None,
     }
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn extract(
     mut commands: Commands,
-    cameras: Extract<Query<(RenderEntity, &Camera, &Projection, &GlobalTransform, Option<&FsrUpscaling>, Option<&DlssUpscaling>)>>,
+    cameras: Extract<Query<(RenderEntity, &Camera, &Projection, &GlobalTransform, Option<&FsrUpscaling>, Option<&DlssUpscaling>, Option<&BilinearUpscaling>)>>,
     existing: Query<Entity, With<UpscaleCamera>>,
     frame: Extract<Res<FrameCount>>,
     time: Extract<Res<Time<Real>>>,
@@ -203,8 +229,8 @@ pub(crate) fn extract(
     pipboy_screen: Extract<Option<Res<nvf_play::pipboy::PipBoyScreen>>>,
 ) {
     let mut active = Vec::new();
-    for (entity, camera, projection, transform, fsr, dlss) in &cameras {
-        let (Some(settings), Projection::Perspective(projection)) = (camera_settings(fsr, dlss, support.0), projection) else { continue };
+    for (entity, camera, projection, transform, fsr, dlss, bilinear) in &cameras {
+        let (Some(settings), Projection::Perspective(projection)) = (camera_settings(fsr, dlss, bilinear, support.0), projection) else { continue };
         if !camera.is_active || camera.physical_viewport_size().is_none_or(|s| s.x < 32 || s.y < 32) {
             continue;
         }
@@ -289,6 +315,9 @@ pub(crate) struct PreparedUpscale {
     resolution: wgpu::Buffer,
     /// The upscaler reconstructed this frame (not the spatial fallback).
     pub(crate) history_valid: AtomicBool,
+    /// A backend without state of its own has said that it draws this view (Bilinear's
+    /// `bilinear_pass`, once per prepared view: each switch on and each new size).
+    pub(crate) drawing_said: AtomicBool,
 }
 
 impl PreparedUpscale {
@@ -303,6 +332,7 @@ impl PreparedUpscale {
                 label: Some("fsr_resolution"), contents: &resolution_bytes, usage: wgpu::BufferUsages::UNIFORM,
             }),
             history_valid: AtomicBool::new(false),
+            drawing_said: AtomicBool::new(false),
         }
     }
 }
@@ -338,7 +368,8 @@ pub(crate) fn drawn(choice: UpscalerChoice, policy_render: Option<UVec2>, output
 
 /// The view's common preparation, before any backend's own (`fsr::prepare` runs after it).
 /// Also says what the first view was drawn with ([`UpscaleDrawn`], `None` without an upscaler
-/// camera), for the performance overlay's Upscaling row.
+/// camera), for the performance overlay's Upscaling row. The jitter and mip bias are set where
+/// the camera has them: FSR's and DLSS's cameras always do, Bilinear's never.
 #[allow(clippy::type_complexity)]
 pub(crate) fn prepare(
     mut commands: Commands,
@@ -348,7 +379,7 @@ pub(crate) fn prepare(
     mut dlss_sizes: ResMut<crate::dlss::OptimalSizes>,
     mut views: Query<(
         Entity, &ExtractedView, &UpscaleCamera, &Msaa, &mut CameraMainTextureUsages,
-        &mut TemporalJitter, &mut MipBias, Option<&mut PreparedUpscale>, Option<&mut crate::ssao::AmbientOcclusion>,
+        Option<&mut TemporalJitter>, Option<&mut MipBias>, Option<&mut PreparedUpscale>, Option<&mut crate::ssao::AmbientOcclusion>,
         Has<UnsuitableViewWarned>,
     )>,
 ) {
@@ -363,8 +394,7 @@ pub(crate) fn prepare(
                 warn!("{} requires a single-sampled HDR view with no viewport offset; rendering natively until it is one", camera.settings.upscaler().name());
                 commands.entity(entity).insert(UnsuitableViewWarned);
             }
-            jitter.offset = Vec2::ZERO;
-            bias.0 = 0.0;
+            set_jitter_and_bias(jitter.as_deref_mut(), bias.as_deref_mut(), Vec2::ZERO, 0.0);
             commands.entity(entity).remove::<(PreparedUpscale, MainPassResolutionOverride)>();
             continue;
         }
@@ -379,8 +409,7 @@ pub(crate) fn prepare(
         let policy = policy(camera.settings, output_size, &device.limits(), dlss_optimal);
         first.get_or_insert(drawn(choice, policy.map(|p| p.render_size), output_size, true));
         let Some(policy) = policy else {
-            jitter.offset = Vec2::ZERO;
-            bias.0 = 0.0;
+            set_jitter_and_bias(jitter.as_deref_mut(), bias.as_deref_mut(), Vec2::ZERO, 0.0);
             commands.entity(entity).remove::<(PreparedUpscale, MainPassResolutionOverride)>();
             continue;
         };
@@ -391,8 +420,7 @@ pub(crate) fn prepare(
             usages.0 |= crate::dlss::main_texture_usages();
         }
         // Bevy applies its projection jitter with the opposite displacement sign.
-        jitter.offset = -jitter_offset(camera.frame, policy.jitter_phases);
-        bias.0 = policy.mip_bias;
+        set_jitter_and_bias(jitter.as_deref_mut(), bias.as_deref_mut(), -jitter_offset(camera.frame, policy.jitter_phases), policy.mip_bias);
         // The ambient occlusion: at the render size before the upscaler (ssao.rs
         // `ao_before_fsr`), or with `NVF_AO_BEFORE_FSR=0` after tonemapping, from the depth
         // prepass drawn at the render size and expanded by nearest texels
@@ -418,6 +446,16 @@ pub(crate) fn prepare(
         commands.entity(entity).insert(MainPassResolutionOverride(render_size));
     }
     shared.set(first);
+}
+
+/// The jitter and mip bias put on a camera that has them (a Bilinear camera has neither).
+fn set_jitter_and_bias(jitter: Option<&mut TemporalJitter>, bias: Option<&mut MipBias>, offset: Vec2, mip_bias: f32) {
+    if let Some(jitter) = jitter {
+        jitter.offset = offset;
+    }
+    if let Some(bias) = bias {
+        bias.0 = mip_bias;
+    }
 }
 
 /// A full-screen triangle pipeline (`vertex` entry point) drawing into `colors`, or into a
@@ -550,9 +588,28 @@ impl Pipelines {
     /// cannot reconstruct (`fsr_fallback.wgsl` `fragment`).
     pub(crate) fn fallback(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, prepared: &PreparedUpscale, target: &ViewTarget) {
         let post = target.post_process_write();
-        let group = self.fallback_group(device, "fsr_fallback_group", prepared, post.source);
+        self.stretch_into(device, encoder, prepared, "fsr_spatial_fallback", post.source, post.destination);
+    }
+
+    /// Bilinear's whole upscale (#2414): the render rectangle stretched to the display size by
+    /// the fallback's bilinear filter into the view's other main texture, the scene's alpha
+    /// restored over it where a shape marks it (the Pip-Boy's screen on its model, as for FSR
+    /// and DLSS: the filter would blend the mark's edge), then the flip that makes it the main
+    /// texture for the passes after.
+    pub(crate) fn stretch(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, prepared: &PreparedUpscale, target: &ViewTarget) {
+        self.stretch_into(device, encoder, prepared, "nvf_bilinear", target.main_texture_view(), target.main_texture_other_view());
+        if prepared.camera.screen_mark {
+            self.restore_alpha(device, encoder, prepared, target);
+        }
+        target.post_process_write();
+    }
+
+    /// `source`'s render rectangle drawn over the whole of `destination` by the fallback's
+    /// bilinear filter (`fsr_fallback.wgsl` `fragment`).
+    fn stretch_into(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, prepared: &PreparedUpscale, label: &str, source: &wgpu::TextureView, destination: &wgpu::TextureView) {
+        let group = self.fallback_group(device, "fsr_fallback_group", prepared, source);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("fsr_spatial_fallback"), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: post.destination, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
+            label: Some(label), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: destination, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
             depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
         });
         pass.set_pipeline(&self.fallback);
@@ -624,19 +681,19 @@ mod tests {
     #[test]
     fn switching_off_fsr_and_dlss_in_the_common_state() {
         let (render, output) = (UVec2::new(853, 480), UVec2::new(1280, 720));
-        let unsupported = || camera_settings(Some(&FsrUpscaling::default()), None, false);
+        let unsupported = || camera_settings(Some(&FsrUpscaling::default()), None, None, false);
         // Off: no component, no prepared view.
-        assert!(camera_settings(None, None, true).is_none());
+        assert!(camera_settings(None, None, None, true).is_none());
         assert!(unsupported().is_none(), "FSR where the device cannot run it renders natively");
         // Off -> FSR: made.
-        let fsr_camera = camera(camera_settings(Some(&FsrUpscaling::default()), None, true).unwrap(), 10);
+        let fsr_camera = camera(camera_settings(Some(&FsrUpscaling::default()), None, None, true).unwrap(), 10);
         assert_eq!(fsr_camera.settings.choice(), UpscalerChoice::Fsr(Quality));
         assert_eq!(transition(None, &fsr_camera, render, output), Transition::Recreate);
         // FSR, the next frame: kept, no reset.
         let next = camera(fsr(Quality), 11);
         assert_eq!(transition(Some((&fsr_camera, render, output)), &next, render, output), Transition::Keep { reset: false });
         // FSR -> DLSS at the same sizes: a new backend is made again.
-        let dlss_camera = camera(camera_settings(None, Some(&DlssUpscaling { quality: Quality }), true).unwrap(), 12);
+        let dlss_camera = camera(camera_settings(None, Some(&DlssUpscaling { quality: Quality }), None, true).unwrap(), 12);
         assert_eq!(dlss_camera.settings.choice(), UpscalerChoice::Dlss(Quality));
         assert_eq!(transition(Some((&next, render, output)), &dlss_camera, render, output), Transition::Recreate);
         // DLSS's quality changed at the sizes DLSS reported: kept, but a cut.
@@ -648,7 +705,19 @@ mod tests {
         // DLSS -> FSR: made again, with FSR's own state.
         assert_eq!(transition(Some((&balanced, render, output)), &camera(fsr(Quality), 14), render, output), Transition::Recreate);
         // FSR is taken when both components are there (the settings never put both).
-        assert_eq!(camera_settings(Some(&FsrUpscaling::default()), Some(&DlssUpscaling { quality: Performance }), true).unwrap().upscaler(), Upscaler::Fsr);
+        assert_eq!(camera_settings(Some(&FsrUpscaling::default()), Some(&DlssUpscaling { quality: Performance }), None, true).unwrap().upscaler(), Upscaler::Fsr);
+        // DLSS -> Bilinear at the same sizes: made again, without FSR's state (#2414).
+        let bilinear = camera(camera_settings(None, None, Some(&BilinearUpscaling { quality: Quality }), true).unwrap(), 15);
+        assert_eq!(bilinear.settings.choice(), UpscalerChoice::Bilinear(Quality));
+        assert_eq!(transition(Some((&balanced, render, output)), &bilinear, render, output), Transition::Recreate);
+        assert!(!allocates_fsr_state(bilinear.settings.upscaler()));
+        // Bilinear, the next frame: kept; its quality changed at the same sizes: kept, a cut.
+        assert_eq!(transition(Some((&bilinear, render, output)), &camera(UpscaleSettings::Bilinear(Quality), 16), render, output), Transition::Keep { reset: false });
+        assert_eq!(transition(Some((&bilinear, render, output)), &camera(UpscaleSettings::Bilinear(Balanced), 16), render, output), Transition::Keep { reset: true });
+        // Bilinear -> FSR: made again; FSR and DLSS are taken before it.
+        assert_eq!(transition(Some((&bilinear, render, output)), &camera(fsr(Quality), 16), render, output), Transition::Recreate);
+        assert_eq!(camera_settings(None, Some(&DlssUpscaling { quality: Quality }), Some(&BilinearUpscaling { quality: Performance }), false).unwrap().upscaler(), Upscaler::Dlss);
+        assert_eq!(camera_settings(None, None, Some(&BilinearUpscaling { quality: Performance }), false).unwrap().upscaler(), Upscaler::Bilinear, "whatever FSR's support");
     }
 
     #[test]
@@ -683,11 +752,11 @@ mod tests {
     fn the_components_choose_the_backend_and_a_dlss_camera_gets_no_fsr_state() {
         for quality in UpscaleQuality::ALL {
             for fsr_supported in [true, false] {
-                let dlss = camera_settings(None, Some(&DlssUpscaling { quality }), fsr_supported).unwrap();
+                let dlss = camera_settings(None, Some(&DlssUpscaling { quality }), None, fsr_supported).unwrap();
                 assert!(matches!(dlss, UpscaleSettings::Dlss(q) if q == quality), "{quality:?} {fsr_supported}");
                 assert!(!allocates_fsr_state(dlss.upscaler()));
             }
-            let fsr_camera = camera_settings(Some(&FsrUpscaling { quality, sharpness: 0.2 }), None, true).unwrap();
+            let fsr_camera = camera_settings(Some(&FsrUpscaling { quality, sharpness: 0.2 }), None, None, true).unwrap();
             assert!(matches!(fsr_camera, UpscaleSettings::Fsr(f) if f.quality == quality), "FSR stays FSR");
         }
     }
@@ -714,6 +783,39 @@ mod tests {
         let phases = wgpu_ffx::get_jitter_phase_count(853, 1280);
         for frame in [0, 1, 7, 1000, u32::MAX] {
             assert_eq!(jitter_offset(frame, phases), Vec2::from_array(wgpu_ffx::get_jitter_offset((frame % i32::MAX as u32) as i32, phases)));
+            assert_eq!(jitter_offset(frame, 0), Vec2::ZERO, "no phases (Bilinear): no jitter");
+            assert_eq!(jitter_offset(frame, -1), Vec2::ZERO);
         }
+    }
+
+    /// The jitter and bias go only where the camera has the components; a Bilinear camera has
+    /// neither, and nothing is made for it.
+    #[test]
+    fn jitter_and_bias_are_set_only_where_the_camera_has_them() {
+        let (mut jitter, mut bias) = (TemporalJitter::default(), MipBias(0.0));
+        set_jitter_and_bias(Some(&mut jitter), Some(&mut bias), Vec2::new(0.25, -0.5), -1.5);
+        assert_eq!((jitter.offset, bias.0), (Vec2::new(0.25, -0.5), -1.5));
+        set_jitter_and_bias(None, None, Vec2::ONE, 2.0);
+        assert_eq!((jitter.offset, bias.0), (Vec2::new(0.25, -0.5), -1.5), "untouched: they were not given");
+    }
+
+    /// Bilinear's policy through the backend switch: FSR's ratio at every quality, no jitter
+    /// phases, no bias, DLSS never asked, and a size even where FSR gives none (#2414).
+    #[test]
+    fn the_bilinear_policy_is_fsrs_ratio_without_jitter_or_bias() {
+        let limits = wgpu::Limits::default();
+        let never = |_| -> Option<crate::dlss::sizing::Optimal> { panic!("Bilinear never asks DLSS") };
+        for output in [UVec2::new(1280, 720), UVec2::new(1920, 1080), UVec2::new(2560, 1440)] {
+            for quality in UpscaleQuality::ALL {
+                let policy = policy(UpscaleSettings::Bilinear(quality), output, &limits, never).expect("always a size");
+                assert_eq!(policy, Policy { render_size: quality.render_size(output), jitter_phases: 0, mip_bias: 0.0 }, "{quality:?} at {output}");
+                assert_eq!(drawn(UpscalerChoice::Bilinear(quality), Some(policy.render_size), output, true), DrawnUpscale::Upscaled { choice: UpscalerChoice::Bilinear(quality), render: policy.render_size, output });
+            }
+        }
+        // Below FSR's smallest render size (FSR renders natively there) Bilinear still draws
+        // smaller.
+        assert_eq!(crate::fsr::policy(UltraPerformance, UVec2::splat(96), &limits), None);
+        let tiny = policy(UpscaleSettings::Bilinear(UltraPerformance), UVec2::splat(96), &limits, never).unwrap();
+        assert_eq!(tiny.render_size, UVec2::splat(32), "below FSR's smallest size too");
     }
 }

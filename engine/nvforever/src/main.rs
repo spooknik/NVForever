@@ -487,15 +487,16 @@ struct Args {
     /// --upscaler, both must say the same. Off when neither is given.
     #[arg(long, value_enum)]
     fsr: Option<graphics::FsrMode>,
-    /// The temporal upscaler: off, fsr (FSR 3.1) or dlss (NVIDIA DLSS through Streamline, with
-    /// NVIDIA's files in the dlss folder beside the program; upscaler.rs, dlss/), at
-    /// --upscaler-quality. Saved Graphics settings take precedence in normal play, as for other
+    /// The upscaler: off, bilinear (the scene drawn smaller and stretched to the window by a
+    /// bilinear filter, on any GPU; upscaler/bilinear.rs), fsr (FSR 3.1) or dlss (NVIDIA DLSS
+    /// through Streamline, with NVIDIA's files in the dlss folder beside the program;
+    /// upscaler.rs, dlss/), at --upscaler-quality. Saved Graphics settings take precedence in normal play, as for other
     /// switches. Streamline is loaded when the start chooses DLSS or the files are in the dlss
     /// folder; then every switch takes effect at once.
     #[arg(long, value_enum)]
     upscaler: Option<upscaler::Upscaler>,
-    /// The quality of --upscaler fsr or dlss (default: quality). Native AA reconstructs at
-    /// full resolution (DLSS: DLAA).
+    /// The quality of --upscaler bilinear, fsr or dlss (default: quality). Native AA
+    /// reconstructs at full resolution (DLSS: DLAA; bilinear then changes nothing).
     #[arg(long, value_enum)]
     upscaler_quality: Option<upscaler::UpscaleQuality>,
     /// The DLSS model: default (NVIDIA's pick for each mode) or NVIDIA's preset k, l, m or j
