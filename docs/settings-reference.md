@@ -630,9 +630,8 @@ After the Controls tab's own rows (see the end of this page):
 
 ### `upscaler`: Upscaler
 
-- On the page: FSR 3.1 or NVIDIA DLSS rebuilds the world at display resolution, Bilinear
-  only stretches it, at the mode below. DLSS needs an RTX card and its files in the dlss
-  folder.
+- On the page: FSR 3.1 or NVIDIA DLSS rebuilds the world at display resolution; Bilinear
+  only stretches it. DLSS needs an RTX card and its files in the dlss folder.
 - In full: Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, or only
   stretch it there with Bilinear (softer; the cheapest, on any graphics card), at the
   Upscaling mode below. Disables MSAA and TAA while active; FSR 3.1 and DLSS also disable
