@@ -319,6 +319,12 @@ impl PreparedTerrain {
         PreparedTerrain::build(1.0 / params.units_per_metre, grid, heights)
     }
 
+    /// The terrain of the cell at `grid` on its landscape surface (`surface`: the LAND grid
+    /// as stored or smoothed, `fnv_world::land_surface`), for a world with `params`.
+    pub fn from_surface(params: &PhysParams, grid: (i32, i32), surface: &fnv_world::land_surface::Surface) -> PreparedTerrain {
+        PreparedTerrain { grid, collider: crate::terrain::collider_surface(grid, surface, 1.0 / params.units_per_metre) }
+    }
+
     fn build(k: f32, grid: (i32, i32), heights: &[f32]) -> PreparedTerrain {
         PreparedTerrain { grid, collider: crate::terrain::collider(grid, heights, k) }
     }

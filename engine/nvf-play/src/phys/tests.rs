@@ -100,7 +100,7 @@ fn fake_cell(job: &Job) -> Prepared {
     let water = vec![CollisionObject { layer: fnv_phys::layers::WATER, ..object(100.0, Motion::Static) }];
     refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None, door: None, animated: None, drawn: None, model: None }) });
     let terrain = Some(PreparedTerrain::new(&params, (gx, gy), &heights));
-    Prepared { cell: job.cell, heights: Some(heights), terrain, refs, times: LoadTimes::default() }
+    Prepared { cell: job.cell, surface: Some(fnv_world::land_surface::Surface::stored(&heights)), terrain, refs, times: LoadTimes::default() }
 }
 
 /// [`fake_cell`] with its second box keyframed (as a swing trap's held bodies).
@@ -250,7 +250,7 @@ fn a_destroyed_reference_collides_as_its_destruction_model_and_back() {
 
 #[test]
 fn a_job_knows_its_references_destruction_models() {
-    let job = Job { cell: PhysCell::Exterior(0, 0), refs: vec![1, 5, 9], land: None, poses: Vec::new(), scales: Vec::new(), models: vec![(5, "a.nif".into()), (9, "b.nif".into())] };
+    let job = Job { cell: PhysCell::Exterior(0, 0), refs: vec![1, 5, 9], land: None, lands: Default::default(), smooth_terrain: false, poses: Vec::new(), scales: Vec::new(), models: vec![(5, "a.nif".into()), (9, "b.nif".into())] };
     assert_eq!(job.model_of(5), Some("a.nif"));
     assert_eq!(job.model_of(9), Some("b.nif"));
     assert_eq!(job.model_of(1), None);
@@ -536,7 +536,7 @@ fn placed_clutter_moved_by_physics_is_written_back_and_reloads_there() {
     assert!(!p.placed_dynamic.contains_key(&id));
     // (The made-up cells have no records, so the job names the crate itself.)
     let cell = PhysCell::Exterior(0, 0);
-    let job = with_poses(Job { cell, refs: vec![id], land: None, poses: Vec::new(), scales: Vec::new(), models: Vec::new() }, &sim);
+    let job = with_poses(Job { cell, refs: vec![id], land: None, lands: Default::default(), smooth_terrain: false, poses: Vec::new(), scales: Vec::new(), models: Vec::new() }, &sim);
     p.insert(&LoadCtx { d: &d, sim: &sim, data: None }, fake_cell(&job));
     let b = p.world.ref_bodies(id)[0];
     for i in 0..3 {

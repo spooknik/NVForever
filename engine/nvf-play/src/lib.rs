@@ -75,6 +75,7 @@ pub mod location_markers;
 pub mod lockpick;
 pub mod roulette;
 pub mod slots;
+pub mod smooth_terrain;
 pub mod blackjack;
 pub mod companion_wheel;
 pub mod caravan;

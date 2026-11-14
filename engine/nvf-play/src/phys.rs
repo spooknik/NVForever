@@ -47,7 +47,6 @@ use crate::{Location, PlayData, PlayWorld, RefChanged, Travel};
 use bevy::prelude::*;
 use cells::{PhysCell, Space};
 use fnv_collide::{Iso, Motion};
-use fnv_phys::terrain::height_at;
 use drawn::DrawnFloors;
 use fnv_phys::{Arrival, Character, CharacterParams, Filter, Owner, PhysParams, PhysWorld, RayHit, RefPose, Stepper, WaterArea};
 use fnv_sim::{FormId, World};
@@ -358,8 +357,9 @@ pub struct LoadedCell {
     /// Its references (and, outdoors, the worldspace's persistent references standing in
     /// the square), by FormID, in the world or not.
     pub refs: Vec<u32>,
-    /// LAND heights (exterior squares with terrain).
-    pub heights: Option<Vec<f32>>,
+    /// The landscape surface its terrain collides as (exterior squares with terrain):
+    /// the LAND grid as stored or smoothed (`crate::smooth_terrain`).
+    pub surface: Option<fnv_world::land_surface::Surface>,
 }
 
 /// The collision of a reference created at run time (a dropped item).
@@ -837,8 +837,8 @@ impl PhysState {
             return None;
         }
         let (gx, gy) = cell_of(x, y);
-        let h = self.cells.get(&PhysCell::Exterior(gx, gy))?.heights.as_deref()?;
-        height_at(h, x - gx as f32 * CELL_SIZE, y - gy as f32 * CELL_SIZE)
+        let s = self.cells.get(&PhysCell::Exterior(gx, gy))?.surface.as_ref()?;
+        s.height_at(x - gx as f32 * CELL_SIZE, y - gy as f32 * CELL_SIZE)
     }
 
     /// Whether a reference has collision bodies in the world now.
@@ -895,8 +895,16 @@ impl PhysState {
             PhysCell::Exterior(..) => record.and_then(|c| c.land),
             PhysCell::Interior(_) => None,
         };
+        // The neighbours' LAND, which a smoothed surface reads along its edges (#2149).
+        let lands = match cell {
+            PhysCell::Exterior(x, y) if land.is_some() => {
+                let ws = d.index.worldspaces.get(&self.worldspace);
+                fnv_world::land_surface::land_ids((x, y), |g| ws.and_then(|w| w.grid.get(&g)).and_then(|id| d.index.cells.get(id)).and_then(|c| c.land))
+            }
+            _ => Default::default(),
+        };
         let models = refs.iter().filter_map(|r| self.destruction_models.get(r).map(|m| (*r, m.clone()))).collect();
-        Job { cell, refs, land, poses: Vec::new(), scales: Vec::new(), models }
+        Job { cell, refs, land, lands, smooth_terrain: crate::smooth_terrain::on(), poses: Vec::new(), scales: Vec::new(), models }
     }
 
     fn source(&self, ctx: &LoadCtx) -> Source {
@@ -930,7 +938,7 @@ impl PhysState {
     /// job's (FormID) order, those not in the world now left out.
     fn insert(&mut self, ctx: &LoadCtx, p: Prepared) {
         let t0 = Instant::now();
-        let Prepared { cell, heights, terrain, refs, times } = p;
+        let Prepared { cell, surface, terrain, refs, times } = p;
         let d = ctx.d;
         // An exterior cell's water (`Cell::water_surface`, the rule the renderer draws it
         // with); not an interior's XCLW, where the game swam at a placed water object's
@@ -968,7 +976,7 @@ impl PhysState {
             ids.push(r);
         }
         let n = ids.len();
-        self.cells.insert(cell, LoadedCell { refs: ids, heights });
+        self.cells.insert(cell, LoadedCell { refs: ids, surface });
         let insert_ms = ms_since(t0);
         self.stats.times.add(&times);
         self.stats.times.insert += insert_ms;
