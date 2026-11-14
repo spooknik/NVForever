@@ -1677,9 +1677,10 @@ mod fsr_settings_tests {
             assert_eq!(render_share(Upscaler::Dlss, mode), Some((width as f32 * 100.0 / 1280.0).round() as u32), "{mode:?}");
         }
         // The names stay what the INI and the test aids use.
-        assert!(nvf_play::settings::pick(app.world_mut(), q, "Performance"));
-        assert_eq!(quality_chosen(app.world()), "Performance");
-        assert!(!nvf_play::settings::pick(app.world_mut(), q, "Quality (67%)"), "the words are not a name");
+        // (Bilinear(Performance) is chosen above, so take another name: a choice already made is not taken.)
+        assert!(nvf_play::settings::pick(app.world_mut(), q, "Quality"));
+        assert_eq!(quality_chosen(app.world()), "Quality");
+        assert!(!nvf_play::settings::pick(app.world_mut(), q, "Balanced (59%)"), "the words are not a name");
     }
 
     /// The quality row stands dimmed with a reason while the upscaler is Off, as the other rows
