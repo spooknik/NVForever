@@ -64,6 +64,14 @@ pub struct LightShafts {
     pub source: Vec4,
 }
 
+impl LightShafts {
+    /// Whether [`shafts_pass`] draws this frame (the sun on the screen with some strength): it
+    /// reads the depth prepass at the display size (`upscaler::bilinear::DepthReaders`).
+    pub(crate) fn draws(&self) -> bool {
+        self.sun.z > 0.0
+    }
+}
+
 pub struct ShaftsPlugin;
 
 impl Plugin for ShaftsPlugin {
@@ -300,7 +308,7 @@ pub(crate) fn shafts_pass(
     mut ctx: RenderContext,
 ) {
     let (target, index, shafts, sv, prepass) = view.into_inner();
-    if shafts.sun.z <= 0.0 {
+    if !shafts.draws() {
         return;
     }
     if crate::ssao::depth_multisampled(prepass) != Some(sv.multi) || !crate::ssao::format_matches(target, sv.format) {

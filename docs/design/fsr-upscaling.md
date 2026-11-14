@@ -629,7 +629,8 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
   0.43 ms natively without the glow [observed, 2026-11-14: the main session's profile build].
 - **The common preparation** (`prep::prepare`, Bilinear's `policy`: FSR's ratio, no jitter
   phases, no bias): the render-size override, the ambient occlusion at the render size before
-  the upscaler, the depth expanded to the window's size afterwards. The render-size corrected
+  the upscaler, the depth expanded to the window's size afterwards when a pass reads it (the
+  next bullet). The render-size corrected
   depth FSR and DLSS read is made with the prepared view but never drawn for Bilinear (one
   render-size depth texture, kept to leave the prepared view the same for every backend). The
   main-pass shaders that read a screen
@@ -639,9 +640,18 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
   before bloom and the bright pass: the fallback's bilinear filter (`fsr_fallback.wgsl`
   `fragment`) from the render rectangle into the view's other main texture, the scene's alpha
   restored where the Pip-Boy's screen marks it (as FSR and DLSS do), then the depth prepass
-  expanded to the window's size for the screen-space effects after it. One full-screen pass
-  at the display size, a second only while the Pip-Boy's screen is on its model. The HUD and
-  menus draw after it, at the window's size.
+  expanded to the window's size, only when a pass after it reads the depth this frame
+  (`bilinear::DepthReaders`): the image space's blur passes while the grade smears, blurs or
+  has a depth of field (the menus' blur among them), the sun shafts while the sun is on the
+  screen, the eye adaptation's metering mask (with the glow), and the occlusion only when it
+  is applied after tonemapping (`NVF_AO_BEFORE_FSR=0`). Nothing else after the stretch reads
+  it (water and the soft edges of blended shapes read it inside the main passes, before it);
+  FSR and DLSS always expand it. The expansion is a display-size depth pass and a copy back,
+  about as many bytes as the stretch at 1080p [hypothesis: by the texture sizes; on the N150
+  the two together took 2.6 ms with the HDR view, observed 2026-11-14]; at the Low preset
+  (no glow, shafts or occlusion) it now runs only under a blurring modifier. One full-screen
+  pass at the display size, a second only while the Pip-Boy's screen is on its model. The HUD
+  and menus draw after it, at the window's size.
 - **Native AA** with Bilinear draws at full size and changes nothing but adds the copy.
 - **What it says**: `Bilinear stretch active: 640x360 -> 1280x720, HDR picture` (or `8-bit
   picture`) once per prepared view (each switch on, each new size); the performance overlay's

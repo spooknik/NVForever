@@ -115,6 +115,15 @@ pub fn vats_tint(rgb: [u8; 3]) -> Vec4 {
     Vec4::new(c[0] * k, c[1] * k, c[2] * k, 0.0)
 }
 
+impl ImageSpaceGrade {
+    /// Whether [`blur_pass`] runs for this grade: a motion smear, a modifier's blur or a depth
+    /// of field. Those passes read the depth prepass at the display size, so an upscaler that
+    /// draws smaller expands it for them (`upscaler::bilinear::DepthReaders`).
+    pub(crate) fn blurs(&self) -> bool {
+        self.motion.x > 0.0 || self.blur > 0.0 || self.dof.x != 0.0
+    }
+}
+
 impl Default for ImageSpaceGrade {
     fn default() -> Self {
         ImageSpaceGrade {
@@ -816,7 +825,7 @@ pub(crate) fn blur_pass(
 ) {
     let (target, index, grade, ids, prepass) = view.into_inner();
     let (smear, blur) = (grade.motion.x > 0.0, grade.blur > 0.0 || grade.dof.x != 0.0);
-    if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
+    if !grade.blurs() || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
         return;
     }
     let Some(depth) = prepass.depth_only_view() else { return };

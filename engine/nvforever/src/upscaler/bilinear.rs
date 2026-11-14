@@ -19,6 +19,7 @@
 //! 2026-11-14: the main session's profile build].
 
 use bevy::core_pipeline::prepass::ViewPrepassTextures;
+use bevy::post_process::auto_exposure::AutoExposure;
 use bevy::prelude::*;
 use bevy::render::{
     diagnostic::RecordDiagnostics,
@@ -39,18 +40,57 @@ pub(crate) fn policy(quality: UpscaleQuality, output: UVec2) -> Policy {
     Policy { render_size: quality.render_size(output), jitter_phases: 0, mip_bias: 0.0 }
 }
 
+/// What reads the depth prepass at the display size after the stretch, this frame. The main
+/// passes draw it at the render size into the render rectangle; FSR and DLSS always expand it
+/// to the whole texture afterwards (`prep::Pipelines::expand_depth`: a display-size depth pass
+/// and a copy back, about as many bytes as the stretch itself at 1080p [hypothesis: by the
+/// texture sizes]). Bilinear expands it only when one of these will read it:
+/// - the image space's blur passes (`imagespace::blur_pass`: a motion smear, a modifier's blur
+///   such as the menus', a depth of field), whenever the grade asks for one;
+/// - the sun shafts (`shafts::shafts_pass`), while the sun is on the screen;
+/// - the eye adaptation's metering mask (`eye_adapt::mask_pass`), on with the light glow;
+/// - the occlusion applied after tonemapping (`ssao::ao_pass`, `NVF_AO_BEFORE_FSR=0` only;
+///   before the upscaler it reads the depth as drawn, `ssao::ao_before_fsr`).
+///
+/// Nothing else after the stretch reads it [design: a search of the engine's passes for the
+/// prepass depth, 2026-11-14: FXAA, SMAA, bloom, the bright pass, the grade itself, the
+/// sharpening and tonemapping do not; TAA and frame generation never run with Bilinear; water
+/// (`water.wesl`) and the soft edges of blended shapes (`nif_material.wesl`) read it inside the
+/// main passes, before the stretch]. With the Low preset
+/// (no glow, no shafts, no occlusion) only a blurring modifier asks for it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DepthReaders {
+    pub(crate) blur: bool,
+    pub(crate) shafts: bool,
+    pub(crate) eye_mask: bool,
+    pub(crate) ao_after: bool,
+}
+
+impl DepthReaders {
+    pub(crate) fn any(self) -> bool {
+        self.blur || self.shafts || self.eye_mask || self.ao_after
+    }
+}
+
 /// Bilinear's pass for a view it draws: the render rectangle stretched to the display size
 /// (`prep::Pipelines::stretch`, with the scene's alpha restored where a shape marks it), then
-/// the depth prepass expanded to the display size for the screen-space effects after it, as
-/// FSR and DLSS do. Nothing is reconstructed, so the prepared view's history stays invalid
-/// (DLSS frame generation and FSR's frame generation never take a Bilinear view).
+/// the depth prepass expanded to the display size, as FSR and DLSS do, but only when a pass
+/// after it reads the depth this frame ([`DepthReaders`]). Nothing is reconstructed, so the
+/// prepared view's history stays invalid (DLSS frame generation and FSR's frame generation
+/// never take a Bilinear view).
+#[allow(clippy::type_complexity)]
 pub(crate) fn bilinear_pass(
-    view: ViewQuery<(&ViewTarget, &PreparedUpscale, Option<&ViewPrepassTextures>)>,
+    view: ViewQuery<(
+        &ViewTarget,
+        &PreparedUpscale,
+        Option<&ViewPrepassTextures>,
+        (Option<&crate::imagespace::ImageSpaceGrade>, Option<&crate::shafts::LightShafts>, Has<AutoExposure>, Option<&crate::ssao::AoView>),
+    )>,
     upscale: Res<UpscaleRenderer>,
     device: Res<RenderDevice>,
     mut ctx: RenderContext,
 ) {
-    let (target, prepared, prepass) = view.into_inner();
+    let (target, prepared, prepass, (grade, shafts, eye_mask, ao)) = view.into_inner();
     let UpscaleSettings::Bilinear(_) = prepared.camera.settings else { return };
     let Some(common) = &upscale.0 else { return };
     let device = device.wgpu_device();
@@ -68,7 +108,13 @@ pub(crate) fn bilinear_pass(
         let picture = if target.main_texture_format() == wgpu::TextureFormat::Rgba16Float { "HDR" } else { "8-bit" };
         info!("Bilinear stretch active: {}x{} -> {}x{}, {picture} picture", render.x, render.y, output.x, output.y);
     }
-    if let Some(depth) = prepass.and_then(|prepass| prepass.depth.as_ref()) {
+    let readers = DepthReaders {
+        blur: grade.is_some_and(|g| g.blurs()),
+        shafts: shafts.is_some_and(|s| s.draws()),
+        eye_mask,
+        ao_after: ao.is_some_and(|ao| ao.after_upscaler()),
+    };
+    if let Some(depth) = prepass.and_then(|prepass| prepass.depth.as_ref()).filter(|_| readers.any()) {
         common.expand_depth(device, encoder, prepared, &depth.texture.texture);
     }
     span.end(ctx.command_encoder());
@@ -91,5 +137,34 @@ mod tests {
             assert_eq!(p.render_size, quality.render_size(output));
         }
         assert_eq!(policy(UpscaleQuality::UltraPerformance, UVec2::new(2, 2)).render_size, UVec2::ONE, "never empty");
+    }
+
+    /// The depth is expanded only for a pass that reads it after the stretch: none at the Low
+    /// preset's settings without a blurring modifier, each reader alone enough.
+    #[test]
+    fn the_depth_is_expanded_only_for_a_pass_that_reads_it() {
+        assert!(!DepthReaders::default().any(), "nothing reads it: no expansion");
+        for readers in [
+            DepthReaders { blur: true, ..default() },
+            DepthReaders { shafts: true, ..default() },
+            DepthReaders { eye_mask: true, ..default() },
+            DepthReaders { ao_after: true, ..default() },
+        ] {
+            assert!(readers.any(), "{readers:?}");
+        }
+        // The grade asks for the blur passes with a smear, a blur or a depth of field.
+        let mut grade = crate::imagespace::ImageSpaceGrade::default();
+        assert!(!grade.blurs(), "the default grade blurs nothing");
+        grade.blur = 0.5;
+        assert!(grade.blurs());
+        let mut grade = crate::imagespace::ImageSpaceGrade::default();
+        grade.motion.x = 1.0;
+        assert!(grade.blurs(), "a motion smear");
+        let mut grade = crate::imagespace::ImageSpaceGrade::default();
+        grade.dof.x = 1.0;
+        assert!(grade.blurs(), "a depth of field");
+        // The shafts read it only while the sun is on the screen.
+        assert!(!crate::shafts::LightShafts::default().draws());
+        assert!(crate::shafts::LightShafts { sun: Vec4::new(0.5, 0.5, 1.0, 1.7), ..default() }.draws());
     }
 }

@@ -166,6 +166,15 @@ pub(crate) struct AoView {
     before_fsr: bool,
 }
 
+impl AoView {
+    /// Whether the occlusion is applied after tonemapping on an upscaled view ([`ao_pass`],
+    /// `NVF_AO_BEFORE_FSR=0`), from the depth prepass expanded to the display size, rather than
+    /// before the upscaler at its render size ([`ao_before_fsr`]).
+    pub(crate) fn after_upscaler(&self) -> bool {
+        !self.before_fsr
+    }
+}
+
 /// FSR's input and its opaque copy: the HDR format FSR requires (fsr.rs `prepare`). The
 /// multiply pass's base is built for it; a Bilinear view's 8-bit picture gets its own
 /// (`prepare`).
@@ -423,7 +432,7 @@ pub(crate) fn ao_pass(
 ) {
     let (target, index, ao, prepass, upscaled) = view.into_inner();
     // Applied before the upscaler already ([`ao_before_fsr`]).
-    if ao.before_fsr && upscaled {
+    if upscaled && !ao.after_upscaler() {
         return;
     }
     if depth_multisampled(prepass) != Some(ao.multi) || !format_matches(target, ao.format) {
