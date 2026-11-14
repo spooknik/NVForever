@@ -229,8 +229,10 @@ apart and the last row/column coincides with the neighbour's first.
   when its feet change or collision loads or unloads next to it. Known limit [design,
   #2149]: that "left by a character" record is not kept across a reset (a door to an
   interior and back) or a save and load, so an actor that stopped on displaced, sloping
-  ground and has not moved since can then be drawn up to the 8-unit bound off the drawn
-  ground until it next walks. Keeping walker feet in stored-ground space instead was tried
+  ground and has not moved since loses the character's drawing offset and is lifted again:
+  it can then be drawn off the drawn ground by the lift (at most 8 units) plus the
+  controller's slope clearance it stood with (for example 5 + 8 = 13 units) until it next
+  walks. Keeping walker feet in stored-ground space instead was tried
   and dropped: the simulation's positions feed script moves, script shots and raycasts
   and ragdoll start-up as world coordinates. Distant LOD is not touched: its chunks are sunk
   under the loaded cells with skirts (§7), and the loaded edge moves only between LAND
