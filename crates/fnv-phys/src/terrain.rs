@@ -138,8 +138,8 @@ mod tests {
         let h = bumpy();
         let s = Surface::stored(&h);
         assert_eq!(s.triangles(), triangles());
-        for i in 0..SIDE * SIDE {
-            assert_eq!(s.vertex(i), [(i % SIDE) as f32 * SPACING, (i / SIDE) as f32 * SPACING, h[i]]);
+        for (i, &z) in h.iter().enumerate() {
+            assert_eq!(s.vertex(i), [(i % SIDE) as f32 * SPACING, (i / SIDE) as f32 * SPACING, z]);
         }
     }
 }

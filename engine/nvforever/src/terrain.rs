@@ -365,7 +365,7 @@ fn quad_side(sub: usize) -> usize {
 /// (south-west → north-east split) the point lies in. A grid vertex is itself, weight 1.
 fn stored_weights(fr: usize, fc: usize, sub: usize, side: usize) -> [(usize, f32); 3] {
     let (r, c) = (fr / sub, fc / sub);
-    if fr % sub == 0 && fc % sub == 0 {
+    if fr.is_multiple_of(sub) && fc.is_multiple_of(sub) {
         let i = r * side + c;
         return [(i, 1.0), (i, 0.0), (i, 0.0)];
     }
@@ -811,8 +811,8 @@ mod tests {
         let at = |r: usize, c: usize| colors[r * SIDE + c].map(srgb_to_linear);
         assert_eq!(col[2 * qs + 2][..3], at(1, 1));
         let mid = col[3 * qs + 3];
-        for k in 0..3 {
-            assert!((mid[k] - (at(1, 1)[k] + at(2, 2)[k]) / 2.0).abs() < 1e-6);
+        for ((m, a), b) in mid.iter().zip(at(1, 1)).zip(at(2, 2)) {
+            assert!((m - (a + b) / 2.0).abs() < 1e-6);
         }
     }
 

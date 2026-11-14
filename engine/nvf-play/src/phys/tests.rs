@@ -971,7 +971,9 @@ fn an_actor_standing_on_the_landscape_follows_the_smoothed_surface() {
     // On the static box standing on the ground: where its feet are.
     let (bx, by) = spots[1];
     let top = s.stored_height_at(bx, by).unwrap() + 12.0;
-    assert_eq!(p.standing_drawn_feet(4, [bx, by, top], true), [bx, by, top]);
+    // (On the box's top as the ray finds it: within a float's rounding of `top`.)
+    let on_box = p.standing_drawn_feet(4, [bx, by, top], true);
+    assert!(on_box[..2] == [bx, by] && (on_box[2] - top).abs() < 1e-3, "{on_box:?}, box top {top}");
     assert_eq!(p.landscape_lift([bx, by, top]), None);
     // Indoors nothing follows the landscape.
     p.space = Space::Interior(7);
