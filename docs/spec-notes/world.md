@@ -226,7 +226,13 @@ apart and the last row/column coincides with the neighbour's first.
   the stored triangles (`nvf_play::phys` `landscape_lift`); one whose feet rest on the
   collision is drawn on it as before, and feet a physics character left are drawn as the
   character was (never lifted twice). The answer is kept per actor and looked at again
-  when its feet change or collision loads or unloads next to it. Distant LOD is not touched: its chunks are sunk
+  when its feet change or collision loads or unloads next to it. Known limit [design,
+  #2149]: that "left by a character" record is not kept across a reset (a door to an
+  interior and back) or a save and load, so an actor that stopped on displaced, sloping
+  ground and has not moved since can then be drawn up to the 8-unit bound off the drawn
+  ground until it next walks. Keeping walker feet in stored-ground space instead was tried
+  and dropped: the simulation's positions feed script moves, script shots and raycasts
+  and ragdoll start-up as world coordinates. Distant LOD is not touched: its chunks are sunk
   under the loaded cells with skirts (§7), and the loaded edge moves only between LAND
   vertices, by at most 8 units. On Goodsprings' cells (−17, 0) and (−18, 0), 1,084 and
   1,541 of the 3,136 new vertices move by more than half a unit, the 95th percentile by
