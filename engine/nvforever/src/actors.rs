@@ -90,6 +90,9 @@ pub struct ActorWorld {
     /// The face morphs scripts gave a reference (MatchFaceGeometry; `fnv_game::
     /// appearance`, told by `appearance.rs`): applied to its face as it is drawn.
     pub faces: Mutex<HashMap<u32, Vec<FaceMorph>>>,
+    /// NPC bases whose look comes from another base for the session (ShowOff's
+    /// BaseCopyFaceGenFrom, `fnv_game::Game::face_from_base`, told by `appearance.rs`).
+    pub face_bases: Mutex<HashMap<u32, u32>>,
     /// The level each placed actor reads its leveled lists at in the game
     /// (`fnv_game::Game::leveled_at`, told by `zones.rs`); absent: the display level 1
     /// (docs/spec-notes/encounter-zones.md §5).
@@ -140,6 +143,7 @@ impl ActorWorld {
             rolls: Mutex::new(HashMap::new()),
             changes: Mutex::new(HashMap::new()),
             faces: Mutex::new(HashMap::new()),
+            face_bases: Mutex::new(HashMap::new()),
             levels: Mutex::new(HashMap::new()),
         }
     }
@@ -176,7 +180,24 @@ impl ActorWorld {
     /// creator) in place of the record's.
     pub fn resolve_as(&self, base: u32, reference: u32, wearing: Option<&[FormId]>, look: Option<&fnv_actor::Look>) -> Result<Appearance, String> {
         let change = self.change(reference);
-        let mut app = Resolver { actors: &self.actors, forms: &self.forms }.resolve_changed_at(FormId(base), self.seed(reference), wearing, look, change, self.level(reference)).map_err(|e| e.to_string())?;
+        let resolver = Resolver { actors: &self.actors, forms: &self.forms };
+        let (seed, level) = (self.seed(reference), self.level(reference));
+        let mut app = resolver.resolve_changed_at(FormId(base), seed, wearing, look, change, level).map_err(|e| e.to_string())?;
+        // BaseCopyFaceGenFrom: the source NPC's look (race, sex, face, skin, hair, eyes,
+        // head parts) wearing this actor's own clothes, as this actor [documented:
+        // CopyFaceGenFrom; hypothesis: height and outfit stay the actor's own].
+        let source = self.face_bases.lock().ok().and_then(|m| m.get(&base).copied());
+        if let (Some(src), None) = (source, look) {
+            match resolver.resolve_changed_at(FormId(src), seed, Some(wearing.unwrap_or(&app.worn)), None, change, level) {
+                Ok(mut copy) => {
+                    copy.npc = app.npc;
+                    copy.edid = app.edid.take();
+                    copy.height = app.height;
+                    app = copy;
+                }
+                Err(e) => warn!("appearance: BaseCopyFaceGenFrom source {src:08X} of {base:08X}: {e}"),
+            }
+        }
         let morphs = self.faces.lock().ok().and_then(|f| f.get(&reference).cloned());
         for m in morphs.unwrap_or_default() {
             self.morph_face(&mut app, &m);

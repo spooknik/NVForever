@@ -261,6 +261,9 @@ impl Game<'_> {
 pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
     let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(f) == Some(*sig));
+    // Validate the inherited type, but write to the exact session clone. Replacing
+    // the clone ID with its original here would edit every user of that original.
+    let projectile = |g: &Game, f: Option<FormId>| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"PROJ"));
     let zero = XVal::Num(0.0);
     // The setters of a trait return 0 [hypothesis: as the record setters of batch 5 were
     // observed to, jip-records-5.md].
@@ -312,7 +315,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- projectiles and explosions
         "setprojectiletraitnumeric" => {
             let t = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| PROJ_NUMERIC.get(i));
-            if let (Some(p), Some(&(sub, path, how))) = (of_sig(g, form(args, 0), b"PROJ"), t) {
+            if let (Some(p), Some(&(sub, path, how))) = (projectile(g, form(args, 0)), t) {
                 if let Some(v) = take(num(args, 2, f64::NAN), how) {
                     g.set_field(p, sub, path, XVal::Num(v));
                 }
@@ -321,7 +324,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // `projectile [light]`: left out, none [documented: SetProjectileLight].
         "setprojectilelight" => {
-            if let Some(p) = of_sig(g, form(args, 0), b"PROJ") {
+            if let Some(p) = projectile(g, form(args, 0)) {
                 g.set_field(p, "DATA", "light", XVal::Ref(form(args, 1).map_or(0, |f| f.0)));
             }
             zero
@@ -329,7 +332,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `projectile path`: the muzzle flash model (NAM1) [documented:
         // SetProjectileMuzzleFlash; the field: xEdit PROJ].
         "setprojectilemuzzleflash" => {
-            if let (Some(p), Some(path)) = (of_sig(g, form(args, 0), b"PROJ"), text(args, 1)) {
+            if let (Some(p), Some(path)) = (projectile(g, form(args, 0)), text(args, 1)) {
                 g.set_field(p, "NAM1", "", XVal::Str(path));
             }
             zero

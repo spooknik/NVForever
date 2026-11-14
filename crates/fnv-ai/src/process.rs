@@ -37,6 +37,14 @@
 //!     loaded area (the engine looks at the rest of its path): every frame, so it
 //!     arrives when it would have walking in sight.
 //!
+//!   At each such update, and once in each hour of a wait, the actor's script runs its
+//!   GameMode block where it is ([`Game::run_far_frame`], only for a block that tests
+//!   "not in the player's cell") before the walk: a MoveTo or an
+//!   EvaluatePackage there is what the update goes on from [hypothesis from the data,
+//!   observer check 135: Beyond the Beef's Chauncey leaves his Must Complete patrol only
+//!   through his own GameMode block, written for when the player is in another cell,
+//!   issue #2445].
+//!
 //!   The original's Mid-Low (interiors reached by doors from the loaded cells, never
 //!   visited, "unknown" rate) is [`ProcessLevel::Low`] here: the engine hands the AI
 //!   the actors of those interiors with the loaded cells' own (Boone leaves his room
@@ -138,6 +146,9 @@ pub struct ProcessStats {
     pub coming_updates: usize,
     /// Low-process walks cut short where they came into the loaded area.
     pub reached_loaded: usize,
+    /// GameMode runs of the scripts of actors out of the loaded cells
+    /// ([`Game::run_far_frame`]): at their low-process updates and in each hour of a wait.
+    pub far_scripts: usize,
 }
 
 /// The loaded area, as the engine has it ([`Ai::set_loaded`]): an interior, or the
@@ -361,6 +372,17 @@ impl Ai {
     /// One low-process update of `actor` for `seconds` (module notes).
     fn low_update(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, seconds: f32) {
         self.process_stats.low_updates += 1;
+        // Its script runs where it is, before it takes up its package: a MoveTo or an
+        // EvaluatePackage there is what this update goes on from (`Game::run_far_frame`).
+        self.process_stats.far_scripts += usize::from(game.run_far_frame(actor));
+        // Put somewhere by it (MoveTo): it goes on from there now, and the engine still
+        // hears of the move (`Ai::moved_by_scripts`).
+        if game.teleported.contains(&actor) && self.agents.contains_key(&actor) {
+            self.relocate(game, actor);
+        }
+        if !self.agents.contains_key(&actor) {
+            return;
+        }
         let mut left = seconds;
         let package = self.agents.get(&actor).and_then(|a| a.package);
         let far = self.far.contains(&actor);

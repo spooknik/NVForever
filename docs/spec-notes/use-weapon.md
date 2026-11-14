@@ -63,6 +63,16 @@ next to StartCombat, and ResetAI is used to end it.
   Securitrons); 38 of them carry conditions [observed: `fnvtool ai packages` and `ai
   show`, 2026-11-11].
 
+- A Do No Damage hit (a shot or a blow) runs the target's OnHit and OnHitWith blocks with
+  the shooter as attacker and deals no damage of its own (`Game::harmless_hit`, #2433)
+  [hypothesis from the data, observer check 134: G.I. Blues' staged ambush. Orris's
+  VFSOrrisShootThug01-03Package are Always Hit and Do No Damage, one volley of 1 to 6
+  shots, Once Per Day, each conditioned on his `shootingthugsstate` and the thug not
+  unconscious. Each thug's OnHit block for Orris (SCPT 0x00118A77) knocks it out
+  (SetUnconscious 1, PushActorAway) and moves the state on, the third adds his
+  after-fight Dialogue package. Without OnHit the first package ended after its shot
+  and none followed: the owner's soft lock].
+
 ## 4. SetRestrained
 
 Restrained actors still try Use Weapon packages and UseWeapon and their animations but

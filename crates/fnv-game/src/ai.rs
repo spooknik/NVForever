@@ -19,6 +19,23 @@ use crate::trace::EventKind;
 use fnv_sim::FormId;
 use std::collections::BTreeSet;
 
+/// A script's write that moves GameHour by more than this many game hours on the clock
+/// face ([`clock_face_hours`]) is a jump of the clock: the engine has every actor choose
+/// its package now and puts the actors the player cannot see where their packages have
+/// them, as at the end of a wait ([`crate::game::Game::take_hour_jump`]) [design, #2353:
+/// the original's handling of a script's GameHour write is not described by any source
+/// read, docs/spec-notes/packages.md §9; one hour is more than the periodic choice's
+/// ~10 s lag stands for at any TimeScale in use, and less than a schedule's shortest
+/// window].
+pub const SCRIPT_HOUR_JUMP: f32 = 1.0;
+
+/// How far apart two hours of the day are on the clock face, 0 to 12: 23:00 and 01:00
+/// are two hours apart, whichever way the clock went.
+pub fn clock_face_hours(from: f32, to: f32) -> f32 {
+    let d = (to - from).rem_euclid(24.0);
+    d.min(24.0 - d)
+}
+
 /// What the layer that carries packages out (`fnv_ai`) has an actor do within its
 /// current package, as it last told ([`Game::set_ai_phase`]); GetCurrentAIProcedure reads
 /// it (`functions::ai_state`). `None` (the field unset): that layer does not run the

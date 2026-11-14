@@ -14,7 +14,7 @@ use crate::anim_play::{Clip, MaterialTarget, MaterialTrack, OwnCycle, Playing};
 use crate::material_anim::{MaterialSlot, RigMaterials};
 use crate::data::GameData;
 use crate::nif_material::NifMaterial;
-use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material_with, shape_props, shape_skin, to_bevy, StoreTextures, TextureSource};
+use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shaded_model, shape_material_with, shape_props, shape_skin, to_bevy, StoreTextures, TextureSource};
 use crate::texture::{worker_texture, TextureCache, TextureSnapshot, WorkerTextures};
 use bevy::asset::AssetHandleProvider;
 use bevy::image::CompressedImageFormats;
@@ -415,11 +415,29 @@ pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack>
 /// Close name `VintageRadioBody:0`, whose material the needle and the glass dial (with the
 /// glow-mapped dial face) list too [observed: `vintageradio01.nif`, docs/spec-notes/activators.md §2].
 pub fn material_sharers(file: &NifFile, dec: &Decoded) -> HashMap<String, Vec<String>> {
+    property_sharers(file, dec, "NiMaterialProperty")
+}
+
+/// For each named shape, the other named shapes that list the same `NiTexturingProperty`
+/// block (lower-case names), as [`material_sharers`] for the material: a texture
+/// transform track names one shape, but its controller moves the property's base
+/// texture, which every shape listing it wears. The Hidden Valley sand storm's
+/// SpecialIdle names `NVSandstorm01:0`; its 17 other dust sheets list the same
+/// `NiTexturingProperty` (and `NiMaterialProperty`) [observed:
+/// `effects\nv\nvsandstormnight.nif`, `fnvtool nif decode`], and only the first one
+/// scrolled (#2450).
+pub fn texturing_sharers(file: &NifFile, dec: &Decoded) -> HashMap<String, Vec<String>> {
+    property_sharers(file, dec, "NiTexturingProperty")
+}
+
+/// For each named shape, the other named shapes listing the same property block of type
+/// `kind` (lower-case names).
+fn property_sharers(file: &NifFile, dec: &Decoded, kind: &str) -> HashMap<String, Vec<String>> {
     let mut users: HashMap<i32, Vec<String>> = HashMap::new();
     for b in dec.blocks.iter().flatten() {
         let Some(name) = b.text("name").filter(|n| !n.is_empty()) else { continue };
         for &r in b.refs("properties").unwrap_or_default() {
-            if file.blocks.get(r as usize).is_some_and(|p| p.type_name == "NiMaterialProperty") {
+            if file.blocks.get(r as usize).is_some_and(|p| p.type_name == kind) {
                 let v = users.entry(r).or_default();
                 if !v.iter().any(|n| n.eq_ignore_ascii_case(name)) {
                     v.push(name.to_ascii_lowercase());
@@ -441,17 +459,21 @@ pub fn material_sharers(file: &NifFile, dec: &Decoded) -> HashMap<String, Vec<St
     out
 }
 
-/// Give the shapes that share a driven shape's `NiMaterialProperty` ([`material_sharers`],
-/// named as the file names them in `names`) the same material tracks: the members a
-/// `NiMaterialProperty` holds (emissive colour and multiplier, alpha), not texture
-/// transforms or refraction. A shape the clip already drives for a member keeps its own
-/// track. Returns the shapes added.
-pub fn share_material_tracks(clip: &mut Clip, sharers: &HashMap<String, Vec<String>>, names: &HashMap<String, String>) -> Vec<String> {
+/// Give the shapes that share a driven shape's property block (named as the file names
+/// them in `names`) the same tracks: the members a `NiMaterialProperty` holds (emissive
+/// colour and multiplier, alpha) go to the shapes wearing the same material
+/// ([`material_sharers`]), the base texture's offset, scale and rotation to those
+/// wearing the same `NiTexturingProperty` ([`texturing_sharers`]); refraction (on the
+/// shader property) is not shared. A shape the clip already drives for a member keeps
+/// its own track. Returns the shapes added.
+pub fn share_material_tracks(clip: &mut Clip, material: &HashMap<String, Vec<String>>, texturing: &HashMap<String, Vec<String>>, names: &HashMap<String, String>) -> Vec<String> {
     let mut added: Vec<MaterialTrack> = Vec::new();
     for t in &clip.materials {
-        if !matches!(t.target, MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult | MaterialTarget::Alpha) {
-            continue;
-        }
+        let sharers = match t.target {
+            MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult | MaterialTarget::Alpha => material,
+            MaterialTarget::UvOffset(_) | MaterialTarget::UvScale(_) | MaterialTarget::UvRotate => texturing,
+            MaterialTarget::Refraction => continue,
+        };
         for other in sharers.get(&t.shape.to_ascii_lowercase()).into_iter().flatten() {
             let Some(name) = names.get(other) else { continue };
             let driven = |m: &MaterialTrack| m.target == t.target && m.shape.eq_ignore_ascii_case(name);
@@ -461,8 +483,12 @@ pub fn share_material_tracks(clip: &mut Clip, sharers: &HashMap<String, Vec<Stri
             added.push(MaterialTrack { shape: name.clone(), ..t.clone() });
         }
     }
-    let mut shapes: Vec<String> = added.iter().map(|t| t.shape.clone()).collect();
-    shapes.dedup();
+    let mut shapes: Vec<String> = Vec::new();
+    for t in &added {
+        if !shapes.contains(&t.shape) {
+            shapes.push(t.shape.clone());
+        }
+    }
     clip.materials.extend(added);
     shapes
 }
@@ -1425,22 +1451,30 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     let mut door = named("open").zip(named("close")).and_then(|(open, close)| Some(DoorClips { open: playable(path, open)?, close: playable(path, close)? }));
     // Every named sequence that animates this file (scripts' PlayGroup).
     let mut groups: Vec<Clip> = seqs.iter().filter(|s| s.name.is_some()).map(Clip::from_sequence).filter(&moves).filter_map(|c| playable(path, c)).collect();
-    // Shapes that wear a driven shape's material are driven with it (`material_sharers`).
+    // Shapes that wear a driven shape's material or texturing property are driven with it
+    // (`material_sharers`, `texturing_sharers`).
     let sharers = material_sharers(&file, &dec);
+    let texturing = texturing_sharers(&file, &dec);
     let mut idle = idle;
     let mut effect = effect;
-    if !sharers.is_empty() {
+    if !sharers.is_empty() || !texturing.is_empty() {
         let names: HashMap<String, String> = objects.iter().filter_map(|o| o.name.clone()).map(|n| (n.to_ascii_lowercase(), n)).collect();
-        let mut shared: Vec<String> = Vec::new();
+        let none = HashMap::new();
+        let (mut shared, mut scrolled): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
         for c in idle.iter_mut().chain(effect.iter_mut()).chain(door.iter_mut().flat_map(|d| [&mut d.open, &mut d.close])).chain(groups.iter_mut()) {
-            for s in share_material_tracks(c, &sharers, &names) {
-                if !shared.contains(&s) {
-                    shared.push(s);
+            for (out, added) in [(&mut shared, share_material_tracks(c, &sharers, &none, &names)), (&mut scrolled, share_material_tracks(c, &none, &texturing, &names))] {
+                for s in added {
+                    if !out.contains(&s) {
+                        out.push(s);
+                    }
                 }
             }
         }
         if !shared.is_empty() {
             info!("{path}: shapes sharing a driven material are driven with it: {}", shared.join(", "));
+        }
+        if !scrolled.is_empty() {
+            info!("{path}: shapes sharing a driven texturing property move their texture with it: {}", scrolled.join(", "));
         }
     }
     // Shapes whose material a clip of the rig drives.
@@ -1536,6 +1570,9 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     // shapes wear in that form after it and the texture swap (first-person-textures.md).
     let mut first_textures = 0;
     let mut first_worn = 0;
+    // Shapes without any property beside shaded ones: editor geometry (`Props::is_helper`).
+    let shaded = shaded_model(&file, &dec);
+    let mut editor_shapes: Vec<String> = Vec::new();
     for o in objects.iter().filter(|o| !o.is_node) {
         // Walk to the root: accumulate the transform below the root's own and look
         // for hidden ancestors.
@@ -1571,7 +1608,10 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
         let shape_name = o.name.clone().unwrap_or_default();
         props.animated_emissive = emissive_shapes.contains(&shape_name);
         props.animated_alpha = alpha_shapes.contains(&shape_name);
-        if props.is_helper() {
+        if props.is_helper(shaded) {
+            if props.is_bare() {
+                editor_shapes.push(shape_name);
+            }
             continue;
         }
         if let Some(set) = swap_of.get(&o.block) {
@@ -1676,6 +1716,9 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     if first_person {
         info!("{path}: first person, {first_worn} texture(s) in their 1stperson form ({first_textures} by the name rule, the rest named by its texture swap or the model)");
     }
+    if !editor_shapes.is_empty() {
+        info!("{path}: {} editor shape(s) without any property left out: {}", editor_shapes.len(), editor_shapes.join(", "));
+    }
     if !swaps.is_empty() {
         info!("{path}: texture swap: {} entr(ies), {} shape(s) retextured: {}", swaps.len(), swapped.len(), swapped.join(", "));
     }
@@ -1697,12 +1740,33 @@ mod tests {
         let mut clip = Clip::from_controllers(vec![glow, scroll], Vec::new(), Vec::new());
         let names: HashMap<String, String> = ["VintageRadioBody:0", "VintageRadioNeedle01", "VintageRadioGlassDial:0"].iter().map(|n| (n.to_ascii_lowercase(), n.to_string())).collect();
         let sharers = HashMap::from([("vintageradiobody:0".to_string(), vec!["vintageradioneedle01".to_string(), "vintageradioglassdial:0".to_string()])]);
-        let added = share_material_tracks(&mut clip, &sharers, &names);
+        let added = share_material_tracks(&mut clip, &sharers, &HashMap::new(), &names);
         assert_eq!(added, ["VintageRadioNeedle01", "VintageRadioGlassDial:0"]);
         assert_eq!(clip.materials.len(), 4);
         assert!(clip.materials[2..].iter().all(|t| t.target == MaterialTarget::SelfIllum));
         // Again: nothing more (each already driven).
-        assert!(share_material_tracks(&mut clip, &sharers, &names).is_empty());
+        assert!(share_material_tracks(&mut clip, &sharers, &HashMap::new(), &names).is_empty());
+    }
+
+    #[test]
+    fn shapes_sharing_a_driven_texturing_property_scroll_with_it() {
+        // nvsandstormnight.nif (#2450): SpecialIdle scrolls NVSandstorm01:0's base texture
+        // and holds its alpha; the other dust sheets list the same NiTexturingProperty and
+        // NiMaterialProperty, so all of them scroll and none is left standing still.
+        let scroll = MaterialTrack { shape: "NVSandstorm01:0".into(), target: MaterialTarget::UvOffset(0), values: Arc::new(ValueTrack::Float(Channel::Static(Some([0.5])))), cycle: None, priority: 0 };
+        let alpha = MaterialTrack { target: MaterialTarget::Alpha, values: Arc::new(ValueTrack::Float(Channel::Static(Some([1.0])))), ..scroll.clone() };
+        let mut clip = Clip::from_controllers(vec![scroll, alpha], Vec::new(), Vec::new());
+        let names: HashMap<String, String> = ["NVSandstorm01:0", "NVSandstorm02:0", "NVSandstorm03:0"].iter().map(|n| (n.to_ascii_lowercase(), n.to_string())).collect();
+        let sharers = HashMap::from([("nvsandstorm01:0".to_string(), vec!["nvsandstorm02:0".to_string(), "nvsandstorm03:0".to_string()])]);
+        let added = share_material_tracks(&mut clip, &sharers, &sharers, &names);
+        assert_eq!(added, ["NVSandstorm02:0", "NVSandstorm03:0"]);
+        for shape in ["NVSandstorm02:0", "NVSandstorm03:0"] {
+            let of = |t: MaterialTarget| clip.materials.iter().filter(|m| m.shape == shape && m.target == t).count();
+            assert_eq!((of(MaterialTarget::UvOffset(0)), of(MaterialTarget::Alpha)), (1, 1), "{shape}");
+        }
+        // Without a shared texturing property the scroll stays on its own shape.
+        let mut clip = Clip::from_controllers(vec![clip.materials[0].clone()], Vec::new(), Vec::new());
+        assert!(share_material_tracks(&mut clip, &sharers, &HashMap::new(), &names).is_empty());
     }
 
     #[test]

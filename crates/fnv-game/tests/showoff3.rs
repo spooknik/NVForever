@@ -289,3 +289,23 @@ fn small_getters_run() {
     assert_eq!(n(&mut g, "player.SetRadiationExtraData 20"), 1.0);
     assert_eq!(n(&mut g, "player.GetRadiationExtraData"), 20.0);
 }
+
+/// JIP's IsAnimPlayingEx movement sub-types and variation flags [documented:
+/// IsAnimPlayingEx]: running forward is not a jump (Enhanced Movement's sprint stays off
+/// while `IsAnimPlayingEx 2 5` holds, #2275).
+#[test]
+fn is_anim_playing_ex_tells_movement_sub_types_apart() {
+    use fnv_game::anim_state::{AnimState, MoveDir};
+    let f = fixture();
+    let mut g = game(&f);
+    let p = fnv_sim::FormId::PLAYER_REF;
+    g.set_anim_state(p, AnimState { moving: MoveDir::Forward, group: Some("FastForward"), ..Default::default() });
+    for (expr, want) in [("2", 1.0), ("2 1", 1.0), ("2 2", 0.0), ("2 5", 0.0), ("2 0 1", 1.0), ("2 1 4", 0.0)] {
+        assert_eq!(n(&mut g, &format!("player.IsAnimPlayingEx {expr}")), want, "running forward: {expr}");
+    }
+    g.set_anim_state(p, AnimState { moving: MoveDir::Forward, group: Some("Forward"), ..Default::default() });
+    assert_eq!(n(&mut g, "player.IsAnimPlayingEx 2 0 1"), 0.0, "walking is not fast");
+    g.set_anim_state(p, AnimState { moving: MoveDir::None, group: Some("JumpLoop"), ..Default::default() });
+    assert_eq!(n(&mut g, "player.IsAnimPlayingEx 2 5"), 1.0, "in a jump");
+    assert_eq!(n(&mut g, "player.IsAnimPlayingEx 2"), 1.0);
+}

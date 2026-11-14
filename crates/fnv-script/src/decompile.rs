@@ -242,6 +242,13 @@ impl Decompiler<'_> {
         }
     }
 
+    /// The first line of statement `s` in canonical text (an `if`'s or a loop's head).
+    pub fn head(&self, s: &Stmt) -> String {
+        let mut out = Vec::new();
+        self.stmts(std::slice::from_ref(s), &mut out);
+        out.into_iter().next().unwrap_or_default().trim().to_string()
+    }
+
     fn stmts(&self, s: &[Stmt], out: &mut Vec<String>) {
         for st in s {
             match st {

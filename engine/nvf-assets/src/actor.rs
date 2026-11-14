@@ -33,7 +33,7 @@ use crate::anim_play::{BlendPlayer, BoundClip, Clip};
 use crate::data::GameData;
 use crate::model::ModelCtx;
 use crate::nif_material::NifMaterial;
-use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material, shape_material_reusing_tangents, shape_props, shape_skin, to_bevy, Props};
+use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shaded_model, shape_material, shape_material_reusing_tangents, shape_props, shape_skin, to_bevy, Props};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::math::Affine3A;
@@ -840,6 +840,7 @@ impl ActorCtx<'_, '_> {
         let (file, _bytes, dec) = ahead.unwrap_or_else(|| decode(&m.data, path))?;
         let objects = scene_objects(&file, &dec);
         let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+        let shaded = shaded_model(&file, &dec);
         let hidden_self = |b: usize| {
             dec.blocks[b].as_ref().ok().and_then(|s| s.int("flags")).unwrap_or(0) & 1 != 0
                 || is_editor_marker(by_block.get(&b).and_then(|o| o.name.as_deref()))
@@ -898,7 +899,7 @@ impl ActorCtx<'_, '_> {
             let Ok(shape) = &dec.blocks[o.block] else { continue };
             let Some(data) = shape.block_ref("data").and_then(|r| dec.get(r)) else { continue };
             let mut props = shape_props(&file, &dec, o, &by_block);
-            if props.is_helper() {
+            if props.is_helper(shaded) {
                 continue;
             }
             // The actor's clips may fade this shape's material alpha (Mr. House's screens).

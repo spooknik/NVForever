@@ -56,3 +56,51 @@ GetAnimationAttributes, Get/SetGlobalAnimTime, the blend functions, SetAnimWeigh
 SetAnimAdditive, the text-key functions, CopyAnimationsToForm and the rest are built on
 the game side (`nvse_knvse.rs`, docs/spec-notes/ext-knvse.md). The engine's per-actor
 player does not read their state yet.
+
+## 5. The player, conditions and folders (2026-11-13)
+
+- **Conditions** [documented: SetActorAnimationPath, `pollConditionFunction
+  conditionFunction`]: a path's condition function is kept with it
+  (`AnimPaths::conditions`). `Game::anim_overrides_now` runs each condition on the
+  actor (`this`) and keeps the paths whose condition holds; the engine asks every
+  frame, which covers polling [hypothesis: the original also stops an override midway
+  when `pollConditionFunction` is 1 and its condition turns false]. `Game::anim_overrides`
+  (shared borrow, NPCs) leaves conditional paths out.
+- **Folders** [documented: "Path may also be a folder containing KF files"]: a path
+  that is not a file gives the `.kf` files directly in the folder (`nvse_anim::kf_files`,
+  loose files only); SetActorAnimationPath returns 0 when a path gives none.
+- **Stacking** [documented: "the previous override will be restored once the other mod
+  disables"]: enabling a path again puts it on top; a later file of a clip's name wins.
+- **The player** (`nvforever` player_body.rs, `apply_anim_overrides`): each frame the
+  game's list for each view (third person: first person off; first person: on) gives each
+  rig a map of file names to replacement paths. `Rig::clip` takes a replacement before
+  the rig's own folder: the one whose path ends as the clip's candidate does
+  (`locomotion\male\mtforward.kf`), else one of that file name not in the other sex's
+  folder [hypothesis: a replacement is named as the clip it replaces, as the mods'
+  folders do]. A change clears the rig's chosen clips.
+- **Seen in Blue Moon:** Enhanced Movement's sprint plays `EM_SprintM\mtfastforward.kf`
+  (third person) and `EM_Sprint_1stPerson\mtfastforward.kf` (first) while sprinting, the
+  vanilla ones otherwise; Titans of the New West's power armour puts 408 third-person
+  files on the player (`AnimGroupOverride\TNW\_male\…`), and its walk plays them.
+- **Weapon paths** [documented: SetWeaponAnimationPath; hypothesis: they apply to
+  whoever holds the weapon]: the files of the weapon an actor has equipped come after
+  the folders' and before the actor's own paths (`Game::weapon_overrides`), for NPCs and
+  the player alike.
+- **Script-played sequences on the player** (`nvforever` script_sequences.rs,
+  docs/spec-notes/player-script-sequence-bridge.md): PlayAnimationPath's and
+  ActivateAnim's sequences are requests in `AnimPaths::sequences`, played on the player's
+  rigs beside locomotion; PlayAnimationPath's finish by themselves, ActivateAnim's stay
+  until DeactivateAnim takes them back [documented: ActivateAnim, "adds a sequence to the
+  active ones"] (smoke `knvse-player-sequences`). An earlier slice of this branch played
+  them through the idle slot and a layer list of its own; that went when the request
+  model reached main (#2395), so one sequence is not played twice.
+- **Script-played sequences on NPCs** (`nvforever` idles.rs, `play_npc_sequences`):
+  PlayAnimationPath's sequence starts on the drawn actor's idle slot, bound to its
+  skeleton, once or looping as on the player; DeactivateAnim stops it; an actor out of
+  view starts it again when drawn (smoke `knvse-npc-sequences`).
+- **NPCs' conditional paths** (anim_paths.rs): an actor with a conditional
+  SetActorAnimationPath gets `Game::anim_overrides_now` each frame, the world put back,
+  so the replacement comes and goes with its condition; the others keep
+  `Game::anim_overrides`.
+- **Still not built:** ActivateAnim's layered sequences on NPCs; NPCs' replacements
+  for anything but their standing locomotion.

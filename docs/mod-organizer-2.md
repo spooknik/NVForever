@@ -44,3 +44,19 @@ MO2 starts programs with its file system hook (usvfs). NVForever sees the hook i
 process and reads the plugin list MO2 shows it at the original game's list path
 (`%LOCALAPPDATA%\FalloutNV\plugins.txt`), recognised by MO2's header line. Details and
 sources: `crates/fnv-install/src/mo2.rs`, docs/design/install-layout.md.
+
+## Checking a mod list's scripts without starting the game
+
+`fnvtool` reads an MO2 profile directly, with MO2 closed: `--mo2-profile <profile
+folder>` anywhere in a command that takes a load order stands for the profile's active
+plugins, in order. Each plugin comes from the highest-priority active mod that has it,
+or else from the game's Data folder (the instance's `gamePath`). For example, the
+extender scripts the game will run from source, the ones that won't compile and the
+functions NVForever lacks, per plugin:
+
+```
+fnvtool ext report "<game>\Data" --mo2-profile "<instance>\profiles\<profile>" --schema schemas/fnv
+```
+
+Only plugins are read this way. A mod's loose files and archives are not merged, so
+commands that need meshes or textures still need MO2 or a merged Data folder.

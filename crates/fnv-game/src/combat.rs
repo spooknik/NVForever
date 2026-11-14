@@ -697,6 +697,19 @@ impl Game<'_> {
         ran
     }
 
+    /// A hit that deals no damage: a Use Weapon package's or UseWeapon's Do No Damage
+    /// ("prevent all damage", "for scripted protracted fake combat" [documented: GECK
+    /// wiki UseWeapon, docs/spec-notes/use-weapon.md §1]). The target's OnHit and
+    /// OnHitWith blocks run with the attacker and the weapon, as for any hit; nothing else
+    /// changes: no Health, limb or fatigue damage, no hit lines, no last hit, no JIP hit
+    /// event. Returns whether a block ran. [observed: G.I. Blues' thugs fall only in their
+    /// OnHit block for Orris (SCPT 0x00118A77), whose Use Weapon packages are Always Hit and
+    /// Do No Damage, so the scene goes on only if such a hit runs it (#2433); hypothesis:
+    /// that is what the original does, observer check 134.]
+    pub fn harmless_hit(&mut self, target: FormId, info: HitInfo) -> bool {
+        self.hit_object(target, info)
+    }
+
     /// Tell the rules which weapon the animating side draws for `actor`
     /// (`RefExtra::held_weapon`).
     pub fn set_held_weapon(&mut self, actor: FormId, weapon: Option<FormId>) {

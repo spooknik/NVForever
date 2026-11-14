@@ -36,10 +36,16 @@ impl DrawnFloors {
     /// skinned and not hidden (nor under a hidden node) [documented: nif.xml NiAVObject
     /// flags, bit 0 Hidden], placed by its node transforms below the root (a placed
     /// reference's transform replaces the root's). `None` when there are none.
+    /// Shapes with no property at all on themselves or a parent, in a model that holds
+    /// a shader property, are editor geometry too (the furniture-marker figures and
+    /// capsules of `furniture\loungechair_tops.nif`, `nvf_assets`' `Props::is_helper`,
+    /// docs/spec-notes/nif.md §6 "Shapes with no property at all").
     pub fn from_nif(file: &NifFile, dec: &Decoded) -> Option<DrawnFloors> {
         let objects = scene_objects(file, dec);
         let by_block: std::collections::HashMap<usize, usize> = objects.iter().enumerate().map(|(i, o)| (o.block, i)).collect();
         let hidden = |block: usize| dec.blocks.get(block).and_then(|b| b.as_ref().ok()).and_then(|s| s.int("flags")).is_some_and(|f| f & 1 != 0);
+        let has_properties = |block: usize| dec.blocks.get(block).and_then(|b| b.as_ref().ok()).and_then(|s| s.refs("properties")).is_some_and(|p| !p.is_empty());
+        let shaded = (0..file.blocks.len()).any(|i| dec.is_a(i, "BSShaderProperty"));
         let mut tris = Vec::new();
         for o in objects.iter().filter(|o| !o.is_node) {
             let Ok(shape) = dec.blocks[o.block].as_ref() else { continue };
@@ -50,15 +56,17 @@ impl DrawnFloors {
             let mut chain = Vec::new();
             let mut at = Some(o.block);
             let mut shown = true;
+            let mut bare = true;
             while let Some(b) = at {
                 shown &= !hidden(b);
+                bare &= !has_properties(b);
                 let Some(&i) = by_block.get(&b) else { break };
                 at = objects[i].parent;
                 if at.is_some() {
                     chain.push(objects[i].transform);
                 }
             }
-            if !shown {
+            if !shown || (bare && shaded) {
                 continue;
             }
             let Some(data) = shape.block_ref("data").and_then(|r| dec.get(r)) else { continue };
@@ -191,6 +199,140 @@ mod tests {
         assert_eq!(f.height_at(50.0, 30.0, -4.0, 4.0), Some(0.0));
         assert_eq!(f.height_at(50.0, 30.0, 6.0, 9.0), None);
         assert_eq!(f.height_at(150.0, 30.0, -4.0, 6.0), None);
+    }
+
+    /// A synthetic NIF (20.2.0.7, user version 11, BS version 34; the layout of
+    /// `crates/fnv-nif/tests/synthetic.rs` and `schemas/nif`, no game data): a root node
+    /// over a 100 × 100 floor square at height 5, with a BSShaderPPLightingProperty when
+    /// `shader`, and a property-less square at 50 under a `Capsule01` node (the lounge
+    /// chair's set-up, issue #2469).
+    fn chair(shader: bool) -> Vec<u8> {
+        fn words(out: &mut Vec<u8>, v: &[u32]) {
+            out.extend(v.iter().flat_map(|v| v.to_le_bytes()));
+        }
+        fn floats(out: &mut Vec<u8>, v: &[f32]) {
+            out.extend(v.iter().flat_map(|v| v.to_le_bytes()));
+        }
+        fn av(name: u32, props: &[u32]) -> Vec<u8> {
+            let mut out = vec![];
+            words(&mut out, &[name, 0, u32::MAX, 14]);
+            floats(&mut out, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0]);
+            words(&mut out, &[props.len() as u32]);
+            words(&mut out, props);
+            words(&mut out, &[u32::MAX]);
+            out
+        }
+        fn node(name: u32, children: &[u32]) -> Vec<u8> {
+            let mut out = av(name, &[]);
+            words(&mut out, &[children.len() as u32]);
+            words(&mut out, children);
+            words(&mut out, &[0]);
+            out
+        }
+        fn strips(name: u32, props: &[u32], data: u32) -> Vec<u8> {
+            let mut out = av(name, props);
+            words(&mut out, &[data, u32::MAX, 0, u32::MAX]);
+            out.push(0);
+            out
+        }
+        fn square(z: f32) -> Vec<u8> {
+            let mut out = vec![];
+            words(&mut out, &[0]);
+            out.extend(4u16.to_le_bytes());
+            out.extend([0, 0, 1]);
+            floats(&mut out, &[0.0, 0.0, z, 100.0, 0.0, z, 0.0, 100.0, z, 100.0, 100.0, z]);
+            out.extend(1u16.to_le_bytes());
+            out.push(0);
+            floats(&mut out, &[50.0, 50.0, z, 71.0]);
+            out.push(0);
+            floats(&mut out, &[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+            out.extend(0u16.to_le_bytes());
+            words(&mut out, &[u32::MAX]);
+            for v in [2u16, 1, 4] {
+                out.extend(v.to_le_bytes()); // triangles, strips, strip length
+            }
+            out.push(1); // has points
+            for v in [0u16, 1, 2, 3] {
+                out.extend(v.to_le_bytes());
+            }
+            out
+        }
+        let mut shader_block = vec![];
+        words(&mut shader_block, &[u32::MAX, 0, u32::MAX]);
+        shader_block.extend(1u16.to_le_bytes());
+        words(&mut shader_block, &[1, 0, 0]);
+        floats(&mut shader_block, &[1.0]);
+        words(&mut shader_block, &[3, u32::MAX]);
+        floats(&mut shader_block, &[0.0]);
+        words(&mut shader_block, &[0]);
+        floats(&mut shader_block, &[4.0, 1.0]);
+        let (seat_props, block2): (&[u32], (&str, Vec<u8>)) =
+            if shader { (&[2], ("BSShaderPPLightingProperty", shader_block)) } else { (&[], ("NiNode", node(u32::MAX, &[]))) };
+        let blocks = [
+            ("BSFadeNode", node(0, &[1, 3])),
+            ("NiTriStrips", strips(1, seat_props, 5)),
+            block2,
+            ("NiNode", node(2, &[4])),
+            ("NiTriStrips", strips(3, &[], 6)),
+            ("NiTriStripsData", square(5.0)),
+            ("NiTriStripsData", square(50.0)),
+        ];
+        let strings = ["Shape01", "Shape01:0", "Capsule01", "Capsule01:0"];
+        let string = |out: &mut Vec<u8>, s: &str| {
+            words(out, &[s.len() as u32]);
+            out.extend(s.as_bytes());
+        };
+        let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
+        words(&mut out, &[0x1402_0007]);
+        out.push(1);
+        words(&mut out, &[11, blocks.len() as u32, 34]);
+        out.extend([1, 0, 1, 0, 1, 0]);
+        let mut types: Vec<&str> = vec![];
+        for (kind, _) in &blocks {
+            if !types.contains(kind) {
+                types.push(kind);
+            }
+        }
+        out.extend((types.len() as u16).to_le_bytes());
+        for kind in &types {
+            string(&mut out, kind);
+        }
+        for (kind, _) in &blocks {
+            out.extend((types.iter().position(|t| t == kind).unwrap() as u16).to_le_bytes());
+        }
+        for (_, b) in &blocks {
+            words(&mut out, &[b.len() as u32]);
+        }
+        words(&mut out, &[strings.len() as u32, 11]);
+        for s in strings {
+            string(&mut out, s);
+        }
+        words(&mut out, &[0]);
+        for (_, b) in &blocks {
+            out.extend(b);
+        }
+        words(&mut out, &[1, 0]);
+        out
+    }
+
+    fn floors_of(bytes: &[u8]) -> DrawnFloors {
+        let schema = fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
+        let file = NifFile::parse(bytes, Some(&schema)).unwrap();
+        let dec = Decoded::new(&file, bytes, &schema);
+        DrawnFloors::from_nif(&file, &dec).expect("floors")
+    }
+
+    #[test]
+    fn bare_marker_shapes_are_no_floor() {
+        // Issue #2469: beside a shaded seat, the property-less capsule is editor
+        // geometry the renderer leaves out, so it is no drawn floor either.
+        let f = floors_of(&chair(true));
+        assert_eq!(f.triangles(), 2);
+        assert_eq!(f.height_at(30.0, 20.0, 0.0, 100.0), Some(5.0));
+        // In a model with no shader property anywhere both squares count.
+        let f = floors_of(&chair(false));
+        assert_eq!(f.triangles(), 4);
+        assert_eq!(f.height_at(30.0, 20.0, 0.0, 100.0), Some(50.0));
     }
 
     #[test]

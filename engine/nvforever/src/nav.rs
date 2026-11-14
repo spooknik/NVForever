@@ -468,6 +468,10 @@ pub(crate) fn show_actor(
     if !visible {
         if let Some(e) = root.take() {
             commands.entity(e).despawn();
+        } else if *spawned {
+            // Spawned, its root not found yet: nothing here takes that body away
+            // (diagnostic for #2461, a body left standing where it was spawned).
+            warn!("actor {reference:08X}: out of view before its body spawned earlier was found: that body is not taken away");
         }
         *spawned = false;
         return Ok(());
@@ -511,7 +515,14 @@ pub(crate) fn show_actor(
     if found_now {
         crate::profile::ai_count(crate::profile::AiCount::RootScans, 1);
         let _span = info_span!("ai::find_root").entered();
-        *root = roots.iter().find(|(_, v, p)| v.0 == reference && p.parent() == world_root).map(|(e, _, _)| e);
+        let mut found = roots.iter().filter(|(_, v, p)| v.0 == reference && p.parent() == world_root).map(|(e, _, _)| e);
+        *root = found.next();
+        // More than one body of the reference under the world root: the first is
+        // driven, the others stand where they were left (diagnostic for #2461).
+        let others = found.count();
+        if others > 0 {
+            warn!("actor {reference:08X}: {} bodies under the world root when its body was looked for: one is driven, {others} left standing", others + 1);
+        }
     }
     let Some(e) = *root else { return Ok(()) };
     let Ok((mut t, lo)) = actors.get_mut(e) else { return Ok(()) };

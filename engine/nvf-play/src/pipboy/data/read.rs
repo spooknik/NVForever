@@ -73,6 +73,8 @@ pub struct Marker {
     pub name: String,
     pub kind: u8,
     pub flags: u8,
+    /// `XRDS`, 0 when the reference has none (found within the default distance then:
+    /// `super::discovery_radius`, #2338).
     pub radius: f32,
     /// The reputation (REPU FormID) and its name (`FULL`).
     pub reputation: Option<(u32, String)>,

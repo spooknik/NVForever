@@ -318,3 +318,21 @@ fn match_race_copies_the_race_the_source_has_now() {
     call(&mut g, Some(FormId(GHOUL_REF)), MATCH_RACE, &[form(JOE_REF)]);
     assert!(is_race(&mut g, FormId(GHOUL_REF), HUMAN_OLD));
 }
+
+/// ShowOff's BaseCopyFaceGenFrom `to from`: every reference of NPC base `to` has
+/// `from`'s race and sex for the session; the same NPC or a non-NPC changes nothing
+/// [documented: CopyFaceGenFrom; #2275].
+#[test]
+fn base_copy_facegen_from_gives_a_base_another_npcs_look() {
+    let f = fixture();
+    let mut g = game(&f);
+    let joe = FormId(JOE_REF);
+    assert!(is_race(&mut g, joe, HUMAN));
+    let run = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap();
+    assert_eq!(run(&mut g, "SetFunctionValue (BaseCopyFaceGenFrom Joe Knife)"), fnv_script::vm::XVal::Num(1.0));
+    assert!(is_race(&mut g, joe, HUMAN), "a non-NPC source changes nothing");
+    run(&mut g, "BaseCopyFaceGenFrom Joe Gus");
+    assert!(is_race(&mut g, joe, GHOUL));
+    assert_eq!(g.face_from_base.get(&FormId(JOE)), Some(&FormId(GHOUL_NPC)));
+    assert!(is_race(&mut g, FormId(GHOUL_REF), GHOUL), "the source keeps its own look");
+}

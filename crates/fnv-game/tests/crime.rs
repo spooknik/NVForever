@@ -55,6 +55,14 @@ const SHOP_DOOR: u32 = 0x860;
 /// Two teleport doors into the shop: the first flagged No Alarm (XTEL), the second not.
 const QUIET_DOOR_REF: u32 = 0x340;
 const LOUD_DOOR_REF: u32 = 0x341;
+/// In the town only, unaggressive, out of sight of every crime (#2467): it attacks the
+/// player only by the town's enemy flag.
+const WATCHMAN: u32 = 0x83A;
+const WATCHMAN_REF: u32 = 0x327;
+/// A second placed townsman (the townsman's base).
+const TOWNSMAN2_REF: u32 = 0x328;
+/// The clock's globals (GameDaysPassed starts at 5).
+const DAYS_PASSED_START: f64 = 5.0;
 
 const GET_ACTOR_CRIME_PLAYER_ENEMY: u16 = 0x11CB;
 const GET_MINOR_CRIME_COUNT: u16 = 0x1074;
@@ -160,6 +168,7 @@ fn plugin_bytes() -> Vec<u8> {
         // Template flag 0x04: Use Factions [schema `gameplay.json`].
         record(b"NPC_", 0, HEIR, &[sub(b"EDID", z("Heir")), acbs_templated(0.0, 0x04), snam(GANG), sub(b"TPLT", SHOPKEEPER.to_le_bytes().to_vec()), aidt(0)]),
         record(b"NPC_", 0, EXILE, &[sub(b"EDID", z("Exile")), acbs(0.0), snam_at_rank(TOWN, -1), aidt(0)]),
+        record(b"NPC_", 0, WATCHMAN, &[sub(b"EDID", z("Watchman")), acbs(0.0), snam(TOWN), aidt(0)]),
     ]
     .concat();
     let misc = record(b"MISC", 0, TRINKET, &[sub(b"EDID", z("Trinket")), sub(b"DATA", [5i32.to_le_bytes(), 1f32.to_le_bytes()].concat())]);
@@ -176,6 +185,8 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", CONVICT_REF, CONVICT, vec![]),
         placed(b"ACHR", BOSS_REF, BOSS, vec![]),
         placed(b"ACHR", SAINT_REF, SAINT, vec![]),
+        placed(b"ACHR", WATCHMAN_REF, WATCHMAN, vec![]),
+        placed(b"ACHR", TOWNSMAN2_REF, TOWNSMAN, vec![]),
         placed(b"REFR", TRINKET_REF, TRINKET, vec![]),
         placed(b"REFR", GANG_TRINKET_REF, TRINKET, vec![sub(b"XOWN", GANG.to_le_bytes().to_vec()), sub(b"XRNK", 1i32.to_le_bytes().to_vec())]),
         placed(b"REFR", HEIR_TRINKET_REF, TRINKET, vec![sub(b"XOWN", HEIR.to_le_bytes().to_vec())]),
@@ -184,8 +195,19 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let children = group(SHOP.to_le_bytes(), 6, &group(SHOP.to_le_bytes(), 9, &refs));
+    let glob = |fid: u32, name: &str, v: f32| record(b"GLOB", 0, fid, &[sub(b"EDID", z(name)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", v.to_le_bytes().to_vec())]);
+    let globals = [
+        glob(0x940, "GameYear", 2281.0),
+        glob(0x941, "GameMonth", 9.0),
+        glob(0x942, "GameDay", 18.0),
+        glob(0x943, "GameHour", 12.0),
+        glob(0x944, "GameDaysPassed", DAYS_PASSED_START as f32),
+        glob(0x945, "TimeScale", 30.0),
+    ]
+    .concat();
     [
         tes4(),
+        top(b"GLOB", &globals),
         top(b"REPU", &reputations),
         top(b"FACT", &factions),
         top(b"QUST", &quest),
@@ -549,4 +571,235 @@ fn a_witness_that_ignores_crime_says_so() {
     // One that does not ignore crime says no NoCrime line.
     g.player_assaulted(FormId(STRANGER_REF));
     assert!(said(&mut g, STRANGER_REF).is_empty());
+}
+
+// ---- crimes expire (#2467; docs/spec-notes/crime-karma.md §3.7) -------------------------
+
+const SET_PC_ENEMY_OF_FACTION: u16 = 0x10C6;
+const GET_PC_ENEMY_OF_FACTION: u16 = 0x10C5;
+
+fn days(g: &Game) -> f64 {
+    g.game_days().unwrap()
+}
+
+/// Time passes by `hours` as waiting, sleeping and travel move the clock, then a detection
+/// round starts (where the engine asks hostility afresh).
+fn pass_hours(g: &mut Game, hours: f64) {
+    g.world.advance_hours(hours).unwrap();
+    g.begin_detection_round();
+    g.end_detection_round();
+}
+
+/// A script sets the clock (`set GameDaysPassed to …`).
+fn set_days(g: &mut Game, to: f64) {
+    g.run_query(&format!("Begin Function {{ }}\nset GameDaysPassed to {to}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap();
+}
+
+fn faction_flag(g: &mut Game, faction: u32) -> f64 {
+    call(g, GET_PC_ENEMY_OF_FACTION, None, &[ArgValue::Value(Value::Ref(faction))])
+}
+
+fn set_faction_flag(g: &mut Game, faction: u32, on: f64) {
+    call(g, SET_PC_ENEMY_OF_FACTION, None, &[ArgValue::Value(Value::Ref(faction)), ArgValue::Value(Value::Num(on))]);
+}
+
+/// The townsman murdered in front of the shopkeeper: the shopkeeper turns, and the town
+/// becomes the player's enemy, so the watchman, in the town only, unaggressive and out of
+/// sight, attacks.
+fn murder_townsman(g: &mut Game) {
+    sees(g, SHOPKEEPER_REF);
+    assert!(g.kill(FormId(TOWNSMAN_REF), Some(FormId::PLAYER_REF)));
+    assert_eq!(g.player.enemy_of_crimes.get(&FormId(TOWN)).copied(), Some(days(g)), "dated by the crime");
+    assert!(g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF), "the town's flag");
+    assert!(g.player.crime_enemies.contains(&FormId(SHOPKEEPER_REF)));
+}
+
+/// The factions and actors whose crimes ended since the last call.
+fn ended(g: &mut Game) -> (Vec<FormId>, Vec<FormId>) {
+    let (mut factions, mut actors) = (Vec::new(), Vec::new());
+    for n in g.crimes.take_notes() {
+        match n {
+            Note::FactionEnemyEnded { faction, .. } => factions.push(faction),
+            Note::CrimeEnemyEnded { actor, .. } => actors.push(actor),
+            _ => {}
+        }
+    }
+    (factions, actors)
+}
+
+#[test]
+fn a_seen_murders_enmity_ends_after_icooldowntimersetting_days() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(days(&g), DAYS_PASSED_START);
+    assert!(!g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF), "before the crime");
+    murder_townsman(&mut g);
+    g.crimes.take_notes();
+    // 71 hours waited: not yet three days.
+    pass_hours(&mut g, 71.0);
+    assert!(g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+    assert!(g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
+    assert_eq!(ended(&mut g), (vec![], vec![]));
+    // Two more (a sleep): the crime is three days old, both enmities end.
+    pass_hours(&mut g, 2.0);
+    assert!(!g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF), "the flag is cleared");
+    assert!(!g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF), "the witness forgave");
+    assert_eq!(ended(&mut g), (vec![FormId(TOWN)], vec![FormId(SHOPKEEPER_REF)]));
+    assert_eq!(faction_flag(&mut g, TOWN), 0.0);
+    assert_eq!(call(&mut g, GET_ACTOR_CRIME_PLAYER_ENEMY, Some(SHOPKEEPER_REF), &[]), 0.0);
+    assert!(g.player.enemy_of_crimes.is_empty() && g.player.crime_enemy_since.is_empty());
+}
+
+#[test]
+fn a_script_jumping_the_clock_or_the_wait_menus_check_ends_crimes_too() {
+    let f = fixture();
+    let mut g = game(&f);
+    murder_townsman(&mut g);
+    // A script moves the clock on four days; a script function reads the flag at once.
+    set_days(&mut g, DAYS_PASSED_START + 4.0);
+    assert_eq!(faction_flag(&mut g, TOWN), 0.0);
+    assert!(!g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+    // The Wait menu's hourly check reads it after the hours waited, no round between.
+    let mut g = game(&f);
+    murder_townsman(&mut g);
+    g.world.advance_hours(80.0).unwrap();
+    assert!(!fnv_game::rest::hostile_to_player(&mut g, FormId(WATCHMAN_REF)));
+    // Moving the clock back ends nothing.
+    let mut g = game(&f);
+    murder_townsman(&mut g);
+    set_days(&mut g, DAYS_PASSED_START - 3.0);
+    pass_hours(&mut g, 1.0);
+    assert!(g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+}
+
+#[test]
+fn a_scripts_enemy_flag_outlasts_the_cooldown() {
+    let f = fixture();
+    let mut g = game(&f);
+    // SetPCEnemyOfFaction Market 1: no crime, it stays.
+    set_faction_flag(&mut g, MARKET, 1.0);
+    // The town's flag set by a crime and then by a script: the script's holds it. (A
+    // script's flag first would make the townsman's killing self-defence, no crime.)
+    murder_townsman(&mut g);
+    set_faction_flag(&mut g, TOWN, 1.0);
+    g.crimes.take_notes();
+    pass_hours(&mut g, 24.0 * 4.0);
+    assert_eq!(faction_flag(&mut g, MARKET), 1.0);
+    assert_eq!(faction_flag(&mut g, TOWN), 1.0);
+    assert!(g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+    // The witness's own enmity was the crime's: it ended.
+    assert_eq!(ended(&mut g), (vec![], vec![FormId(SHOPKEEPER_REF)]), "no faction flag ended");
+    // SetPCEnemyOfFaction 0 clears it.
+    set_faction_flag(&mut g, TOWN, 0.0);
+    assert!(!g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+}
+
+#[test]
+fn a_later_crime_restarts_the_count() {
+    let f = fixture();
+    let mut g = game(&f);
+    murder_townsman(&mut g);
+    // Day 2: the shopkeeper, a crime enemy, killed in front of the second townsman (still
+    // murder: a crime of the player's made it hostile) dates the town's flag again.
+    pass_hours(&mut g, 48.0);
+    g.detection.pairs.clear();
+    sees(&mut g, TOWNSMAN2_REF);
+    assert!(g.kill(FormId(SHOPKEEPER_REF), Some(FormId::PLAYER_REF)));
+    assert!((g.player.enemy_of_crimes[&FormId(TOWN)] - (DAYS_PASSED_START + 2.0)).abs() < 1e-3);
+    // Four days after the first murder, two after the second: still an enemy.
+    pass_hours(&mut g, 48.0);
+    assert!(g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+    // Three days after the second: no more.
+    pass_hours(&mut g, 25.0);
+    assert!(!g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+    // A witness's own enmity restarts with a later crime it sees: a theft on day 2.
+    let mut g = game(&f);
+    sees(&mut g, SHOPKEEPER_REF);
+    g.player_stole(Some(FormId(TRINKET_REF)), None, FormId(TRINKET), 1);
+    assert!(g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
+    pass_hours(&mut g, 48.0);
+    sees(&mut g, SHOPKEEPER_REF);
+    g.player_stole(Some(FormId(TRINKET_REF)), None, FormId(TRINKET), 1);
+    pass_hours(&mut g, 48.0);
+    assert!(g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF), "two days after the second theft");
+    pass_hours(&mut g, 25.0);
+    assert!(!g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
+}
+
+#[test]
+fn an_older_save_dates_its_crime_enemies_at_the_load_and_keeps_every_faction_flag() {
+    let f = fixture();
+    let mut g = game(&f);
+    // A crime's flag (the town: its member murdered, a counted major crime), a quest's
+    // flag on the same faction and a quest's flag alone (the market), and an assault
+    // counted against a stranger: none of it tells the old save's flags apart.
+    murder_townsman(&mut g);
+    set_faction_flag(&mut g, TOWN, 1.0);
+    set_faction_flag(&mut g, MARKET, 1.0);
+    g.player_assaulted(FormId(STRANGER_REF));
+    // Saved a day after the crime, as a save from before #2467: flags and crime enemies
+    // undated.
+    set_days(&mut g, DAYS_PASSED_START + 1.0);
+    let mut old = serde_json::to_value(g.snapshot()).unwrap();
+    let player = old["player"].as_object_mut().unwrap();
+    for k in ["enemy_of_crimes", "enemy_of_script", "crime_enemy_since"] {
+        assert!(player.remove(k).is_some(), "{k} is saved");
+    }
+    let old: fnv_game::game::GameSnapshot = serde_json::from_value(old).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &old.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &old).unwrap();
+    let load_day = days(&h);
+    assert!((load_day - (DAYS_PASSED_START + 1.0)).abs() < 1e-3);
+    // The witness is dated at the load; every faction flag is kept as a script's.
+    assert_eq!(h.player.crime_enemy_since.get(&FormId(SHOPKEEPER_REF)).copied(), Some(load_day));
+    assert!(h.player.enemy_of_crimes.is_empty());
+    assert!(h.player.enemy_of_script.contains(&FormId(TOWN)) && h.player.enemy_of_script.contains(&FormId(MARKET)));
+    // Three days after the crime, two after the load: the witness is still a crime enemy.
+    pass_hours(&mut h, 48.0);
+    assert_eq!(call(&mut h, GET_ACTOR_CRIME_PLAYER_ENEMY, Some(SHOPKEEPER_REF), &[]), 1.0);
+    // Three days after the load the witness forgives its own crime (it still fights by the
+    // town's flag, kept); the flags stay.
+    pass_hours(&mut h, 25.0);
+    assert_eq!(call(&mut h, GET_ACTOR_CRIME_PLAYER_ENEMY, Some(SHOPKEEPER_REF), &[]), 0.0);
+    assert!(h.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
+    pass_hours(&mut h, 24.0 * 10.0);
+    assert!(h.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF), "the town's flag is kept");
+    assert_eq!(faction_flag(&mut h, TOWN), 1.0);
+    assert_eq!(faction_flag(&mut h, MARKET), 1.0);
+    // A save made now keeps the dates as they are.
+    let snap = h.snapshot();
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let k = Game::restore(&f.data, world, h.cfg, &snap).unwrap();
+    assert_eq!(k.player, h.player);
+}
+
+/// A second murder seen only by witnesses already hostile is still a crime against the
+/// faction: its flag's count restarts (#2467 review).
+#[test]
+fn a_murder_seen_only_by_hostile_witnesses_restarts_the_count() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Day 0: the townsman murdered in front of the shopkeeper and the second townsman;
+    // both turn.
+    sees(&mut g, TOWNSMAN2_REF);
+    murder_townsman(&mut g);
+    assert!(g.player.crime_enemies.contains(&FormId(TOWNSMAN2_REF)));
+    // Day 2: the second townsman (a crime enemy: still murder) killed in front of the
+    // shopkeeper alone, who is a crime enemy already and turns no further.
+    pass_hours(&mut g, 48.0);
+    g.detection.pairs.clear();
+    sees(&mut g, SHOPKEEPER_REF);
+    g.crimes.take_notes();
+    assert!(g.kill(FormId(TOWNSMAN2_REF), Some(FormId::PLAYER_REF)));
+    assert!(g.crimes.take_notes().iter().any(|n| matches!(n, Note::Crime { kind: Kind::Murder, hostile, .. } if hostile.is_empty())));
+    assert!((g.player.enemy_of_crimes[&FormId(TOWN)] - (DAYS_PASSED_START + 2.0)).abs() < 1e-3, "the town's count restarts");
+    assert!((g.player.crime_enemy_since[&FormId(SHOPKEEPER_REF)] - (DAYS_PASSED_START + 2.0)).abs() < 1e-3, "so does the witness's");
+    // Four days after the first murder, two after the second: still enemies.
+    pass_hours(&mut g, 48.0);
+    assert!(g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+    assert!(g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
+    // Three days after the second: no more.
+    pass_hours(&mut g, 25.0);
+    assert!(!g.would_attack(FormId(WATCHMAN_REF), FormId::PLAYER_REF));
+    assert!(!g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
 }

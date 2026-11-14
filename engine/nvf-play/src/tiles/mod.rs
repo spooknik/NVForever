@@ -81,6 +81,25 @@ pub(crate) struct MenuFiles<'w, 's> {
     main_menu: Option<Res<'w, crate::main_menu::MainMenu>>,
     menus: Option<Res<'w, vanilla::TileMenus>>,
     page: Option<Res<'w, crate::pause::Page>>,
+    pads: Query<'w, 's, (), With<Gamepad>>,
+}
+
+/// `globals()`'s `_Has360Controller`, a trait the code keeps up to date: 1 while a
+/// controller is connected, 0 otherwise, written only where a file gives `globals()` the
+/// trait [observed: Vanilla UI Plus's globals.xml sets it to 1 with the note that unlike
+/// `&xbox;` it "gets updated in-game", and reads it to support a controller plugged in or
+/// out; hypothesis: connected, not last used]. Left at the file's 1, MCM (through MCM
+/// Extender's `_AltInput`) took every pointer for a controller and ignored its clicks
+/// (issue #2298, docs/spec-notes/mcm.md §3).
+pub const HAS_CONTROLLER: &str = "_Has360Controller";
+
+/// Writes [`HAS_CONTROLLER`] on `globals()` when the trait is there.
+pub fn write_has_controller(ui: &mut fnv_ui::Ui, connected: bool) {
+    let globals = ui.globals();
+    let v = f64::from(u8::from(connected));
+    if ui.tile(globals).get(HAS_CONTROLLER).is_some_and(|now| now.num() != v) {
+        ui.set_existing(globals, HAS_CONTROLLER, Value::Num(v));
+    }
 }
 
 impl MenuFiles<'_, '_> {
@@ -144,6 +163,7 @@ impl MenuFiles<'_, '_> {
             }
         }
         let report = ui_loading::sync(game, self.paused.as_ref().is_some_and(|p| p.0), self.main_menu.as_ref().is_some_and(|m| m.open));
+        write_has_controller(&mut game.ui_tree, !self.pads.is_empty());
         for line in report.changes {
             info!("ui: {line}");
         }

@@ -1,0 +1,18 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "rest5r07",
+ "title": "rest5r07, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rA\nref rF\nref rG\nfloat fA\nfloat fB\nstring_var s\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfR5\"\nlet rF := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rA := rP.PlaceAtMe rF 1\nrP.AuxVarSetRef \"*nvfR5\" rA\nSetFunctionValue 1\nEnd\n",
+   "label": "rest5.rest5r07.place",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rF\nref rG\nfloat fA\nfloat fB\nstring_var s\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfR5\"\nSetFunctionValue (rA.ReloadCharController)\nEnd\n",
+   "label": "rest5.reloadchar",
+   "field": "value"
+  }
+ ]
+}

@@ -260,6 +260,33 @@ fn rays_find_the_corpse_and_characters_walk_through_it() {
     }
 }
 
+#[test]
+fn a_corpses_bounds_and_body_centres_hold_every_body() {
+    // What a blast reaches a corpse by (#2346): the trunk's centre, a radius out past every
+    // body, and each body's centre with the heaviest (the chest, 20) first.
+    let mut w = ground();
+    let (rag, _, slept) = drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 20.0);
+    assert!(slept);
+    let (center, radius) = w.ragdoll_bounds(0x10).expect("an actor's ragdoll has bounds");
+    // The chest's bounds' middle: its mass centre too (a capsule).
+    let trunk = w.ragdoll_center(0x10).unwrap();
+    assert!((0..3).all(|i| (center[i] - trunk[i]).abs() < 1.0), "{center:?} {trunk:?}");
+    let centers = w.ragdoll_body_centers(0x10);
+    assert_eq!(centers.len(), rag.bodies.len());
+    assert_eq!(centers[0], center, "the heaviest body first");
+    let dist = |p: [f32; 3]| (0..3).map(|i| (p[i] - center[i]).powi(2)).sum::<f32>().sqrt();
+    for (i, n) in nodes(&w, 0x10).iter().enumerate() {
+        assert!(dist(n.translation) < radius, "body {i}'s bone at {:?} inside {radius}", n.translation);
+    }
+    // A man-sized figure: not a point, not the whole cell.
+    assert!(radius > 20.0 && radius < 150.0, "{radius}");
+    // A placed object's jointed bodies are not a corpse; no ragdoll, nothing.
+    let poses: Vec<Iso> = rag.bodies.iter().map(|b| at([400.0, 100.0, 6.0]).compose(&b.rest())).collect();
+    w.add_object_ragdoll(&start(0x20, &rag, &poses));
+    assert!(w.has_ragdoll(0x20) && w.ragdoll_bounds(0x20).is_none() && w.ragdoll_body_centers(0x20).is_empty());
+    assert!(w.ragdoll_bounds(0x30).is_none() && w.ragdoll_body_centers(0x30).is_empty());
+}
+
 /// Drop a flat dynamic pile (an ash pile's shape) into the resting figure's pelvis, set
 /// to pass through that figure's ragdoll or not (or `away` along x, clear of it); step
 /// `seconds`. Returns where the pile started and where it is.

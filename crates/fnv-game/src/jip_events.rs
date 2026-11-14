@@ -10,6 +10,8 @@
 use crate::game::{Game, RunCtx};
 use fnv_script::vm::{Value, XVal};
 use fnv_sim::FormId;
+use std::sync::Arc;
+use crate::jip_provenance::Registrar;
 
 /// XMarker: the "no filter" form some events take, since 0 is refused [documented:
 /// SetOnCriticalHitEventHandler].
@@ -21,6 +23,8 @@ pub struct JipEvents {
     pub handlers: Vec<JipHandler>,
     pub main_loop: Vec<MainLoop>,
     seq: u64,
+    /// Diagnostic metadata only, bounded by active registrations; no callable retention.
+    registrars: std::collections::HashMap<u64, Arc<Registrar>>,
     /// Each actor's hit in progress, or its last one (task J7, jip-hit-info.md §5).
     pub hits: std::collections::HashMap<FormId, JipHit>,
     /// The keys and mouse buttons held last frame, for the key-down and key-up events.
@@ -84,6 +88,51 @@ pub struct JipHandler {
     pub seq: u64,
 }
 
+/// Snapshot diagnostics with the handler before any callback can remove its registrar.
+struct JipAttempt {
+    handler: JipHandler,
+    registrar: Option<Arc<Registrar>>,
+}
+
+impl JipEvents {
+    fn attempt(&self, handler: &JipHandler) -> JipAttempt {
+        JipAttempt { handler: handler.clone(), registrar: self.registrars.get(&handler.seq).cloned() }
+    }
+}
+
+/// Bounded values for diagnostics: no array dereference or unbounded string copy.
+fn diagnostic_value(value: &XVal) -> String {
+    match value {
+        XVal::Num(n) => format!("number:{n:?}"),
+        XVal::Ref(id) => format!("ref:0x{id:08X}"),
+        XVal::Array(id) => format!("array:{id}"),
+        XVal::Str(text) => {
+            let mut out = String::from("string:\"");
+            let mut chars = text.chars();
+            for c in chars.by_ref().take(32) {
+                out.extend(c.escape_debug());
+            }
+            if chars.next().is_some() {
+                out.push_str("<truncated>");
+            }
+            out.push('"');
+            out
+        }
+    }
+}
+
+impl JipHandler {
+    fn failure_context(&self, on: Option<FormId>, args: usize) -> String {
+        let filters = self.filters.iter().take(4).map(diagnostic_value).collect::<Vec<_>>().join(", ");
+        let omitted = if self.filters.len() > 4 { ", <truncated>" } else { "" };
+        let receiver = on.map_or_else(|| "none".into(), |r| format!("0x{:08X}", r.0));
+        format!(
+            "registration={} callable={} receiver={} args={} filters(total={})=[{}{}]",
+            self.seq, diagnostic_value(&self.func), receiver, args, self.filters.len(), filters, omitted,
+        )
+    }
+}
+
 /// One SetGameMainLoopCallback registration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MainLoop {
@@ -132,7 +181,7 @@ pub fn click_path_matches(filter: &str, menu: &str, path: &str, id: f64) -> bool
 impl Game<'_> {
     /// `SetOn<event>EventHandler func add filters…`; a second identical registration is
     /// kept once [decision, jip-events.md §2]. Returns whether anything changed.
-    pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, filters: Vec<XVal>) -> bool {
+    pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, filters: Vec<XVal>, registrar: Option<Arc<Registrar>>) -> bool {
         let same = |h: &JipHandler| h.event == event && h.func == func && h.filters == filters;
         if add {
             if self.jip.handlers.iter().any(same) {
@@ -141,10 +190,14 @@ impl Game<'_> {
             self.jip.seq += 1;
             let seq = self.jip.seq;
             self.jip.handlers.push(JipHandler { event, func, filters, seq });
+            if let Some(registrar) = registrar { self.jip.registrars.insert(seq, registrar); }
             true
         } else {
             let before = self.jip.handlers.len();
-            self.jip.handlers.retain(|h| !same(h));
+            let registrars = &mut self.jip.registrars;
+            self.jip.handlers.retain(|h| {
+                if same(h) { registrars.remove(&h.seq); false } else { true }
+            });
             self.jip.handlers.len() < before
         }
     }
@@ -163,7 +216,7 @@ impl Game<'_> {
         if self.jip.handlers.is_empty() {
             return 0;
         }
-        let hs: Vec<JipHandler> = self.jip.handlers.iter().filter(|h| h.event == event && self.jip_matches(h, on, &args)).cloned().collect();
+        let hs = self.jip.handlers.iter().filter(|h| h.event == event && self.jip_matches(h, on, &args)).map(|h| self.jip.attempt(h)).collect();
         self.jip_run(event, hs, on, args)
     }
 
@@ -182,22 +235,24 @@ impl Game<'_> {
             XVal::Str(f) => click_path_matches(f, menu, path, id),
             _ => false,
         };
-        let hs: Vec<JipHandler> = self.jip.handlers.iter().filter(|h| h.event == "menuclick" && h.filters.first().is_some_and(matches)).cloned().collect();
+        let hs = self.jip.handlers.iter().filter(|h| h.event == "menuclick" && h.filters.first().is_some_and(matches)).map(|h| self.jip.attempt(h)).collect();
         self.jip_run("menuclick", hs, None, vec![XVal::Num(menu_id), XVal::Num(id), XVal::Str(name.to_ascii_lowercase())])
     }
 
-    fn jip_run(&mut self, event: &str, mut hs: Vec<JipHandler>, on: Option<FormId>, args: Vec<XVal>) -> usize {
-        hs.sort_by_key(|h| std::cmp::Reverse(h.seq));
+    fn jip_run(&mut self, event: &str, mut hs: Vec<JipAttempt>, on: Option<FormId>, args: Vec<XVal>) -> usize {
+        hs.sort_by_key(|h| std::cmp::Reverse(h.handler.seq));
         let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
         let mut ran = 0;
-        for h in &hs {
+        for attempt in &hs {
+            let h = &attempt.handler;
             if self.function_arity(&h.func).is_some_and(|n| n < args.len()) {
                 tracing::info!("jip: a {event} handler takes fewer than the event's {} values and does not run", args.len());
                 continue;
             }
             match self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
                 Ok(_) => ran += 1,
-                Err(error) => self.handler_failed(format!("JIP {event} handler"), error),
+                Err(error) => self.handler_failed_with_registrar(format!("JIP {event} handler"), error,
+                    || Some(h.failure_context(on, args.len())), attempt.registrar.as_deref()),
             }
         }
         ran

@@ -47,6 +47,26 @@ pub enum ExtCmd {
         #[arg(long)]
         functions: Option<PathBuf>,
     },
+    /// What the game makes of the load order's extender scripts when it starts
+    /// (fnv.ext.report/1): per plugin, how many units run from their source text, which
+    /// kept their bytes because the source does not compile (unit, line and kind of the
+    /// first error), and the functions they call that NVForever has no entry for. The
+    /// build is the game's own (`fnv_game::source_compile`). No script text is printed
+    /// unless `--detail` is given.
+    Report {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        /// Layer 1 schema directory (schemas/fnv).
+        #[arg(long)]
+        schema: PathBuf,
+        /// Function catalogue (default: ../script/functions.json next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Also print each error's detail, which may quote a line of the mod's script:
+        /// keep such output private.
+        #[arg(long)]
+        detail: bool,
+    },
     /// Run one probe set's quests headless (tools/capture/ext-probes/<set>) and collect
     /// the EXTPROBE lines they print, as the in-game collector does (fnv.ext.probes/1).
     Probes {
@@ -170,6 +190,18 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let order = LoadOrder::new(&plugins)?;
             let schema = Schema::load_dir(&schema)?;
             scan(&order, &schema, &fp)
+        }
+        ExtCmd::Report { lo, schema, functions, detail } => {
+            let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
+            let ftext = std::fs::read_to_string(&fp).with_context(|| fp.display().to_string())?;
+            let fjson: Value = serde_json::from_str(&ftext).with_context(|| fp.display().to_string())?;
+            let table = FunctionTable::load(&fp).with_context(|| fp.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            let refs = fnv_sim::RefTable::build(&order, &schema);
+            let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            Ok(source_report(&data.source_units, order.plugins.iter().map(|p| p.name.clone()).collect(), detail))
         }
         ExtCmd::Probes { lo, schema, functions, probes, probes_dir, frames, risky, save } => {
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
@@ -295,6 +327,54 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             dump_units(&units, &table, plugin.as_deref(), all, &dump)
         }
     }
+}
+
+/// `ext report`'s document from what the game's source compile made of each unit. Error
+/// details (which may quote script text) only with `detail`.
+pub(crate) fn source_report(units: &[fnv_game::source_compile::SourceUnit], order: Vec<String>, detail: bool) -> Value {
+    let per: Vec<Value> = order
+        .iter()
+        .filter_map(|plugin| {
+            let mine: Vec<&fnv_game::source_compile::SourceUnit> = units.iter().filter(|u| u.plugin.eq_ignore_ascii_case(plugin)).collect();
+            if mine.is_empty() {
+                return None;
+            }
+            let failed: Vec<Value> = mine
+                .iter()
+                .filter_map(|u| {
+                    let e = u.error.as_ref()?;
+                    let mut row = json!({"unit": u.key, "line": e.line, "kind": e.kind});
+                    if detail {
+                        row["detail"] = json!(e.detail);
+                    }
+                    Some(row)
+                })
+                .collect();
+            let owned: Vec<fnv_game::source_compile::SourceUnit> = mine.iter().map(|u| (*u).clone()).collect();
+            let unknown: Vec<Value> = fnv_game::source_compile::unknown_functions(&owned).into_iter().map(|(name, n)| json!({"name": name, "units": n})).collect();
+            let enums: std::collections::BTreeSet<&str> = mine.iter().flat_map(|u| u.unknown_enums.iter().map(String::as_str)).collect();
+            Some(json!({
+                "plugin": plugin,
+                "units_from_source": mine.len() - failed.len(),
+                "units_kept_bytes": failed.len(),
+                "failed": failed,
+                "unknown_functions": unknown,
+                "unknown_enum_names": enums,
+            }))
+        })
+        .collect();
+    let failed = units.iter().filter(|u| u.error.is_some()).count();
+    json!({
+        "format": "fnv.ext.report/1",
+        "load_order": order,
+        "summary": {
+            "units_picked": units.len(),
+            "units_from_source": units.len() - failed,
+            "units_kept_bytes": failed,
+            "unknown_functions": fnv_game::source_compile::unknown_functions(units).into_iter().map(|(name, n)| json!({"name": name, "units": n})).collect::<Vec<_>>(),
+        },
+        "per_plugin": per,
+    })
 }
 
 /// The units `ext units` writes: with compiled bytes, without source unless `all`, of

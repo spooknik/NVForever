@@ -345,6 +345,14 @@ location, in cell (radius ignored), near reference; the radius is editable.
     HeadTracking**: speaker and target "will not be forced to look at each other by the
     package". FOV: the dialogue menu's zoom when the target is the player. Topic: the
     first topic of a conversation between two NPCs, or the Say To line.
+  - **A target other than the player** (an actor, or a talking activator, which speaks
+    for its talking actor): the actor goes up to it as to the player and starts a
+    conversation between actors (`Game::start_actor_conversation`, dialogue.md §5.1);
+    the package lasts while the two talk (issue #2451: Veronica's
+    FollowersVeronicaForceGreetIntercom, target HVIntercomREF). Only the player is
+    measured for a clear line. Before, such packages were parked "not carried out"; the
+    masters' others are the Strip's VStripSS1* street scenes and
+    CaptainParkerArrestKeith [observed: `fnvtool ai show`].
   - Must Complete: the package "will not reevaluate until actor has engaged in
     dialogue with the target".
   - **A wait location that is furniture**: the actor sits on it and talks from its
@@ -1224,3 +1232,39 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   actor exactly at the walk's end or somewhere part-way / within the package's radius;
   whether a short fast travel inside the loaded area moves anybody (ours: nobody,
   [design]); whether the hours a fast travel passes matter beyond choosing the package.
+
+## 9. A script moving the clock (issue #2353)
+
+- **The case** [documented: `fnvtool script decompile`, FalloutNV.esm]: Doc Mitchell's last
+  line (INFO 0x001057E7) ends by showing the Hardcore box (activating 0x0011F293, whose
+  script shows the message and reads the button in GameMode), giving the controls back and
+  starting the quest VGenericTimer (0x00168A86) with a 0.1 s timer counted with
+  GetSecondsPassed; at its end VGenericTimerSCRIPT sets VCG01 to stage 200, whose script
+  does `set GameHour to 8`. A player who answers the box and goes straight out of the door
+  arrives in Goodsprings before that stage runs, so the residents are placed on arrival
+  (§8) for the chargen clock's early morning (Easy Pete in his bed: EasyPeteSleepPackage,
+  00:00-08:00, in GSHouseInterior03 [documented: `fnvtool ai day`, `ai show`]), and then
+  the clock jumps to 08:00. A write to GameHour only stores the value
+  (`fnv_sim::World::set_global`); before #2353 nobody chose again until its periodic turn
+  (§3, up to 10 s on) and then walked from its night place [hypothesis from the code:
+  the issue's chain, not seen in a run; players reported Easy Pete out of place].
+- **What the original does**: not known. The GECK wiki's "How Are Packages Evaluated"
+  lists the periodic choice, EvaluatePackage, ResetAI and the end of a wait, and says
+  nothing about a script setting GameHour [documented: GECK wiki]. Observer check 132.
+- **What is built** [design, #2353]: a script's write to GameHour (`set GameHour to`, the
+  console's `set`, JIP's SetGameHour) that moves the clock face by more than
+  `fnv_game::ai::SCRIPT_HOUR_JUMP` (1 game hour; 23:00 to 01:00 is 2) is noted for the
+  engine (`Game::set_global_by_script`, `Game::take_hour_jump`; several writes before the
+  engine looks are one jump, from the first hour to the last). The engine handles it like
+  the end of a wait: every actor the periodic choice covers chooses its package now
+  (`Game::choose_packages_now`), and every resident the player cannot see (in the cell
+  buffer or an interior behind a door of the loaded cells, not in a drawn cell) is put
+  where its new package's walk ends, on its furniture, by §8's rule (`fnv_ai::Ai::hour_jumped`,
+  engine `residents.rs` `Core::after_hour_jump`). Residents in view are not moved: they set
+  off for their new packages in sight; a walk that would start in view is not skipped
+  either. Those left alone by §8 (dead, in combat, just moved by a script, …) are left
+  alone here too.
+- **Not changed**: a package's schedule duration ends by GameDaysPassed
+  (`Game::end_timed_packages`), which a GameHour write does not move, and a held package
+  (Must Complete, Must Reach Location until its goal) stays through the new choice. So the
+  Goodsprings night stalkers of #2279 are not obviously fixed by this.

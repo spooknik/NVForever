@@ -63,6 +63,9 @@ pub enum SceneEdit {
     Insert { r: FormId, target: String, name: String, as_parent: bool },
     /// A model's nodes under `target` (`model` under meshes).
     Attach { r: FormId, target: String, model: String },
+    /// A light (LIGH `light`) as a new node `name` under `target`, at `offset` in that
+    /// node's space (JIP's AttachLight, `crate::nvse_unlisted`).
+    Light { r: FormId, target: String, name: String, light: FormId, offset: [f32; 3] },
     /// One NiMaterialProperty value of a shape (`id` 0-8, as in [`SceneNode::material`]).
     Material { r: FormId, node: String, id: usize, v: f32 },
     /// A particle system's value by GetNiPSysModifierValue's IDs, 20 the spawn rate
@@ -213,6 +216,18 @@ impl Game<'_> {
         };
         let Some(node) = node else { return false };
         self.scene.edits.push(SceneEdit::Attach { r, target: node, model: model.to_string() });
+        true
+    }
+
+    /// A light under a node of a reference's drawn tree, shown in the mirror at once as a
+    /// node of its own named `name` (JIP's AttachLight); false when the tree or the node
+    /// is not known.
+    pub(crate) fn attach_light_now(&mut self, r: FormId, target: &str, light: FormId, name: &str, offset: [f32; 3]) -> bool {
+        let Some(t) = self.scene.tree(r) else { return false };
+        let Some(i) = find(t, target) else { return false };
+        let target = t[i].name.clone();
+        t.push(SceneNode { name: name.to_string(), parent: Some(i), translation: offset, rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None });
+        self.scene.edits.push(SceneEdit::Light { r, target, name: name.to_string(), light, offset });
         true
     }
 
@@ -444,12 +459,23 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             list(g, out)
         }
+        // JIP: `block [getWorld] [pcModel]`, or ButcherPete's axis overload.
+        // Compose through the existing Alt getter's world transform route.
+        "getnifblocktranslation" => {
+            let component = axis(args.get(1));
+            let world = num(args,if component.is_some() {2} else {1},0.0) != 0.0;
+            let Some((v,_)) = node_place(g,r,&text(args,0),world) else {return Some(Ok(XVal::Array(0)))};
+            match component {
+                Some(a) => XVal::Num(f64::from(v[a])),
+                None => list(g,v.into_iter().map(|x|XVal::Num(f64::from(x))).collect()),
+            }
+        }
         // `block [axis]`: an axis gives that number; otherwise the three as an array
         // [observed: JIP 57.3 gives [5.59, 0, 0] for Bip01 Head].
-        "getnifblocktranslation" | "getnifblockrotation" => {
+        "getnifblockrotation" => {
             let Some(t) = g.scene.tree(r) else { return Some(Ok(XVal::Array(0))) };
             let Some(i) = find(t, &text(args, 0)) else { return Some(Ok(XVal::Array(0))) };
-            let v = if name == "getnifblocktranslation" { t[i].translation } else { t[i].rotation };
+            let v = t[i].rotation;
             match axis(args.get(1)) {
                 Some(a) => XVal::Num(f64::from(v[a])),
                 None => {

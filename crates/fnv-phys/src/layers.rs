@@ -169,12 +169,25 @@ pub fn character_ignores() -> LayerSet {
     ])
 }
 
-/// Layers a shot passes: what the character passes ([`character_ignores`]) and the
-/// invisible walls, which stop actors but not bullets, lasers or thrown weapons (the
-/// owner, issue #1545) [design].
-pub fn shot_ignores() -> LayerSet {
+/// Layers a melee swing passes: what the character passes ([`character_ignores`]) and the
+/// invisible walls, which stop actors but not bullets, lasers, thrown weapons or blows
+/// (the owner, issue #1545) [design]. Not the Transparent layer: the original's exception
+/// for it is for projectiles only (see [`shot_ignores`]), so a blow stops on it.
+pub fn melee_ignores() -> LayerSet {
     let mut s = character_ignores();
     s.insert(INVISIBLE_WALL);
+    s
+}
+
+/// Layers a shot passes: what a melee swing passes ([`melee_ignores`]) and the plain
+/// Transparent layer, which "nothing can pass through except projectiles" [documented:
+/// GECK wiki "Collision layer", TRANSPARENT; issue #2340]. The Transparent Small layers
+/// are not here: only a projectile flagged "Pass Through Small Transparent" passes them,
+/// and fnv-combat's trace decides that per projectile [documented: same page,
+/// TRANSPARENT SMALL].
+pub fn shot_ignores() -> LayerSet {
+    let mut s = melee_ignores();
+    s.insert(TRANSPARENT);
     s
 }
 
@@ -188,6 +201,24 @@ mod tests {
         assert!(shot_ignores().contains(INVISIBLE_WALL));
         assert!(character_ignores().layers().iter().all(|&l| shot_ignores().contains(l)));
         assert!(!shot_ignores().contains(STATIC) && !shot_ignores().contains(UNIDENTIFIED));
+    }
+
+    #[test]
+    fn shots_pass_transparent_but_not_transparent_small() {
+        // Transparent (3) stops actors and lets every projectile through (#2340).
+        assert!(shot_ignores().contains(TRANSPARENT) && !character_ignores().contains(TRANSPARENT));
+        // The small-transparent layers stay in the ray: the projectile's flag decides.
+        assert!(!shot_ignores().contains(TRANSPARENT_SMALL) && !shot_ignores().contains(TRANSPARENT_SMALL_ANIM));
+    }
+
+    #[test]
+    fn melee_stops_on_transparent_that_shots_pass() {
+        // A blow passes what it passed before #2340 (the character's layers and invisible
+        // walls) and nothing more: the Transparent layer stops it.
+        assert!(!melee_ignores().contains(TRANSPARENT) && shot_ignores().contains(TRANSPARENT));
+        assert!(melee_ignores().contains(INVISIBLE_WALL));
+        assert!(character_ignores().layers().iter().all(|&l| melee_ignores().contains(l)));
+        assert_eq!(shot_ignores().layers().len(), melee_ignores().layers().len() + 1);
     }
 
     #[test]

@@ -1,0 +1,11 @@
+# World-coordinate NIF block translation getter
+
+[documented] The bundled functions.json catalogue entry GetNifBlockTranslation (JIP) takes blockName, optional getWorld (0/1), optional pcModel (1/2), returning a three-value array. Its ButcherPete overload adds an axis before getWorld and returns one float. Primary documentation link: https://geckwiki.com/index.php?title=GetNifBlockTranslation . Live re-fetch on2026-11-13 returned403; no web content was treated as a new observation.
+
+[observed: historical private dev13 replay, separate source] Installed Quickthrow script DATA calls the JIP array form with getWorld1 to position its thrower helper. Dev13 replay091720Z-manual-features-81b2fc fires from near(0,0,64) while player stands near(-9571,-13006,12519). Baseline19c portable getter returns only the local SceneNode.translation, ignoring the numeric flag. This is evidence from the separate repair workspace, not execution of this current-main port. Deferred FireWeapon timing could independently matter and is not changed without its own evidence.
+
+[design] Use the existing node_place world-composition helper for the translation getter. Preserve its local-parent semantics when getWorld omitted/0; preserve the axis overload and read the flag after that axis. Compose parent translation/rotation/scale and the reference's position/rotation through the same route as the already-supported Alt getter. A missing node returns the existing null-array value. Explicit pcModel selection remains limited by the current one-tree scene mirror and is not newly supported. Rotation getter semantics are outside this patch.
+
+[observed: authored fixture intent, not execution] Owned fixture covers nonzero reference position, rotated reference, scaled parent, local/default/world array forms, selected-axis form and missing-node null. No installed script body, model or game-derived dump is included. A real first-person quickthrow replay must confirm launch coordinates before claiming that consumer repaired.
+
+[observed: current port] Initial source port on `19c0f08a`; source/test registration and diff checks only. Current-port compilation, listing, focused baseline/candidate execution, lint and broader/smoke checks remain pending.

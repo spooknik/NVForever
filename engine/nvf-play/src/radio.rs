@@ -780,6 +780,8 @@ fn play(
         world: loc.world,
         interior: loc.interior,
         position: radio.outdoors.filter(|(w, _)| *w == loc.world).map_or(eye, |(_, p)| p),
+        // Tale of Two Wastelands' radio fix: a child worldspace hears its parent's stations.
+        parent: rt.game.small.ttw_radio_fix.then(|| pw.index.worldspaces.get(&loc.world).and_then(|w| w.parent)).flatten(),
     };
     let volume = settings.volume.max(0.0);
     let static_sound = radio.static_sound.get_or_insert_with(|| sfx.forms.sounds.values().find(|s| s.edid.as_deref() == Some(STATIC_SOUND)).cloned()).clone();

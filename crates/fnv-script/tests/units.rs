@@ -223,6 +223,26 @@ fn remote_variables_follow_the_viewer() {
     assert_eq!(text, ["set 0x00000900.bdone to 1"]);
 }
 
+/// A plugin that holds two records under one FormID (oHUD.esm's QUST `aHUD` and MESG
+/// `iHUDMainMenu`, both 0x01000801): the quest's name and its script's variables still
+/// resolve, the way the editor resolved them when it compiled the plugin's scripts
+/// [observed: oHUD's shipped bytes name that FormID and read its quest script's variable].
+#[test]
+fn a_name_resolves_when_another_record_shares_its_formid() {
+    use fnv_script::compile::{compile, env::LoadOrderIndex};
+    let quest_script = record(b"SCPT", 0x802, &[&[sub(b"EDID", z("QScript"))][..], &unit(1, &[], "scn QScript\nfloat mcmVersion\n", &[(19, "mcmVersion", 0)], &[])].concat());
+    let quest = record(b"QUST", 0x801, &[sub(b"EDID", z("aHUD")), sub(b"SCRI", 0x802u32.to_le_bytes().to_vec())]);
+    let message = record(b"MESG", 0x801, &[sub(b"EDID", z("iHUDMainMenu"))]);
+    let bytes = [tes4(&[]), top(b"SCPT", &quest_script), top(b"QUST", &quest), top(b"MESG", &message)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "O.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let (units, _) = read_load_order(&lo, &schema());
+    let ix = LoadOrderIndex::build(&lo, &units);
+    let c = compile("scn T\nbegin GameMode\nset aHUD.mcmVersion to 5\nend\n", &table(), &ix.env(0), None);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    assert_eq!(c.refs, [RefSlot::Form(0x801)]);
+}
+
 #[test]
 fn serialized_extender_variable_kinds_survive_the_unit_reader() {
     let mut fields = vec![sub(b"EDID", z("OwnedKinds"))];

@@ -95,7 +95,7 @@ pub const LINE_OF_FIRE_WIDTH: f32 = 40.0;
 pub const SIDESTEP: f32 = 128.0;
 /// A gunman whose target is nearer than this steps back from it, walking backwards while
 /// it fires, game units [design: owner 2026-10-16, "backtracking in order to go
-/// backwards"]. Not the weapon's Min Range, which "tells combat AI they don't need to be
+/// backwards"]; a short-reach gun nearer ([`back_off_band`]). Not the weapon's Min Range, which "tells combat AI they don't need to be
 /// closer than this value" [documented: GECK wiki Weapons]: the service rifle's 768 had
 /// the NCR troopers backing away most of their fight.
 pub const BACK_OFF_WITHIN: f32 = 256.0;
@@ -104,6 +104,35 @@ pub const BACK_OFF_WITHIN: f32 = 256.0;
 pub const BACK_OFF_SLACK: f32 = 64.0;
 /// One step back, game units [design].
 pub const BACK_OFF_STEP: f32 = 192.0;
+
+/// Where a gunman steps back from its target and how far it goes on: (within, until),
+/// flat distances [design, #2351]. `clearance`: its blast's ([`npc_combat::GunReach::clearance`],
+/// 0 without one); `stop`: where its gun stops closing in (`GunReach::engage`'s first);
+/// `min_range`: its weapon's Min Range times its style's Ranged Weapon Min Range Mult
+/// (0: none).
+///
+/// - Ordinarily [`BACK_OFF_WITHIN`] (or its blast's clearance, the further), on to
+///   [`BACK_OFF_SLACK`] beyond.
+/// - That band must end no farther than the gun's stop: else it steps back past the stop
+///   and closes in again, over and over (a bloatfly, gun reach 250, stop 225, went
+///   between 225 and 320, #2351). A short-reach gun whose stop leaves no room for it
+///   steps back from a target nearer than its Min Range, "they don't need to be closer
+///   than this value" [documented: GECK wiki Weapons], scaled by "Ranged Weapon Min/Max
+///   Range Mult … modify the minimum/maximum range value on the combatant's weapon when
+///   doing range calculations" [documented: GECK wiki Combat Style], at most the stop
+///   less the slack (that without a Min Range), never nearer than its blast's clearance;
+///   it goes on to the slack beyond, at most the stop.
+/// - Guns whose stop leaves room keep the band whatever their Min Range: the service
+///   rifle's 768 had the troopers backing away most of their fight ([`BACK_OFF_WITHIN`]).
+///
+/// [`npc_combat::GunReach::clearance`]: crate::npc_combat::GunReach::clearance
+pub fn back_off_band(clearance: f32, stop: Option<f32>, min_range: f32) -> (f32, f32) {
+    let within = BACK_OFF_WITHIN.max(clearance);
+    let Some(stop) = stop.filter(|s| within + BACK_OFF_SLACK > *s) else { return (within, within + BACK_OFF_SLACK) };
+    let room = (stop - BACK_OFF_SLACK).max(0.0);
+    let within = if min_range > 0.0 { min_range.min(room) } else { room }.max(clearance);
+    (within, (within + BACK_OFF_SLACK).min(stop).max(within))
+}
 /// A fight is over when nobody has fought for this long, seconds [design].
 pub const RESOLVED_AFTER: f32 = 5.0;
 /// A kind of post the AI found no way to is not given again for this long, seconds

@@ -1899,6 +1899,20 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
      and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.
 
+## Added 2026-11-12 (the versions the built-in extender plugins report)
+
+119. **What do GetPluginVersion and IsDLLLoaded answer for the plugins NVForever builds
+    but never read a version of?** (P2; ext-version.md §5, §6.) NVForever now reports SUP,
+    JIP PP LN, AnhNVSE, NX, UIO, CacheUI and hNVSE as installed, the first five at a
+    placeholder version (9999) because no page names one and none was read [design]. With
+    each plugin installed, one runtime query per name: `GetPluginVersion "SUP NVSE Plugin"`,
+    `"JIP PP LN"`, `"AnhNVSE"`, `"Extensions for NVSE"`, `"UI Organizer Plugin"`, `"CUI"`,
+    `"hNVSE"`; and for the plugins whose registered name no page gives (ITR, One111,
+    ppNVSE, vheyes-nvse), the name each prints in `nvse.log` and its version. In the same
+    run `IsDLLLoaded` with each plugin's file name without `.dll`, for
+    `fnv_game::nvse_plugins::DLLS`, which still lists only the five plugins of the first
+    probe install.
+
 ## Added 2026-11-12 (created actors' editor location, issue #2278)
 
 120. **Where is a created actor's editor location?** (P2; crates/fnv-ai/src/goal.rs
@@ -1982,3 +1996,181 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (map markers without XRDS, #2338)
+
+128. **How near must the player come to a map marker without `XRDS` to find it?** (P2;
+     pipboy.md §5.3, hud.md §11, #2338.) 65 of WastelandNV's 186 named markers carry no
+     radius (Coyote Den 0x00154A69, the four Powder Ganger Camps 0x0015354F-0x00153552).
+     Ours since #2338: `iMapMarkerRevealDistance`, 1000 when no plugin sets it [documented:
+     the GECK wiki's list of FNV defaults; hypothesis: that this is the distance]. To check:
+     walk straight towards Coyote Den from the south-west (flat ground) and from two other
+     sides, and note the player's distance from the marker (GetDistance to the marker
+     reference, or the player's GetPos) when "You have discovered" appears: about 1000
+     expected. Then `setgs iMapMarkerRevealDistance 3000` before approaching a Powder
+     Ganger Camp, and see whether the distance follows.
+
+## Added 2026-11-14 (bloatflies' distance, shots and bite, issue #2351)
+
+129. **How does a bloatfly fight the player: its distance, its shots and its bite?** (P2;
+     combat-ai.md §12.6 and §19, #2351.) A player reports that in the original bloatflies
+     keep their distance, fire on a cooldown and bite when in range [hypothesis: a
+     player's report in #2351, not yet captured]. CrBloatFly 0x0009189C carries
+     Bloatfly1HP (Min Range 100, Max Range 250, semi-auto delay 0.1-0.75 s) and has its
+     own attack (DATA damage 7, reach 32); its style CSBloatfly is Ranged Only
+     [documented: fnvtool esm decode, FalloutNV.esm]. Ours since #2351: it holds about
+     225 units away and steps back only from a target within 100, to 164 [design, #2351];
+     it never bites (its folder has no h2hattack clips) [hypothesis: whether and how it
+     bites]. AI-observer capture: one bloatfly attacking the standing player, then the
+     player walking in on it: its distance over time (about 10 samples a second), the
+     time between its darts, whether it backs away and from how near, and whether it
+     bites, from how near, and which clip plays then (`1hpattackright_2`, which moves it
+     about 30 units forward, is one candidate [hypothesis]).
+
+## Added 2026-11-14 (shots through the Transparent layer, #2340)
+
+130. **Does a 9mm round pass a chain link on the plain Transparent layer (3)?** (P2;
+     #2340, combat-rules.md "The world".) The road gate door 0x0008D5B8 (CLFenceGateRoad01,
+     WastelandNV, -4576, -30616, 6819, not rotated) has its chain link on layer 3 east of
+     the gate leaves (model x 45..246, 13..224 high); the gate leaves themselves are on
+     Transparent Small Anim (28). Ours since #2340: every projectile passes layer 3
+     [hypothesis from the GECK wiki "Collision layer": "nothing can pass through except
+     projectiles"]. To check: stand at (-4420, -30766), face north, look about 10 degrees
+     down and fire one 9mm pistol round: does it strike the ground beyond the link, or
+     leave a metal impact on the link? Then the same at the gate leaves (28, where a 9mm
+     should stop) as a control. The same question for a utility room's ceiling grate
+     (layer 3 at 183 units, e.g. utlrmwall01.nif), shot from below.
+
+## Added 2026-11-14 (the drinking idle, #2349)
+
+131. **How does the original play drinking from placeable water?** (P2; #2349, idles.md
+     §16.) Drink from Goodsprings' water pump, once in first person and once in third
+     person. Note: how long the animation runs (ours: the clips are 2.37 s and 2.70 s);
+     whether movement and mouse look are held while it plays (ours holds neither); and
+     when the healing and the rads apply (ours: at the activation, before the animation),
+     read from the health bar and the RAD meter frame by frame. Ours until then:
+     [design, #2349].
+
+## Added 2026-11-14 (a script moving the clock, issue #2353)
+
+132. **Where are actors after a script sets GameHour?** (P2; packages.md §9.) NVForever,
+     on a script's GameHour write of more than an hour, has everybody choose its package
+     at once and puts the actors out of sight at their new package's place; those in view
+     walk there [design, #2353]. To check, the issue's way: on a new game skip Doc
+     Mitchell's last line, answer the Hardcore box and go through the door at once. Note
+     the hour on arrival (GetCurrentTime every frame for the first ten seconds), and Easy
+     Pete's place, GetCurrentAIPackage and GetSitting at arrival and 1, 5 and 15 s after
+     the clock reads 8:00; then the same waiting inside for the window to turn light. Also:
+     at 06:00 on the street by Easy Pete's porch, with him in bed in his house,
+     `set GameHour to 8` from the console and the same samples: is he on his porch chair
+     at once, does he walk out of his door, or does he stay in bed until his next choice?
+
+## Added 2026-11-14 (Hidden Valley dust storm, #2450)
+
+133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,
+     activators.md §6.1.) Ours: all 18 dust sheets of `nvsandstormnight.nif` scroll their
+     texture by SpecialIdle, U 0 to 2 in 4 s, along +U [hypothesis: the sign of the
+     offset; every sheet of a property moves, as Gamebryo properties are shared by
+     reference]. To check: `ForceWeather HVDustStorm 1` at Hidden Valley (-17863, -4814)
+     at 22:00 with the storm references enabled (`000E18D7.enable`), two screenshots of
+     the same view 1 s apart: do all the dust banks move, in which direction across the
+     view, and about how far? Also whether the weather's own cloud layer 3
+     (`NVCloudlight.dds`, ONAM speed 0) stands still there.
+
+## Added 2026-11-14 (harmless Use Weapon hits, #2433)
+
+134. **Does a Do No Damage hit run the target's OnHit block?** (P1; #2433,
+     use-weapon.md §3.) Ours since #2433: yes, OnHit and OnHitWith run with the shooter as
+     attacker, and nothing else happens (no Health, limb or fatigue damage, no hit line)
+     [hypothesis from the data: G.I. Blues' thugs fall only in their OnHit block for
+     Orris (SCPT 0x00118A77), and his three Use Weapon packages VFSOrrisShootThug01-03Package
+     are Always Hit and Do No Damage, so the staged ambush goes on only if such a hit runs
+     it]. To check: hire Orris and follow him into the ambush; record each thug's Health
+     and fatigue before and after his shot, how many shots he fires at each, and whether he
+     raises the revolver to aim first. Also whether a hit the target was not meant to take
+     (another actor in the line of fire) runs that actor's OnHit too.
+
+## Added 2026-11-14 (scripts of actors out of the loaded cells, #2445)
+
+135. **Do the scripts of actors out of the loaded cells run, and how often?** (P1; #2445,
+     `fnv_ai::process`.) Ours since #2445: an actor the AI processes out of the loaded
+     cells (the cell buffer, interiors behind the loaded cells' doors, farther away) runs
+     its GameMode block at each of its low-process updates (about every 18 s, or 120 s
+     beyond the cell buffer) and once in each hour of a wait, when that block tests
+     "not in the player's cell" (eight object scripts in FalloutNV.esm); the others run
+     in the loaded cells only [hypothesis from the data:
+     Beyond the Beef's Chauncey (SCPT 0x0011689F) warps to the bathhouse and re-evaluates
+     his package only in a GameMode block that tests "not in the player's cell", and his
+     casino patrol is Must Complete, so nothing else moves him]. To check: with the
+     Matchbook note and objective 40 shown, wait in the steam room from 14:00 (by the
+     Wait menu, and once in real time) and record when Chauncey appears (GetPos, his
+     cell) and whether he fades in at VMS18ChaunceyBathhouseWarpMarkerREF. A second job:
+     an actor with a script that counts GameMode runs (a variable bumped each run, read
+     with GetScriptVariable) in a cell the player left, read after 1, 5 and 30 real
+     minutes, in the cell buffer and beyond it.
+
+## Added 2026-11-14 (blasts on corpses, #2346)
+
+136. **Does a blast beside a settled corpse take its parts, and how many?** (P2; #2346,
+     dismemberment.md §4.2.) NVForever now lets a blast reach a corpse whose ragdoll has been
+     built and judges the one part facing it by the weapon's On Hit [design]. Two gates
+     stand: a placed explosion or a mine with no actor owner has no source weapon and rolls
+     nothing (`nvf_play::mines` keeps the weapon only for an actor-owned mine); an
+     actor-owned mine reaches the check, where its No Dismember/Explode (every base-game
+     mine, dismemberment.md §2.1) gives no odds without Bloody Mess and half the odds with
+     it (§4.2). To check: kill an actor, let it settle, set off a frag
+     mine and then a frag grenade next to it, without and with Bloody Mess, several times each.
+     Record how often a limb explodes or is severed and how many parts go per blast. The
+     answer fits the mine source-weapon gate (`nvf_play::mines`) and the On Hit rule for
+     blasts; it goes into dismemberment.md §4.
+
+## Added 2026-11-14 (the Boomers' barrage after Pearl, #2449)
+
+137. **Does the barrage stop for a player standing in the field when Volare! starts?**
+     (P3; #2449.) NellisArtilleryScript (SCPT 0x000FF29C) counts the player in on
+     OnTriggerEnter and out on OnTriggerLeave, but passes over the player in both blocks
+     once VMS15 runs or is done [observed: the record's source text]; VMS15 starts with
+     stage 20, set by the end script of Pearl's Goodbye line 0x001050FD
+     (VFreeformNellisNellisPearlTopic010) [observed]. So a player counted in before stage 20
+     and still inside when it is set should be shelled on and on [hypothesis]. To check, on
+     a save before Pearl's talk: stand in the field (trigger 0x0015A378) with `tgm`, then
+     `setstage VMS15 20` from the console; walk out and back. Does the shelling stop, at
+     once, on leaving, or never? And does a save and load inside the field reset it?
+     Also, before Pearl: fast travel out of the field while shelled and back. Does the
+     trigger run its OnTriggerLeave for a player who travels away (ours does since #2449,
+     engine/nvf-play/src/script_trigger.rs `leave_reported`, [design]): does the barrage
+     start afresh on the return, or never stop?
+
+## Added 2026-11-14 (OnTrigger timing, #2455)
+
+138. **How does an OnTrigger block count time?** (P2; #2455, scripts.md §5.) Ours: it
+     runs once per reference inside each frame, only the first run of a frame gets the
+     frame's GetSecondsPassed, and no trigger block runs under a menu or message box
+     [hypothesis]. To check: start Ibsen's purge (or set HVHuntingVirusTriggerREF's
+     VirusTimer to 20 and VDialogueHiddenValley's HuntingVirus to 2) with Ibsen and the
+     two scribes in the room and record VirusTimer every frame; then again with a
+     message box open for 5 s (ShowMessage) in the middle: does VirusTimer move while the
+     box is up, and does Ibsen's 10-seconds line come 10 s of game time after the start?
+
+## Added 2026-11-14 (Goodbye lines between NPCs, #2451)
+
+139. **Does a conversation between NPCs go on past a Goodbye line that links on?** (P2;
+     #2451, dialogue.md §5.1.) Ours: yes, a Goodbye line ends it only when it has no
+     Link To or follow-up [hypothesis]. To check: with Veronica hired, walk into
+     VHiddenValleyVeronicaEnterTrigger (0015B6D7) at the Hidden Valley bunker and record
+     which of INFO 0015B6D1-0015B6D4 are said, by whom, and when the inner door
+     HVOuterLockedDoor opens; or watch Jason Bright's speech at REPCONN (are parts 5-9,
+     INFO 000CD8A9 and after, said after part 4, 0008D401?).
+
+## Added 2026-11-14 (power-armour footfalls, PR #2430)
+
+140. **What sounds at a power-armour wearer's footfalls?** (P3; audio.md §10.1.) The data
+     has `FSTArmorPowerWalkL`/`R` beside the ground's `FST<material>` sets, and no record
+     links them to anything [observed]; the Power audio template's run sound
+     (`FOLArmorPowerRun`) names `fx\fol\powerarmor_walkrun\`, a folder no archive of
+     the base game, its DLCs or the Blue Moon list holds [observed: archive listings,
+     2026-11-14]. NVForever plays the ground's footstep and the template's `(Armor)`
+     rustle and nothing for the missing folder. Walk and run in T-45d power armour on
+     dirt and on concrete, first and third person, and record which SOUN records play
+     at each footfall (the sound log): does `FSTArmorPowerWalkL`/`R` play, instead of
+     or beside the ground's step, and does anything play for the run rustle?

@@ -28,7 +28,12 @@ Expression]. It is used:
   [documented: TestExpr; While];
 - **inside parentheses passed as a function argument** (inline expressions, xNVSE
   6.1.0): `Player.SetActorValue Health (Player.GetActorValue Health + 50)` compiles
-  from then on and did not before [documented: Inline Expression];
+  from then on and did not before [documented: Inline Expression]. A string there, in
+  an actor value's or an axis's place, is the name in any case: `GetAV ("Strength")`,
+  `GetAV (s)` and `GetAV ($s)` read Strength, `SetAV ("Luck") 7` sets Luck, `GetPos
+  ("Z")` is `GetPos Z`; an unknown name (`GetAV ("NoSuchAV")`) raises no error the
+  script stops on, but a `let` assigns nothing; a bare `GetAV s` does not compile
+  [observed: #2276 job A, save nvfairport];
 - **in a whole block whose type has a leading underscore** (the compiler override,
   deprecated): see §8.
 
@@ -122,8 +127,10 @@ A function returning a string or array, or a user-defined function's result, mus
 assigned with `let`, not `set` [documented: Let; SetFunctionValue; Ar List].
 
 **The let macro** (xNVSE 6.1.0): a line `x = 10`, `x += 10`, `x -= 5`, `x *= 5` with no
-keyword is a `let` [documented: Let Macro]. Which other compound operators the macro
-takes: open (the page lists those four).
+keyword is a `let` [documented: Let Macro]. `x /= 5` is taken too [observed:
+JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting …` in JBTOnFireWeaponUDF with
+compiled bytes, so the original's compiler takes it]. The remaining compound operators
+(`^=`, `%=`, `|=`, `&=`) as a macro: open (the page lists the first four).
 
 **eval / if eval** `if eval expr`, `elseif eval expr`: the condition is compiled as an
 extender expression and reduced to true or false. It is needed when the condition uses
@@ -131,6 +138,15 @@ a string, an array or a user-defined function, which the base compiler misreads;
 plain condition it is harmless but slightly slower, and a failing call then reports an
 error instead of failing silently [documented: Eval]. `while` does not need it
 [documented: Eval].
+
+**eval on a line of its own** `eval expr`: the expression is run for what it does. Mods
+write it before a call that needs the extender's reading of its arguments (`eval
+Quest.rRef.Activate PlayerRef 1`) and before an assignment (`eval iTemp = iTemp * (1 -
+Quest.rRef.GetAV Invisibility)`), which then assigns as a `let` does [documented: Eval, an
+NVSE-aware command taking an expression; observed: JustAssortedMods.esp 4.6 ships 32 such
+lines with compiled bytes, two of them assignments; hypothesis: the value the original's
+eval returns for an assignment, which a line of its own drops]. `fnv_script::compile`
+reads the tokens after `eval` as one expression (`Kw::Eval`).
 
 **TestExpr** `TestExpr expr` (NVSE 4.1): evaluates the expression, side effects
 included, and returns 1 if it ran without an extender error, 0 if it raised one; the
@@ -183,7 +199,21 @@ becomes false hangs the game (a crash in the original) [documented: While].
 **foreach** `foreach entry <- source` … `loop`: over arrays, strings, containers and
 form lists (xNVSE 6.2.5); the entry for each kind is ext-arrays.md §3 [documented:
 ForEach]. The type may be given on each name (`e:array <- src:array`, `item:tempref <-
-container:ref`).
+container:ref`). The whole head may stand in one pair of parentheses, `foreach (entry <-
+source)` [observed: Unofficial Patch NVSE Plus and JSawyer Ultimate ship such lines with
+compiled bytes, the source a variable, a call and an `ar_List 0, 1, …`].
+
+**A comma after a function's name.** `rForm = ListGetNthForm, SomeList, iPos`: a comma
+between the name and a first argument the function cannot go without separates as a
+space does [observed: Unofficial Patch NVSE Plus ships that line with compiled bytes;
+hypothesis: the original's compiler takes commas as spaces there]. After a function that
+takes no argument, or can go without its first, the comma belongs to what the call stands
+in (`ar_List GetSelf, 2` is two elements) [design].
+
+**GetFactionRank in an extender expression** takes its faction, though the catalogue's
+row has no parameter list: a numbered function with no listed parameters takes its
+condition's [documented: the xEdit definitions give `ptFaction`; observed: JIP Companions
+Command & Control 2.60, `(rRef.GetFactionRank <faction> > 9)` beside an extender call].
 
 **break** leaves the innermost while or foreach at once; **continue** skips to the next
 test (while) or entry (foreach). Both are only allowed inside such a loop

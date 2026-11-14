@@ -30,19 +30,19 @@
 //! **The keys** [design: #1953]: Up and Down step over the rows, round the ends, passing
 //! the headings ([`step_selectable`]); Page Up and Page Down go to the first row under the
 //! heading before or after ([`step_heading`]); a tab without headings is one section. The
-//! window of [`WINDOW_ROWS`] lines keeps the chosen row in view, and its heading too when it
-//! is the heading's first row ([`follow`]); a heading is never drawn alone on the window's
-//! last line ([`drawn_slots`]).
+//! window of `shown` lines keeps the chosen row in view, and its heading too when it is the
+//! heading's first row ([`follow`]); a heading is never drawn alone on the window's last
+//! line ([`drawn_slots`]). How many lines the window has is the page's layout's
+//! (`crate::pause`, from the room between the list's top and the note, #2377: 12 lines); the original's
+//! `options_container` shows nine [documented: `_number_of_visible_items` 9], NVForever's page
+//! more where the screen has room [design: #2377]. A window of one line shows the chosen row,
+//! not its heading.
 
 use crate::bindings::{Bindings, Control, InputDevice, GAME_CONTROLS};
 use crate::settings::Setting;
 use fnv_util::words::tr;
 use crate::settings_layout::{controller_only, resolve_layout, LayoutEntry, Placement, ResolvedLayout, CONTROLS_TAB, TAB_ORDER};
 use bevy::prelude::*;
-
-/// The lines of the window at once [documented: `options_container`
-/// `_number_of_visible_items` 9].
-pub const WINDOW_ROWS: usize = 9;
 
 /// One of the Controls tab's own rows (`crate::bindings`), by what it is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -407,15 +407,16 @@ pub fn heading_of(entries: &[ViewEntry], id: RowId) -> Option<Placement> {
     })
 }
 
-/// The first line shown of `entries` from `first`, [`WINDOW_ROWS`] at once, moved as little
-/// as keeps the chosen line `selected` in view, and its heading too when it is the
-/// heading's first row.
-pub fn follow(entries: &[ViewEntry], first: usize, selected: Option<usize>) -> usize {
+/// The first line shown of `entries` from `first`, `shown` (at least 1) at once, moved as
+/// little as keeps the chosen line `selected` in view, and its heading too when it is the
+/// heading's first row and the window has room for both.
+pub fn follow(entries: &[ViewEntry], first: usize, selected: Option<usize>, shown: usize) -> usize {
+    let shown = shown.max(1);
     let n = entries.len();
-    let last = n.saturating_sub(WINDOW_ROWS);
+    let last = n.saturating_sub(shown);
     let Some(s) = selected.filter(|s| *s < n) else { return first.min(last) };
-    let mut first = crate::menu::model::keep_in_view(first, s, n, WINDOW_ROWS);
-    if s > 0 && matches!(entries[s - 1], ViewEntry::Heading(_)) {
+    let mut first = crate::menu::model::keep_in_view(first, s, n, shown);
+    if shown > 1 && s > 0 && matches!(entries[s - 1], ViewEntry::Heading(_)) {
         first = first.min(s - 1);
     }
     first.min(last)
@@ -426,34 +427,51 @@ pub fn follow(entries: &[ViewEntry], first: usize, selected: Option<usize>) -> u
 /// only as far as keeps the chosen line in view, so a window the wheel or the scroll bar
 /// moved stays where they put it and is not pulled back to the heading over the chosen
 /// row [design: #1953].
-pub fn window_first(entries: &[ViewEntry], first: usize, selected: Option<RowId>, followed: Option<RowId>) -> usize {
+pub fn window_first(entries: &[ViewEntry], first: usize, selected: Option<RowId>, followed: Option<RowId>, shown: usize) -> usize {
+    let shown = shown.max(1);
     let at = selected.and_then(|id| slot_of(entries, id));
     if selected != followed {
-        return follow(entries, first, at);
+        return follow(entries, first, at, shown);
     }
     let n = entries.len();
-    let last = n.saturating_sub(WINDOW_ROWS);
+    let last = n.saturating_sub(shown);
     match at.filter(|s| *s < n) {
-        Some(s) => crate::menu::model::keep_in_view(first, s, n, WINDOW_ROWS).min(last),
+        Some(s) => crate::menu::model::keep_in_view(first, s, n, shown).min(last),
         None => first.min(last),
     }
 }
 
-/// The lines drawn of a window from `first`: [`WINDOW_ROWS`] of them, less a heading on
-/// the last line (it is drawn with its first row in the next window).
-pub fn drawn_slots(entries: &[ViewEntry], first: usize) -> std::ops::Range<usize> {
+/// The lines drawn of a window of `shown` (at least 1) from `first`, less a heading on the
+/// last line (it is drawn with its first row in the next window) unless it is the window's
+/// only line.
+pub fn drawn_slots(entries: &[ViewEntry], first: usize, shown: usize) -> std::ops::Range<usize> {
     let first = first.min(entries.len());
-    let mut end = (first + WINDOW_ROWS).min(entries.len());
+    let mut end = (first + shown.max(1)).min(entries.len());
     if end > first + 1 && matches!(entries[end - 1], ViewEntry::Heading(_)) {
         end -= 1;
     }
     first..end
 }
 
+/// The first line of a window of `shown` lines the wheel or the scroll bar moved to `first`
+/// (`step`: the way it moved, down for 0): a one-line window that would show only a heading
+/// goes on past it to the row beyond (else back to the row before), so the window always
+/// draws a row the choice can move to and the wheel crosses headings [design: #2377].
+pub fn land(entries: &[ViewEntry], first: usize, step: i64, shown: usize) -> usize {
+    let is_heading = |k: usize| matches!(entries.get(k), Some(ViewEntry::Heading(_)));
+    if shown > 1 || !is_heading(first) {
+        return first;
+    }
+    let ahead = if step < 0 { first.checked_sub(1) } else { Some(first + 1) };
+    let back = if step < 0 { Some(first + 1) } else { first.checked_sub(1) };
+    [ahead, back].into_iter().flatten().find(|k| *k < entries.len() && !is_heading(*k)).unwrap_or(first)
+}
+
 /// The chosen row once the window moved to `first` (the wheel, the scroll bar): itself when
 /// still drawn, else the drawn row nearest to it.
-pub fn clamp_into_window(entries: &[ViewEntry], first: usize, selected: Option<RowId>) -> Option<RowId> {
-    let drawn = drawn_slots(entries, first);
+/// `shown`: the window's lines.
+pub fn clamp_into_window(entries: &[ViewEntry], first: usize, selected: Option<RowId>, shown: usize) -> Option<RowId> {
+    let drawn = drawn_slots(entries, first, shown);
     let at = selected.and_then(|s| slot_of(entries, s));
     if at.is_some_and(|k| drawn.contains(&k)) {
         return selected;
@@ -464,6 +482,10 @@ pub fn clamp_into_window(entries: &[ViewEntry], first: usize, selected: Option<R
             ViewEntry::Heading(_) => None,
         })
         .collect();
+    if shown.is_empty() {
+        // A window of one line on a heading: no row to move the choice to.
+        return selected;
+    }
     match at {
         // Above the window: its top row; below it: its bottom row.
         Some(k) if shown.first().is_some_and(|(f, _)| k < *f) => shown.first().map(|r| r.1),
@@ -587,11 +609,11 @@ pub fn haystack(parts: &[&str]) -> String {
     parts.join("\n").to_lowercase()
 }
 
-/// A registered row's words: its label and note in the language shown and in English, and
-/// its key as the INI keeps it (a tweak's note names its Stewie's Tweaks key) [design:
-/// #1953].
+/// A registered row's words: its label and note in the language shown and in English, its
+/// key as the INI keeps it (a tweak's note names its Stewie's Tweaks key) [design: #1953]
+/// and its command-line switches (`--msaa` finds Anti-aliasing, #2377).
 pub fn setting_haystack(s: &Setting) -> String {
-    haystack(&[tr(s.label), s.label, tr(s.note), s.note, s.key])
+    haystack(&[tr(s.label), s.label, tr(s.note), s.note, s.key, s.switches])
 }
 
 /// Whether `hay` holds every term somewhere (terms may match different words; no
@@ -672,7 +694,7 @@ mod tests {
     fn registry(rows: &[(&'static str, &'static str)]) -> Vec<Setting> {
         let mut s = Settings::default();
         for (key, group) in rows {
-            s.add(Setting { key, group, label: key, note: "", get: |_| false, set: |_, _| {}, slider: None });
+            s.add(Setting { key, group, label: key, note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None });
         }
         s.list().to_vec()
     }
@@ -780,19 +802,102 @@ mod tests {
         e.extend((8..12).map(r));
         assert_eq!(e.len(), 14);
         // From the top: line 9 (B) would be the last of a window from 1; it is left out.
-        assert_eq!(drawn_slots(&e, 1), 1..9);
-        assert_eq!(drawn_slots(&e, 0), 0..9);
+        assert_eq!(drawn_slots(&e, 1, 9), 1..9);
+        assert_eq!(drawn_slots(&e, 0, 9), 0..9);
         // Down onto B's first row (line 10): the window shows B too.
-        let first = follow(&e, 0, Some(10));
-        assert!(first <= 9 && first + WINDOW_ROWS > 10, "{first}");
+        let first = follow(&e, 0, Some(10), 9);
+        assert!(first <= 9 && first + 9 > 10, "{first}");
         // Up to A's first row (line 1): A's heading comes back into view.
-        assert_eq!(follow(&e, 5, Some(1)), 0);
+        assert_eq!(follow(&e, 5, Some(1), 9), 0);
         // Never past the last full window.
-        assert_eq!(follow(&e, 20, None), e.len() - WINDOW_ROWS);
+        assert_eq!(follow(&e, 20, None, 9), e.len() - 9);
         // The wheel moved the window off the choice: the nearest drawn row is chosen.
-        assert_eq!(clamp_into_window(&e, 3, Some(RowId::Setting(0))), Some(RowId::Setting(2)));
-        assert_eq!(clamp_into_window(&e, 0, Some(RowId::Setting(11))), Some(RowId::Setting(7)));
-        assert_eq!(clamp_into_window(&e, 0, Some(RowId::Setting(3))), Some(RowId::Setting(3)));
+        assert_eq!(clamp_into_window(&e, 3, Some(RowId::Setting(0)), 9), Some(RowId::Setting(2)));
+        assert_eq!(clamp_into_window(&e, 0, Some(RowId::Setting(11)), 9), Some(RowId::Setting(7)));
+        assert_eq!(clamp_into_window(&e, 0, Some(RowId::Setting(3)), 9), Some(RowId::Setting(3)));
+    }
+
+    /// #2377: the window works with any number of lines, the layout's: every row can be
+    /// followed into view (with its heading where there is room for both), the window never
+    /// passes the last full one, never ends on a heading unless that is its only line, and
+    /// the wheel's window always has the choice drawn.
+    #[test]
+    fn the_window_works_with_any_number_of_lines() {
+        let h = |t| ViewEntry::Heading(Placement { tab: "T", subgroup: None, heading: Some(t) });
+        let r = |i| ViewEntry::Row(RowId::Setting(i));
+        // [A] 0..5, [B] 5..10, [C] 10..15: 18 lines.
+        let mut e = Vec::new();
+        for (k, name) in ["A", "B", "C"].into_iter().enumerate() {
+            e.push(h(name));
+            e.extend((k * 5..k * 5 + 5).map(r));
+        }
+        let short = vec![h("A"), r(0), r(1)];
+        let rows_only: Vec<ViewEntry> = (0..4).map(r).collect();
+        for shown in [1, 2, 9, 13, 30] {
+            for list in [&e, &short, &rows_only] {
+                let n = list.len();
+                let last = n.saturating_sub(shown);
+                for (s, entry) in list.iter().enumerate() {
+                    let ViewEntry::Row(id) = *entry else { continue };
+                    for first in 0..n + 3 {
+                        let f = follow(list, first, Some(s), shown);
+                        let drawn = drawn_slots(list, f, shown);
+                        assert!(f <= last, "{shown} lines: {f} past the last full window {last}");
+                        assert!(drawn.contains(&s), "{shown} lines from {first}: row {s} not drawn in {drawn:?}");
+                        if shown > 1 && s > 0 && matches!(list[s - 1], ViewEntry::Heading(_)) {
+                            assert!(drawn.contains(&(s - 1)), "{shown} lines: the heading over the heading's first row {s}");
+                        }
+                        // A new choice is followed as `follow` does; the same one only kept in view.
+                        assert_eq!(window_first(list, first, Some(id), None, shown), f);
+                        let kept = window_first(list, first, Some(id), Some(id), shown);
+                        assert!(drawn_slots(list, kept, shown).contains(&s) && kept <= last);
+                    }
+                }
+                for first in 0..=last {
+                    let drawn = drawn_slots(list, first, shown);
+                    assert!(drawn.len() <= shown && drawn.start == first.min(n));
+                    if drawn.len() > 1 {
+                        assert!(matches!(list[drawn.end - 1], ViewEntry::Row(_)), "{shown} lines from {first}: ends on a heading");
+                    }
+                    // The wheel put the window here (landing past a heading a one-line
+                    // window would show alone): the choice is a drawn row.
+                    for step in [-1, 1] {
+                        let landed = land(list, first, step, shown);
+                        let picked = clamp_into_window(list, landed, Some(RowId::Setting(0)), shown);
+                        let k = picked.and_then(|id| slot_of(list, id)).expect("a row");
+                        assert!(drawn_slots(list, landed, shown).contains(&k), "{shown} lines from {first} ({step}): {picked:?}");
+                    }
+                }
+            }
+        }
+        // One line: the row, not its heading; two: both.
+        assert_eq!(follow(&e, 0, Some(7), 1), 7);
+        assert_eq!(follow(&e, 0, Some(7), 2), 6);
+        assert_eq!(drawn_slots(&e, 6, 1), 6..7, "a heading alone on a one-line window");
+        // The wheel crosses a heading in a one-line window: [A], a0, [B], b0 (a list of
+        // [row, heading, row] after the first heading).
+        let ab = vec![h("A"), r(0), h("B"), r(5)];
+        let down = land(&ab, 2, 1, 1);
+        assert_eq!((down, clamp_into_window(&ab, down, Some(RowId::Setting(0)), 1)), (3, Some(RowId::Setting(5))), "down from a0 past [B] onto b0");
+        let up = land(&ab, 2, -1, 1);
+        assert_eq!((up, clamp_into_window(&ab, up, Some(RowId::Setting(5)), 1)), (1, Some(RowId::Setting(0))), "up from b0 past [B] onto a0");
+        assert_eq!(land(&ab, 0, -1, 1), 1, "the top heading: on to the row after it");
+        assert_eq!(land(&ab, 2, 1, 2), 2, "two lines show the heading with its row");
+        assert_eq!(land(&[h("A")], 0, 1, 1), 0, "a heading alone: nowhere to go");
+        // Thirteen lines: from the top, line 12 (C) would be last; it is left out.
+        assert_eq!(drawn_slots(&e, 0, 13), 0..12);
+        assert_eq!(follow(&e, 0, Some(13), 13), 1, "C's first row brings C into view: the window from 1, C on its 12th line");
+        // More lines than the list: all of it from the top.
+        assert_eq!(follow(&e, 4, Some(17), 30), 0);
+        assert_eq!(drawn_slots(&e, 0, 30), 0..18);
+        // An empty list.
+        assert_eq!(follow(&[], 3, None, 13), 0);
+        assert_eq!(drawn_slots(&[], 0, 13), 0..0);
+        assert_eq!(clamp_into_window(&[], 0, None, 13), None);
+        assert_eq!(window_first(&[], 2, None, None, 13), 0);
+        // A zero is taken as one line, never a window of none.
+        assert_eq!(drawn_slots(&e, 1, 0), 1..2);
+        assert_eq!(follow(&e, 0, Some(7), 0), 7);
     }
 
     #[test]
@@ -807,21 +912,21 @@ mod tests {
         }
         let first_row = Some(RowId::Setting(0));
         // A notch down: the window from line 1, the first row (line 1) still in it.
-        assert_eq!(clamp_into_window(&e, 1, first_row), first_row);
+        assert_eq!(clamp_into_window(&e, 1, first_row, 9), first_row);
         // The next frame keeps it there: the choice did not change, so its heading is not
         // brought back (the window followed this choice before).
-        assert_eq!(window_first(&e, 1, first_row, first_row), 1);
+        assert_eq!(window_first(&e, 1, first_row, first_row, 9), 1);
         // A new choice is followed with its heading.
-        assert_eq!(window_first(&e, 1, first_row, None), 0);
+        assert_eq!(window_first(&e, 1, first_row, None, 9), 0);
         // Two notches: the first row leaves the window, the choice is its top row.
-        assert_eq!(clamp_into_window(&e, 2, first_row), Some(RowId::Setting(1)));
-        assert_eq!(window_first(&e, 2, Some(RowId::Setting(1)), Some(RowId::Setting(1))), 2);
+        assert_eq!(clamp_into_window(&e, 2, first_row, 9), Some(RowId::Setting(1)));
+        assert_eq!(window_first(&e, 2, Some(RowId::Setting(1)), Some(RowId::Setting(1)), 9), 2);
         // The window's top on a heading: the choice is the row under it, not the heading.
-        assert_eq!(clamp_into_window(&e, 6, Some(RowId::Setting(1))), Some(RowId::Setting(5)));
-        assert_eq!(window_first(&e, 6, Some(RowId::Setting(5)), Some(RowId::Setting(5))), 6);
+        assert_eq!(clamp_into_window(&e, 6, Some(RowId::Setting(1)), 9), Some(RowId::Setting(5)));
+        assert_eq!(window_first(&e, 6, Some(RowId::Setting(5)), Some(RowId::Setting(5)), 9), 6);
         // Never past the last full window; a choice below the window is still kept in view.
-        assert_eq!(window_first(&e, 30, None, None), e.len() - WINDOW_ROWS);
-        assert_eq!(window_first(&e, 0, Some(RowId::Setting(14)), Some(RowId::Setting(14))), e.len() - WINDOW_ROWS);
+        assert_eq!(window_first(&e, 30, None, None, 9), e.len() - 9);
+        assert_eq!(window_first(&e, 0, Some(RowId::Setting(14)), Some(RowId::Setting(14)), 9), e.len() - 9);
     }
 
     #[test]
@@ -867,22 +972,22 @@ mod tests {
         assert_eq!(rail(&l).len(), 2 + TAB_ORDER.len() + 2);
     }
 
-    /// A registry with the rows' own words.
-    fn worded(rows: &[(&'static str, &'static str, &'static str, &'static str)]) -> Vec<Setting> {
+    /// A registry with the rows' own words: key, group, label, note, switches.
+    fn worded(rows: &[(&'static str, &'static str, &'static str, &'static str, &'static str)]) -> Vec<Setting> {
         let mut s = Settings::default();
-        for (key, group, label, note) in rows {
-            s.add(Setting { key, group, label, note, get: |_| false, set: |_, _| {}, slider: None });
+        for (key, group, label, note, switches) in rows {
+            s.add(Setting { key, group, label, note, switches, get: |_| false, set: |_, _| {}, slider: None });
         }
         s.list().to_vec()
     }
 
-    const WORDED: [(&str, &str, &str, &str); 6] = [
-        ("difficulty", "Gameplay", "Difficulty", "How hard the fights are."),
-        ("menu-pause", "Gameplay", "Freeze the picture in dialogue and menus", "While the inventory is open, animations stand still. (--menu-pause original|living)"),
-        ("hud-colour", "Interface", "HUD colour", "The colour of the HUD."),
-        ("hud-red", "Interface", "HUD red", "Its red."),
-        ("button-style", "Controller", "Button style", "The controller's buttons."),
-        ("god-mode", "Debug", "God mode", "Nothing hurts the player."),
+    const WORDED: [(&str, &str, &str, &str, &str); 6] = [
+        ("difficulty", "Gameplay", "Difficulty", "How hard the fights are.", ""),
+        ("menu-pause", "Gameplay", "Freeze the picture in dialogue and menus", "While the inventory is open, animations stand still; the world lives on otherwise.", "--menu-pause, --still-world"),
+        ("hud-colour", "Interface", "HUD colour", "The colour of the HUD.", ""),
+        ("hud-red", "Interface", "HUD red", "Its red.", ""),
+        ("button-style", "Controller", "Button style", "The controller's buttons.", ""),
+        ("god-mode", "Debug", "God mode", "Nothing hurts the player.", ""),
     ];
 
     /// What the search lists for `query` with `vis`, as names (a Controls row's words: its name).
@@ -900,7 +1005,10 @@ mod tests {
         assert_eq!(searched(&list, "menu-pause", vis), ["[Dialogue]", "menu-pause"]);
         assert_eq!(searched(&list, "FREEZE", vis), ["[Dialogue]", "menu-pause"]);
         assert_eq!(searched(&list, "  inventory   animations ", vis), ["[Dialogue]", "menu-pause"]);
-        assert_eq!(searched(&list, "freeze living", vis), ["[Dialogue]", "menu-pause"], "terms in the label and the note");
+        assert_eq!(searched(&list, "freeze lives", vis), ["[Dialogue]", "menu-pause"], "terms in the label and the note");
+        // A row's command-line switches, though the page does not show them (#2377).
+        assert_eq!(searched(&list, "--Still-World", vis), ["[Dialogue]", "menu-pause"]);
+        assert_eq!(searched(&list, "--menu-pause", vis), ["[Dialogue]", "menu-pause"]);
         assert!(searched(&list, "freeze nothing", vis).is_empty(), "every term must be found");
         assert!(searched(&list, "zzz", vis).is_empty());
         // Rows of several tabs, in the page's order, each under where it lives.

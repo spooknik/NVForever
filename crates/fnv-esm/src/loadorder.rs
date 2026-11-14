@@ -85,7 +85,16 @@ impl<'a> LoadOrder<'a> {
             visit_records(&p.nodes[1..], &mut |r, _| recs.push(r));
             for (ord, r) in recs.iter().enumerate() {
                 match lo.to_global(pi, r.header.form_id) {
-                    Some(g) => lo.index.entry(g).or_default().push(DefRef { plugin: pi as u8, ordinal: ord as u32 }),
+                    Some(g) => {
+                        // A plugin holding two records under one FormID keeps the first:
+                        // oHUD.esm's QUST `aHUD` before its MESG `iHUDMainMenu` at
+                        // 0x000801 is in the game a running quest with its variables, and
+                        // the message's editor ID names nothing [observed: #2276 job B].
+                        let defs = lo.index.entry(g).or_default();
+                        if defs.last().is_none_or(|d| d.plugin as usize != pi) {
+                            defs.push(DefRef { plugin: pi as u8, ordinal: ord as u32 });
+                        }
+                    }
                     None => {
                         tracing::debug!(
                             plugin = %p.name,

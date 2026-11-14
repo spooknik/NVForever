@@ -611,6 +611,34 @@ fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
 }
 
 #[test]
+fn get_seconds_passed_counts_a_trigger_frame_once_however_many_runs_it_has() {
+    // Two references inside a trigger: its OnTrigger runs twice a frame, and only the
+    // first run gets the frame's time (`Game::trigger_again`; Hidden Valley's virus
+    // purge, issue #2455, ran out several times too fast).
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let t = FormId(TRIG_REF);
+    let run = |g: &mut Game| assert!(g.ref_event(t, fnv_game::game::event::ON_TRIGGER, Some(Value::Ref(FormId::PLAYER_REF.0)), Some(FormId::PLAYER_REF)));
+    let inside_twice = |g: &mut Game| {
+        g.trigger_frame(t);
+        run(g);
+        g.trigger_again(t);
+        run(g);
+    };
+    inside_twice(&mut g);
+    let first = g.time;
+    for _ in 0..60 {
+        g.frames(1);
+        inside_twice(&mut g);
+    }
+    let elapsed = g.time - first;
+    let Value::Num(sum) = g.var(InstKey::Ref { reference: t }, 1) else { panic!("fSum is not a number") };
+    assert!(elapsed > 0.5, "{elapsed}");
+    assert!((sum - elapsed).abs() <= 2.0 / 64.0, "sum {sum}, elapsed {elapsed}");
+}
+
+#[test]
 fn stage_entries_run_when_their_conditions_pass_and_done_stages_do_not_rerun() {
     let f = fixture();
     let mut g = game(&f);
@@ -3840,6 +3868,194 @@ fn console_functions_run_their_commands() {
 }
 
 #[test]
+fn script_console_assignments_update_quest_variables_instead_of_calling_their_names() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let timer = g.run_query("Begin Function {}\nConsole \"Q.fTimer = 2\"\nConsole \"Q.fTimer += 0.5\"\nConsole \"set Q.bRun to 7.8\"\nSetFunctionValue Q.fTimer\nEnd", Default::default()).unwrap();
+    assert_eq!(timer, XVal::Num(2.5));
+    let run_flag = g.run_query("Begin Function {}\nSetFunctionValue Q.bRun\nEnd", Default::default()).unwrap();
+    assert_eq!(run_flag, XVal::Num(7.0));
+    assert!(g.console_out.iter().all(|line| !line.starts_with("Script error:")), "{:?}", g.console_out);
+    assert!(g.events.iter().all(|e| !matches!(&e.kind, EventKind::ScriptError { .. })));
+}
+
+#[test]
+fn script_console_assignment_expressions_preserve_the_callers_next_statement() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let result = g.run_query("float result\nBegin Function {}\nConsole \"set TestGlobal to 5\"\nConsole \"TestGlobal += 3 * 2\"\nlet result := TestGlobal + 1\nSetFunctionValue result\nEnd", Default::default()).unwrap();
+    assert_eq!(result, XVal::Num(12.0));
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 11.0);
+    assert!(g.console_out.is_empty(), "success is silent with echo off: {:?}", g.console_out);
+}
+
+#[test]
+fn script_console_classic_set_accepts_single_token_expressions() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    for (line, expected) in [("set TestGlobal to (5)", 5.0), ("set TestGlobal to 3*2", 6.0), ("set TestGlobal to -7", -7.0)] {
+        fnv_game::nvse::call(&mut g, &Default::default(), "console", None, &[XVal::Str(line.into())]).unwrap().unwrap();
+        assert_eq!(g.world.global(FormId(0x800)).unwrap(), expected);
+    }
+    assert!(g.console_out.is_empty(), "{:?}", g.console_out);
+}
+
+#[test]
+fn script_console_cache_limits_distinct_sources_but_reuses_existing_entries() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 0..256 { run(&mut g, format!("TestGlobal = {i}")); }
+    assert!(g.console_out.is_empty());
+    run(&mut g, "TestGlobal = 999".into());
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("256 distinct"));
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 255.0);
+    run(&mut g, "TestGlobal = 3".into());
+    assert_eq!(g.console_out.len(), 1, "cache hits remain executable at the limit");
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 3.0);
+}
+
+#[test]
+fn script_console_source_length_boundary_does_not_disable_shorter_lines() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    let mut exact = "TestGlobal = 7".to_string();
+    exact.extend(std::iter::repeat_n(' ', 16 * 1024 - exact.len()));
+    run(&mut g, exact.clone());
+    assert!(g.console_out.is_empty());
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 7.0);
+    exact.push(' ');
+    run(&mut g, exact);
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("16 KiB"));
+    run(&mut g, "TestGlobal = 8".into());
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 8.0);
+    assert_eq!(g.console_out.len(), 1);
+}
+
+#[test]
+fn script_console_unknown_plain_commands_still_report_errors_and_continue() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let result = g.run_query("Begin Function {}\nConsole \"OwnMissingCommand\"\nConsole \"set TestGlobal to 9\"\nSetFunctionValue TestGlobal\nEnd", Default::default()).unwrap();
+    assert_eq!(result, XVal::Num(9.0));
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("OwnMissingCommand"));
+}
+
+#[test]
+fn script_console_repeated_expressions_reuse_their_compilation_and_read_live_state() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.world.set_global(FormId(0x800), 0.0).unwrap();
+    for _ in 0..300 {
+        fnv_game::nvse::call(&mut g, &Default::default(), "console", None, &[XVal::Str("TestGlobal += 1".into())]).unwrap().unwrap();
+    }
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 300.0);
+    assert!(g.console_out.is_empty(), "the repeated expression must not exhaust its cache: {:?}", g.console_out);
+}
+
+#[test]
+fn script_console_runtime_and_syntax_failures_are_diagnostic_and_do_not_end_the_caller() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let result = g.run_query("Begin Function {}\nConsole \"TestGlobal = 1 / 0\"\nConsole \"TestGlobal +=\"\nConsole \"set TestGlobal to 13\"\nSetFunctionValue TestGlobal\nEnd", Default::default()).unwrap();
+    assert_eq!(result, XVal::Num(13.0));
+    assert_eq!(g.console_out.len(), 2, "{:?}", g.console_out);
+    assert!(g.console_out[0].contains("division by zero"));
+    assert!(g.console_out[1].starts_with("Script error: console:"));
+}
+
+#[test]
+fn script_console_changing_signed_number_words_preserve_word_dispatch() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 1..=300 {
+        run(&mut g, format!("player.SetPos z -{i}"));
+        run(&mut g, format!("player.SetAngle z -{}", f64::from(i) / 10.0));
+        let player = g.world.get(FormId::PLAYER_REF).unwrap();
+        assert_eq!(player.pos[2], -(i as f32), "negative SetPos word {i}");
+        assert!((player.rot[2].to_degrees() + i as f32 / 10.0).abs() < 0.001, "negative SetAngle word {i}");
+    }
+    assert!(g.console_out.is_empty(), "ordinary numeric words: {:?}", g.console_out);
+}
+
+#[test]
+fn script_console_numeric_words_leave_the_expression_budget_and_post_budget_dispatch_available() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 1..=300 {
+        run(&mut g, format!("player.SetPos z -{i}"));
+        run(&mut g, format!("player.SetAngle z -{}", f64::from(i) / 10.0));
+    }
+    assert!(g.console_out.is_empty(), "ordinary numeric words: {:?}", g.console_out);
+    // All expression slots remain available after more than 256 changing commands.
+    for i in 0..256 { run(&mut g, format!("TestGlobal = {i}")); }
+    assert!(g.console_out.is_empty(), "numeric words must not occupy expression slots: {:?}", g.console_out);
+    run(&mut g, "TestGlobal = 999".into());
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("256 distinct"));
+    run(&mut g, "player.SetPos z -999".into());
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().pos[2], -999.0);
+    assert_eq!(g.console_out.len(), 1, "word dispatch remains available after the expression budget");
+}
+
+#[test]
+fn script_console_compact_decimal_assignments_still_use_the_expression_compiler() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.world.set_global(FormId(0x800), 0.0).unwrap();
+    for _ in 0..300 {
+        fnv_game::nvse::call(&mut g, &Default::default(), "console", None, &[XVal::Str("TestGlobal+=0.5".into())]).unwrap().unwrap();
+    }
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 150.0);
+    assert!(g.console_out.is_empty(), "{:?}", g.console_out);
+}
+
+#[test]
+fn script_console_unquoted_string_paths_reach_the_word_handler_without_compilation() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 0..256 { run(&mut g, format!("TestGlobal = {i}")); }
+    assert!(g.console_out.is_empty());
+    // PlayIdle's declared string argument must reach its existing host lookup as one
+    // unchanged word. The authored missing name gives a discriminating host error.
+    run(&mut g, "player.PlayIdle Owned-Thing/path.kf".into());
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("no form named Owned-Thing/path.kf"), "{:?}", g.console_out);
+    assert!(!g.console_out[0].contains("256 distinct"));
+    let failures = g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { name, .. } if name.eq_ignore_ascii_case("PlayIdle"))).count();
+    assert_eq!(failures, 1, "a failed word handler is not retried through the compiler");
+}
+
+#[test]
 fn generic_form_lists_and_animation_lists_change_for_the_session() {
     // #914 [documented: GenericAddForm "-2 will add to the end", GenericDeleteForm and
     // GenericReplaceForm return the form taken out; AddAnimation, DelAnimation,
@@ -3986,7 +4202,14 @@ fn extender_census() {
     let enc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/crates/fnv-script/data/encodings.json")).unwrap()).unwrap();
     let not_commands: Vec<String> = enc["compiler"]["not_commands"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).map(str::to_ascii_lowercase).collect();
     let mut not_registered = Vec::new();
-    for x in fs.iter().filter(|x| x["family"] == "extender") {
+    // `NVF_CENSUS_FAMILY=vanilla`: the base game's functions the catalogue has no opcode
+    // for (no shipped script calls them). A mod's source reaches them by name, as it
+    // reaches an extender's, so an unbuilt one is skipped the same way; the extender
+    // count alone did not show them (the owner's run of 2026-11-12: SetDefaultOpen and
+    // IsActorDetected "not built yet" in Just Assorted Mods and CASM). The list then goes
+    // to `target/tmp/vanilla-census.txt`.
+    let family = std::env::var("NVF_CENSUS_FAMILY").unwrap_or_else(|_| "extender".to_string());
+    for x in fs.iter().filter(|x| x["family"] == family.as_str() && (family == "extender" || x["opcodes"].is_null())) {
         let n = x["name"].as_str().unwrap_or_default();
         if not_commands.contains(&n.to_ascii_lowercase()) {
             not_registered.push(n.to_string());
@@ -4033,7 +4256,7 @@ fn extender_census() {
     out += &format!("not registered by the original, left out {}: {}\n", not_registered.len(), not_registered.join(", "));
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
     std::fs::create_dir_all(dir).unwrap();
-    std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
+    std::fs::write(format!("{dir}/{family}-census.txt"), &out).unwrap();
     println!("unbuilt: {}", unbuilt.values().map(Vec::len).sum::<usize>());
 }
 
@@ -4521,6 +4744,23 @@ fn jip_menu_key_crafting_and_discovery_events_reach_their_handlers() {
 }
 
 #[test]
+fn the_mods_page_sends_the_start_menus_open_and_close() {
+    // MCM Extender adds its menus from a handler for the start menu, 1013 [observed:
+    // its OnPauseMenuOpen.gek; Begin Again list 2026-11-13].
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game<'_>, src: &str| g.run_source(src, Default::default()).expect("compiles");
+    let global = |g: &Game| g.world.global(FormId(0x0000_0800)).unwrap();
+    run(&mut g, "SetOnMenuOpenEventHandler (begin function {int i}\nlet TestGlobal := i + MenuMode 1013\nend) 1 1013");
+    run(&mut g, "SetOnMenuCloseEventHandler (begin function {int i}\nlet TestGlobal := 0 - i\nend) 1 1013");
+    g.page_menu_event(1013, true);
+    assert_eq!(global(&g), 1014.0, "the handler runs with MenuMode 1013 true");
+    assert_eq!(g.menu, None, "no menu is opened");
+    g.page_menu_event(1013, false);
+    assert_eq!(global(&g), -1013.0);
+}
+
+#[test]
 fn extra_misc_stats_music_states_eaten_corpses_and_terminal_art() {
     let f = udf_fixture();
     let mut g = game(&f);
@@ -4637,4 +4877,63 @@ fn an_activator_plays_open_and_close_with_its_open_state() {
     g.default_activation(FormId::PLAYER_REF, r, false).unwrap();
     assert!(!g.world.get(r).unwrap().open);
     assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Close"));
+}
+
+/// The plugins whose functions the engine builds answer as installed, the others do not
+/// (docs/spec-notes/ext-version.md §5): a mod's start-up check passes for what is here.
+#[test]
+fn built_in_plugins_report_installed() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default());
+    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "sup nvse plugin"] {
+        assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(1.0)), "{name}");
+        let Ok(XVal::Num(v)) = q(&mut g, &format!("GetPluginVersion \"{name}\"")) else { panic!("{name}") };
+        assert!(v > 0.0, "{name}: {v}");
+    }
+    // A version a mod asks for "at least" is met where none was read in the original.
+    assert_eq!(q(&mut g, "GetPluginVersion \"SUP NVSE Plugin\" >= 250"), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, "GetPluginVersion \"CUI\""), Ok(XVal::Num(120.0)));
+    for name in ["yUI", "NVTF", "No Such Plugin"] {
+        assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(0.0)), "{name}");
+        assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");
+    }
+}
+
+/// The test aid's list of what scripts ask about plugins (`fnv_game::plugin_questions`):
+/// nothing is kept by default; switched on, each question comes once with its answer.
+#[test]
+fn plugin_questions_are_kept_only_when_asked_for() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default()).unwrap();
+    q(&mut g, "IsPluginInstalled \"yUI\"");
+    assert!(g.plugin_questions.is_none());
+    g.plugin_questions = Some(Default::default());
+    for body in ["IsPluginInstalled \"yUI\"", "IsPluginInstalled \"yUI\"", "GetPluginVersion \"JIP NVSE Plugin\"", "IsDLLLoaded \"no_such\"", "IsModLoaded \"Nothing.esp\"", "GetModIndex \"Nothing.esp\""] {
+        q(&mut g, body);
+    }
+    let got = g.plugin_questions.as_mut().unwrap().take();
+    let read: Vec<(&str, &str, f64, bool)> = got.iter().map(|x| (x.function.as_str(), x.name.as_str(), x.answer, x.absent())).collect();
+    assert_eq!(
+        read,
+        [("isplugininstalled", "yUI", 0.0, true), ("getpluginversion", "JIP NVSE Plugin", 57.3, false), ("isdllloaded", "no_such", 0.0, true), ("ismodloaded", "Nothing.esp", 0.0, true), ("getmodindex", "Nothing.esp", 255.0, true)]
+    );
+}
+
+#[test]
+fn a_clone_of_an_item_goes_into_a_container_by_its_own_id() {
+    // MCM marks each mod it listed by adding it to a container; MCM Extender's menus are
+    // temporary clones of an item [observed: MCM's script source, MCM Extender's
+    // OnPauseMenuOpen.gek; Begin Again list 2026-11-13].
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let src = "ref r
+let r := TempCloneForm TestWeapon
+TestNpcREF.AddItem r 1
+set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestWeapon";
+    g.run_source(src, Default::default()).expect("runs");
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
 }

@@ -74,6 +74,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let to = num(args, 0, f64::from(c.hour));
             if let Some(hours) = g.world.advance_to_hour(to).ok().filter(|h| *h > 0.0) {
                 g.pass_hours(hours, false);
+                // A jump of the clock, for the engine's actors (#2353).
+                if let Ok(now) = g.world.calendar() {
+                    g.note_hour_jump(c.hour, now.hour);
+                }
             }
             XVal::Num(0.0)
         }

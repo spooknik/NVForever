@@ -123,7 +123,8 @@ shape (scaled by the actor's scale), mass and damping; friction capped at 1; no 
 continuous collision detection. Colliders carry `Owner::Actor` on DEAD_BIP with the body
 part (BPTD index) of their bone, so shots, the crosshair and **Search** find the corpse
 on its ragdoll; the actor's kinematic hit volume is removed while the ragdoll is in the
-world.
+world. Blasts reach the corpse by its ragdoll's bounds and bodies instead
+(`PhysWorld::ragdoll_bounds`, `ragdoll_body_centers`; combat-rules.md §11, #2346) [design].
 
 **Joints.** Body 1 is the constraint's b, body 2 its a; the joint frames are
 (twist, plane, twist × plane) or (axis, perp1, axis × perp1) at the pivots.
@@ -213,6 +214,19 @@ run (saves are not built yet). A corpse whose reference a script disables or del
 
 **Guard.** A corpse more than 150 units under the terrain is put back 20 above it, at
 most three times.
+
+**Without its ragdoll** (#2347). A corpse whose ragdoll will not be built (bad data that
+breaks the build or makes no body) or that falls through the terrain a fourth time is never
+tried again, and is shown dead as a skeleton without a ragdoll is (`ragdoll::unbuilt`): a
+fresh death plays its death pose from its first frame, or is laid on its back about its feet;
+one its ragdoll already posed (the fourth fall) takes its death pose at its end, or keeps the
+pose it last lay in, lifted above the ground. One the death handling already showed dead
+without a ragdoll (dead when drawn, ground not loaded) stays as it is. Before, a fresh death
+kept the last frame of the clip it was playing: a legionary killed running stood in his run
+(issue #2347). Placed actors only; the player's body is left out. Logged once as `ragdoll:
+actor <id>: <why>; shown dead without it: <how>`. Test aid: `NVF_PLAY_TEST_RAGDOLL_FAIL=<hex
+FormIDs, comma-separated>` refuses those actors' builds as if they had failed (smoke scenario
+`ragdoll-fail-laid-out`).
 
 **Checked** [observed 2026-10-10, `nvforever --cell Goodsprings --play` driven by the
 test aids (`NVF_PLAY_TEST_FACE`, `aimnpc`, `fire`, `aimcorpse`), exit 0, "run finished";

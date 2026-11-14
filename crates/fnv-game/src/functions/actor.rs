@@ -598,7 +598,7 @@ pub fn get_dead_count(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 
 /// The factions and ranks the records give an actor: its base's `SNAM` list, or its
 /// template's with the template flag "Factions" (docs/spec-notes/factions.md §2).
-fn base_factions<'d>(g: &'d Game, r: FormId) -> &'d [(FormId, i8)] {
+pub(crate) fn base_factions<'d>(g: &'d Game, r: FormId) -> &'d [(FormId, i8)] {
     base_of(g, r).map_or(&[], |b| g.data.base_factions_at(b, g.pick_seed(r), g.leveled_at(r)))
 }
 
@@ -704,7 +704,7 @@ pub fn get_is_race(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 pub fn get_is_class(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(g.traits_def(r).and_then(|d| d.class) == Some(a.form(0)?))
+    yes(g.traits_class(r) == Some(a.form(0)?))
 }
 
 macro_rules! flag {
@@ -1067,24 +1067,22 @@ pub fn get_faction_rank_difference(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<
     Ok(Value::Num((faction_rank(g, r, f) - faction_rank(g, t, f)) as f64))
 }
 
-/// `SetPCEnemyOfFaction faction flag` [documented: catalogue summary].
+/// `SetPCEnemyOfFaction faction flag` [documented: catalogue summary]. A flag a script
+/// sets stays until a script clears it; one a crime set ends with its crimes
+/// (`Game::expire_crimes`) [design, #2467].
 pub fn set_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let f = a.form(0)?;
-    if a.num_or(1, 1.0) != 0.0 {
-        g.player.enemy_of.insert(f);
-    } else {
-        g.player.enemy_of.remove(&f);
-    }
-    forget_relations(g);
+    g.script_enemy_of(f, a.num_or(1, 1.0) != 0.0);
     none()
 }
 
 pub fn get_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.expire_crimes();
     yes(g.player.enemy_of.contains(&a.form(0)?))
 }
 
 pub fn clear_faction_player_enemy_flag(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.enemy_of.remove(&a.form(0)?);
+    g.clear_enemy_of(a.form(0)?);
     forget_relations(g);
     none()
 }
@@ -1093,6 +1091,7 @@ pub fn clear_faction_player_enemy_flag(g: &mut Game, _ctx: &Ctx, a: &Args) -> Re
 /// catalogue summary].
 pub fn get_actor_faction_player_enemy(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    g.expire_crimes();
     yes(factions_of(g, r).iter().any(|f| g.player.enemy_of.contains(f)))
 }
 

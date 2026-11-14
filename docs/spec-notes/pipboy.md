@@ -612,7 +612,9 @@ is the top left 85 × 92 of `head.dds`) [observed].
     of type Apparel) of each worn piece of apparel, named by the enchantment's FULL
     ("Vault Jumpsuit"), its Value Modifier effects written "Speech +2, Melee Weap. +2"
     with the actor values' short names (AVIF `ANAM`) [observed: the screenshot and the
-    records]; then aid items (ALCH) with active effects. A detrimental effect (MGEF flag)
+    records], read from the game's active effects (aid-items.md §13): an effect whose
+    conditions fail or that a Dispel took off is not listed [design: #2495]; then aid
+    items (ALCH) with active effects. A detrimental effect (MGEF flag)
     is written with a minus [hypothesis]. "No Effects" when there is none [hypothesis:
     the words].
 - **Lists** (S.P.E.C.I.A.L., Skills, Perks): 35, 110, 325 / 350 / 420 wide (25 / 50 more
@@ -620,8 +622,9 @@ is the top left 85 × 92 of `head.dds`) [observed].
   15 in and 20 down, its number right-aligned 10 before a right buffer of 20 (55 when
   marked), the mark 10 after [documented]. Skills are in name order [observed: Guns
   between Explosives and Lockpick], Big Guns left out [observed: thirteen; its AVIF is
-  "Big Guns - OBSOLETE"]. A value shown is the current value plus worn apparel's changes
-  [design: the game does not apply worn enchantments to actor values yet], skills kept to
+  "Big Guns - OBSOLETE"]. A value shown is the game's actor value (base, permanent and
+  temporary modifiers, less damage), which holds the worn apparel's enchantments in the
+  temporary pool [documented: GECK wiki ActorValue; aid-items.md §13; #2495], skills kept to
   0–100; "(+)" or "(-)" when it differs from the permanent value [observed: "34 (+)";
   hypothesis: "(-)"]. Perks: the player's perks, playable and not hidden by PERK DATA
   [hypothesis: its bytes as trait, minimum level, ranks, playable, hidden], traits
@@ -684,8 +687,7 @@ is the top left 85 × 92 of `head.dds`) [observed].
   reaches `pad::menu_keys` and chooses the head, then torso on CND.
 - **Open**: the game settings the page's words come from (`sStatsCrippled`,
   `sStatsNoEffects`, `sPCMenuHint*`) are not in the masters; when each face shows;
-  whether the hints count 0 and when they are bright; whether worn enchantments should
-  change the actor values themselves (then the page needs no sum of its own); the
+  whether the hints count 0 and when they are bright; the
   highlight box's rule; General's list height, order and right buffer, the reputation
   list's rule and second line, the karma titles. (The misc statistics' codes: misc-stats.md §1.)
 
@@ -1396,7 +1398,19 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     McCarran 8, Hoover Dam 7]), flags `FNAM`, radius `XRDS`. Shown when the player has been
     within the radius (`XRDS`) in the marker's own worldspace with its type's icon,
     or when ShowMap or the Visible flag made it known, with the undiscovered icon
-    [hypothesis]. Icons `interface\icons\world map\icon_map_<type>.dds`, the inverted form
+    [hypothesis]. A marker without `XRDS` is found within `iMapMarkerRevealDistance`
+    [documented: GECK wiki "Complete List of GameSettings", the Fallout: New Vegas default
+    1000; no master sets it], that setting being this distance a [hypothesis] (#2338;
+    observer check 128); a plugin's value is used as it is, and 0 finds no such marker by
+    walking [design]; before #2338 such a marker was never found by walking up to it.
+    Named markers (`XMRK` and `FULL`) in each master's own worldspaces, and how many have no
+    `XRDS` [documented: fnvtool esm decode of each placed MapMarker reference]:
+    FalloutNV.esm 189 / 66 (WastelandNV 186 / 65, Coyote Den 0x00154A69 and the four
+    Powder Ganger Camps among them; FreesideWorld 1 / 1; WastelandNVmini 2 / 0; the
+    others carry XRDS 200-15000, median 2500 in WastelandNV); DeadMoney.esm 11 / 4;
+    HonestHearts.esm 55 / 26; OldWorldBlues.esm 35 / 16; LonesomeRoad.esm 28 / 18. None
+    carries an `XRDS` of 0, so an absent radius and a non-positive one are read alike
+    [design: `discovery_radius` in `engine/nvf-play/src/pipboy/data.rs`]. Icons `interface\icons\world map\icon_map_<type>.dds`, the inverted form
     under the highlight box [hypothesis: by the files' names]; 24 wide, 1.75 times and
     brightness 255 (else 220) under the box [documented: the template's 1.75 and
     brightness; observed: 24 fitted].

@@ -193,10 +193,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `setting value`: a numeric setting changed by the value, 1 when done
         // [documented: ModNumericGameSetting].
         "modnumericgamesetting" => {
-            let n = match args.first() {
-                Some(XVal::Str(s)) => s.clone(),
-                _ => return Some(Ok(zero)),
-            };
+            // The name quoted or bare (`crate::nvse_misc::setting_name`).
+            let n = crate::nvse_misc::setting_name(g, args, 0);
             let Some(now) = g.world.setting_f32(&n) else { return Some(Ok(zero)) };
             let new = f64::from(now) + num(args, 1, 0.0);
             let cctx = crate::functions::console::ConsoleCtx { on: subject, active_quest: g.ui.active_quest };

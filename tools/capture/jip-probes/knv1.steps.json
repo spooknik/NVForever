@@ -1,0 +1,345 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "knv1",
+ "title": "knv1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rA := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef \"*nvfKN\" rA\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.place",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 1\nEnd\n",
+   "label": "knv1.settle9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rP.ThisAnim)\nEnd\n",
+   "label": "knv1.thisanim.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet fA := rP.ThisAnim\nSetFunctionValue fA\nEnd\n",
+   "label": "knv1.thisanim.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rP.ThisAnimDir)\nEnd\n",
+   "label": "knv1.thisanimdir",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (ThisAnim)\nEnd\n",
+   "label": "knv1.thisanim.noref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue 0\nEnd\n",
+   "label": "knv1.ejectweapon.doc.ret",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimPathBySequenceType 0)\nEnd\n",
+   "label": "knv1.pathbytype.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimPathBySequenceType 0 1)\nEnd\n",
+   "label": "knv1.pathbytype.0.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rP.GetAnimPathBySequenceType 0)\nEnd\n",
+   "label": "knv1.pathbytype.player.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rP.GetAnimPathBySequenceType 1)\nEnd\n",
+   "label": "knv1.pathbytype.player.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rP.GetAnimPathBySequenceType 3)\nEnd\n",
+   "label": "knv1.pathbytype.player.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (GetAnimPathBySequenceType rA 0)\nEnd\n",
+   "label": "knv1.pathbytype.form",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimWeight \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\")\nEnd\n",
+   "label": "knv1.GetAnimWeight.idle",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimWeight \"characters\\\\_male\\\\locomotion\\\\mtforward.kf\")\nEnd\n",
+   "label": "knv1.GetAnimWeight.fwd",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimWeight \"characters\\\\_male\\\\nvfnosuch.kf\")\nEnd\n",
+   "label": "knv1.GetAnimWeight.nope",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimHandType \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\")\nEnd\n",
+   "label": "knv1.GetAnimHandType.idle",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimHandType \"characters\\\\_male\\\\locomotion\\\\mtforward.kf\")\nEnd\n",
+   "label": "knv1.GetAnimHandType.fwd",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimHandType \"characters\\\\_male\\\\nvfnosuch.kf\")\nEnd\n",
+   "label": "knv1.GetAnimHandType.nope",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.IsAnimAdditive \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\")\nEnd\n",
+   "label": "knv1.IsAnimAdditive.idle",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.IsAnimAdditive \"characters\\\\_male\\\\locomotion\\\\mtforward.kf\")\nEnd\n",
+   "label": "knv1.IsAnimAdditive.fwd",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.IsAnimAdditive \"characters\\\\_male\\\\nvfnosuch.kf\")\nEnd\n",
+   "label": "knv1.IsAnimAdditive.nope",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.IsAnimQueued \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\")\nEnd\n",
+   "label": "knv1.IsAnimQueued.idle",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.IsAnimQueued \"characters\\\\_male\\\\locomotion\\\\mtforward.kf\")\nEnd\n",
+   "label": "knv1.IsAnimQueued.fwd",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.IsAnimQueued \"characters\\\\_male\\\\nvfnosuch.kf\")\nEnd\n",
+   "label": "knv1.IsAnimQueued.nope",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rP.GetAnimWeight \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\")\nEnd\n",
+   "label": "knv1.weight.player.idle",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (GetAnimHandType \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\")\nEnd\n",
+   "label": "knv1.handtype.noref",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimInterpPriority \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"Bip01 Head\")\nEnd\n",
+   "label": "knv1.prio.idle",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimInterpPriority \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"Bip01\")\nEnd\n",
+   "label": "knv1.prio.idle.root",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimInterpPriority \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"NVFNone\")\nEnd\n",
+   "label": "knv1.prio.idle.none",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimTextKeyTime \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"Start\")\nEnd\n",
+   "label": "knv1.textkey.idle",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimTextKeyTime \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"End\")\nEnd\n",
+   "label": "knv1.textkey.idle.end",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimTextKeyTime \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"NVFNone\")\nEnd\n",
+   "label": "knv1.textkey.idle.none",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (GetAnimTextKeyTime \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"Start\")\nEnd\n",
+   "label": "knv1.textkey.noref",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet aA := GetDirectoryFiles \"Data\\\\Meshes\"\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))\nEnd\n",
+   "label": "knv1.dir.meshes",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet aA := GetDirectoryFiles \"Data\\\\NVSE\"\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))\nEnd\n",
+   "label": "knv1.dir.nvse",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet aA := GetDirectoryFiles \"Data\\\\NVSE\"\nSetFunctionValue (sv_Join aA \"|\")\nEnd\n",
+   "label": "knv1.dir.nvse.list",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet aA := GetDirectoryFiles \"Data\\\\NVSE\" 1\nSetFunctionValue (sv_Join aA \"|\")\nEnd\n",
+   "label": "knv1.dir.nvse.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet aA := GetDirectoryFiles \"Data\\\\NVSE\\\\Plugins\"\nSetFunctionValue (sv_Join aA \"|\")\nEnd\n",
+   "label": "knv1.dir.plugins",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet aA := GetDirectoryFiles \"\"\nSetFunctionValue (ar_Size aA)\nEnd\n",
+   "label": "knv1.dir.root",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet aA := GetDirectoryFiles \"NVFNoFolder\"\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))\nEnd\n",
+   "label": "knv1.dir.none",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.SetAnimInterpPriority \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"Bip01 Head\" 70)\nEnd\n",
+   "label": "knv1.setprio",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.GetAnimInterpPriority \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"Bip01 Head\")\nEnd\n",
+   "label": "knv1.prio.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.CopyAnimPriorities \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" \"characters\\\\_male\\\\locomotion\\\\mtforward.kf\")\nEnd\n",
+   "label": "knv1.copyprio",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.SetAnimCycleType \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" 0)\nEnd\n",
+   "label": "knv1.cycletype",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.SetAnimDestFrame \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" 5)\nEnd\n",
+   "label": "knv1.destframe",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.RemoveAnimTextKey \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\" 0)\nEnd\n",
+   "label": "knv1.removetextkey",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.SetAnimAdditiveInterpsWeightMult 0 0 0 0)\nEnd\n",
+   "label": "knv1.additivemult",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.QueueNextAnim \"characters\\\\_male\\\\locomotion\\\\mtforward.kf\")\nEnd\n",
+   "label": "knv1.queue",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.IsAnimQueued \"characters\\\\_male\\\\locomotion\\\\mtforward.kf\")\nEnd\n",
+   "label": "knv1.queued.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (RegisterCustomAnimGroup 0 \"NVFProbeGroup\")\nEnd\n",
+   "label": "knv1.register",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet rObj := CreateIdleAnimForm \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\"\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "knv1.createidle",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet rObj := CreateIdleAnimForm \"characters\\\\_male\\\\locomotion\\\\mtidle.kf\"\nSetFunctionValue (GetType rObj)\nEnd\n",
+   "label": "knv1.createidle.type",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nlet rObj := CreateIdleAnimForm \"characters\\\\_male\\\\nvfnosuch.kf\"\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "knv1.createidle.nope",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rA.EraseCurrentAnimAction)\nEnd\n",
+   "label": "knv1.erase",
+   "field": "value"
+  }
+ ]
+}

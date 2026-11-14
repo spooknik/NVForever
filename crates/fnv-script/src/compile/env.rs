@@ -105,6 +105,28 @@ impl<'a> LoadOrderIndex<'a> {
     fn def(&self, form: u32, viewer: usize) -> Option<&Def> {
         self.defs.get(&form)?.iter().rev().find(|d| self.visible[viewer][d.plugin])
     }
+
+    /// Every record the winning plugin holds under `form`, last first. A plugin can hold
+    /// two records under one FormID: oHUD.esm has QUST `aHUD` and MESG `iHUDMainMenu`
+    /// both at 0x01000801, and its scripts' compiled data name `aHUD` by that FormID and
+    /// read its quest script's variables [observed: SCDA of SCPT 0x0100080F decompiles to
+    /// `set 0x…801.f19`, its source says `set aHUD.mcmVersion`]; so the editor found the
+    /// name and the script through the record that carries them, not only the last.
+    fn defs_here(&self, form: u32, viewer: usize) -> impl Iterator<Item = &Def> {
+        let last = self.def(form, viewer).map(|d| d.plugin);
+        self.defs.get(&form).into_iter().flat_map(|v| v.iter().rev()).filter(move |d| Some(d.plugin) == last)
+    }
+}
+
+/// Forms of the game itself that scripts name and no plugin defines: Editor ID, FormID
+/// (below 0x800, the game's own range), record type. Only what was read:
+/// `MapMarker` is 0x00000010 [observed: CASM with MCM 1.8's compiled script lists form
+/// 0x00000010 where its source says `rRef.gbo == MapMarker`; the base game's map marker
+/// references have that base, refs.md]; a static [hypothesis: nothing here reads the type].
+const BUILT_IN: [(&str, u32, [u8; 4]); 1] = [("MapMarker", 0x0000_0010, *b"STAT")];
+
+fn built_in(editor_id: &str) -> Option<FormInfo> {
+    BUILT_IN.iter().find(|b| b.0.eq_ignore_ascii_case(editor_id)).map(|b| FormInfo { form: b.1, sig: b.2 })
 }
 
 pub struct PluginEnv<'a> {
@@ -114,25 +136,30 @@ pub struct PluginEnv<'a> {
 
 impl Env for PluginEnv<'_> {
     fn form(&self, editor_id: &str) -> Option<FormInfo> {
-        let cands = self.ix.edids.get(&editor_id.to_ascii_lowercase())?;
+        let Some(cands) = self.ix.edids.get(&editor_id.to_ascii_lowercase()) else {
+            return built_in(editor_id);
+        };
         // The last visible definition whose Editor ID (as the viewer sees the form) matches.
         let mut best: Option<(usize, FormInfo)> = None;
         for &f in cands {
-            if let Some(d) = self.ix.def(f, self.plugin) {
-                if d.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(editor_id)) && best.as_ref().is_none_or(|b| d.plugin >= b.0) {
+            if let Some(d) = self.ix.defs_here(f, self.plugin).find(|d| d.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(editor_id))) {
+                if best.as_ref().is_none_or(|b| d.plugin >= b.0) {
                     best = Some((d.plugin, FormInfo { form: f, sig: d.sig }));
                 }
             }
         }
-        best.map(|b| b.1)
+        best.map(|b| b.1).or_else(|| built_in(editor_id))
     }
 
     fn info(&self, form: u32) -> Option<FormInfo> {
-        self.ix.def(form, self.plugin).map(|d| FormInfo { form, sig: d.sig })
+        self.ix.def(form, self.plugin).map(|d| FormInfo { form, sig: d.sig }).or_else(|| BUILT_IN.iter().find(|b| b.1 == form).map(|b| FormInfo { form, sig: b.2 }))
     }
 
     fn editor_id(&self, form: u32) -> Option<String> {
-        self.ix.def(form, self.plugin)?.edid.clone()
+        match self.ix.def(form, self.plugin) {
+            Some(d) => d.edid.clone(),
+            None => BUILT_IN.iter().find(|b| b.1 == form).map(|b| b.0.to_string()),
+        }
     }
 
     fn local_form(&self, local: u32) -> Option<u32> {
@@ -141,8 +168,7 @@ impl Env for PluginEnv<'_> {
     }
 
     fn script_vars(&self, form: u32) -> Option<Vec<VarDecl>> {
-        let d = self.ix.def(form, self.plugin)?;
-        let script = d.script.or_else(|| self.ix.def(d.base?, self.plugin)?.script)?;
+        let script = self.ix.defs_here(form, self.plugin).find_map(|d| d.script.or_else(|| self.ix.def(d.base?, self.plugin)?.script))?;
         let vis = &self.ix.visible[self.plugin];
         // The version the viewer sees; when only a later plugin's is at hand (a game reads
         // the winning records only), that one.

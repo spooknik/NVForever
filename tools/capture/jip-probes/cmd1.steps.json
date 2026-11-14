@@ -1,0 +1,649 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "cmd1",
+ "title": "cmd1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet rA := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef \"*nvfCA\" rA\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"9874E\"\nlet rC := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef \"*nvfCC\" rC\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.place",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.settle0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.settle1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.settle2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.settle3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.settle4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.settle5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.settle6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.settle7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet fA := rA.GetCenterPos X - rA.GetPos X\nlet fB := rA.GetCenterPos Y - rA.GetPos Y\nlet fC := rA.GetCenterPos Z - rA.GetPos Z\nSetFunctionValue (sv_Construct \"%.1f %.1f %.1f\" fA fB fC)\nEnd\n",
+   "label": "cmd1.centerpos.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nlet fA := rC.GetCenterPos X - rC.GetPos X\nlet fB := rC.GetCenterPos Y - rC.GetPos Y\nlet fC := rC.GetCenterPos Z - rC.GetPos Z\nSetFunctionValue (sv_Construct \"%.1f %.1f %.1f\" fA fB fC)\nEnd\n",
+   "label": "cmd1.centerpos.box",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := rP.GetCenterPos X - rP.GetPos X\nlet fB := rP.GetCenterPos Y - rP.GetPos Y\nlet fC := rP.GetCenterPos Z - rP.GetPos Z\nSetFunctionValue (sv_Construct \"%.1f %.1f %.1f\" fA fB fC)\nEnd\n",
+   "label": "cmd1.centerpos.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet fA := rP.GetPos X - rA.GetPos X\nlet fB := rP.GetPos Y - rA.GetPos Y\nlet fC := rP.GetPos Z - rA.GetPos Z\nSetFunctionValue (sv_Construct \"%.1f %.1f %.1f\" fA fB fC)\nEnd\n",
+   "label": "cmd1.dist.parts",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rP.GetDistance rA)\nEnd\n",
+   "label": "cmd1.dist.plain",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rP.CCCGetDistance rA 0)\nEnd\n",
+   "label": "cmd1.cccdist.0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rP.CCCGetDistance rA 1)\nEnd\n",
+   "label": "cmd1.cccdist.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rP.CCCGetDistance rA 2)\nEnd\n",
+   "label": "cmd1.cccdist.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rP.CCCGetDistance rA 3)\nEnd\n",
+   "label": "cmd1.cccdist.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rP.CCCGetDistance rA 4)\nEnd\n",
+   "label": "cmd1.cccdist.4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rP.CCCGetDistance rA 5)\nEnd\n",
+   "label": "cmd1.cccdist.5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nSetFunctionValue (rP.CCCGetDistance rC 3)\nEnd\n",
+   "label": "cmd1.cccdist.box3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nSetFunctionValue (rA.CCCInFaction rObj)\nEnd\n",
+   "label": "cmd1.infac.out",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nSetFunctionValue (rA.CCCInFaction rObj 1)\nEnd\n",
+   "label": "cmd1.infac.out.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nrA.SetFactionRank rObj 0\nSetFunctionValue (rA.GetFactionRank rObj)\nEnd\n",
+   "label": "cmd1.infac.set0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nSetFunctionValue (rA.CCCInFaction rObj)\nEnd\n",
+   "label": "cmd1.infac.rank0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nSetFunctionValue (rA.CCCInFaction rObj 1)\nEnd\n",
+   "label": "cmd1.infac.rank0.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nrA.SetFactionRank rObj 3\nSetFunctionValue (rA.GetFactionRank rObj)\nEnd\n",
+   "label": "cmd1.infac.set3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nSetFunctionValue (rA.CCCInFaction rObj)\nEnd\n",
+   "label": "cmd1.infac.rank3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"A46E7\"\nSetFunctionValue (rA.CCCInFaction rObj 1)\nEnd\n",
+   "label": "cmd1.infac.rank3.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1B2A4\"\nSetFunctionValue (rP.CCCInFaction rObj)\nEnd\n",
+   "label": "cmd1.infac.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C6E\"\nSetFunctionValue (rA.CCCInFaction rObj)\nEnd\n",
+   "label": "cmd1.infac.doc.goodsprings",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.CCCLocationName)\nEnd\n",
+   "label": "cmd1.locname.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.CCCLocationName)\nEnd\n",
+   "label": "cmd1.locname.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.CCCLocationName)\nEnd\n",
+   "label": "cmd1.locname.unloaded",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.RefToPosStr)\nEnd\n",
+   "label": "cmd1.posstr.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.RefToPosStr)\nEnd\n",
+   "label": "cmd1.posstr.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nSetFunctionValue (rC.RefToPosStr)\nEnd\n",
+   "label": "cmd1.posstr.box",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nlet sText := rA.RefToPosStr\nlet fA := rC.MoveToPosStr $sText\nSetFunctionValue (sv_Construct \"%g %.1f\" fA (rC.GetDistance rA))\nEnd\n",
+   "label": "cmd1.movetopos",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nSetFunctionValue (rC.MoveToPosStr \"nothing here\")\nEnd\n",
+   "label": "cmd1.movetopos.bad",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nlet rObj := rC.GetContainerOpenSound\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "cmd1.opensound.ref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nlet rObj := rC.GetContainerCloseSound\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "cmd1.closesound.ref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"9874E\"\nlet rObj := GetContainerOpenSound rObj\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "cmd1.opensound.base",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := rA.GetContainerOpenSound\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "cmd1.opensound.npc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetConditionDamagePenalty)\nEnd\n",
+   "label": "cmd1.condpenalty",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetConditionDamagePenalty)\nEnd\n",
+   "label": "cmd1.condpenalty.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.GetTeammateUsingAmmo)\nEnd\n",
+   "label": "cmd1.teamammo.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetTeammateUsingAmmo)\nEnd\n",
+   "label": "cmd1.teamammo.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.SetTeammateUsingAmmo 1)\nEnd\n",
+   "label": "cmd1.teamammo.set1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.GetTeammateUsingAmmo)\nEnd\n",
+   "label": "cmd1.teamammo.after1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.SetTeammateUsingAmmo 0)\nEnd\n",
+   "label": "cmd1.teamammo.set0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.GetTeammateUsingAmmo)\nEnd\n",
+   "label": "cmd1.teamammo.after0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrA.AddItem rObj 1\nSetFunctionValue (rA.GetItemCount rObj)\nEnd\n",
+   "label": "cmd1.lockequip.give",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.LockEquipment 1)\nEnd\n",
+   "label": "cmd1.lockequip.on",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrA.EquipItem rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.lockequip.equip",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rA.GetEquipped rObj)\nEnd\n",
+   "label": "cmd1.lockequip.equipped",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.LockEquipment 0)\nEnd\n",
+   "label": "cmd1.lockequip.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nrA.EquipItem rObj\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.lockequip.equip2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rA.GetEquipped rObj)\nEnd\n",
+   "label": "cmd1.lockequip.equipped2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.ToggleDetectionFix 1)\nEnd\n",
+   "label": "cmd1.detfix.on",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.ToggleDetectionFix 1)\nEnd\n",
+   "label": "cmd1.detfix.on2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.ToggleDetectionFix 0)\nEnd\n",
+   "label": "cmd1.detfix.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.ToggleIgnoreLockedDoors 1)\nEnd\n",
+   "label": "cmd1.lockeddoors.on",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.ToggleIgnoreLockedDoors 0)\nEnd\n",
+   "label": "cmd1.lockeddoors.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nSetFunctionValue (rC.DisableScriptedActivate 1)\nEnd\n",
+   "label": "cmd1.scriptedact.on",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nSetFunctionValue (rC.DisableScriptedActivate 0)\nEnd\n",
+   "label": "cmd1.scriptedact.off",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := CCCSavedForm 0\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "cmd1.savedform.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := CCCSavedForm 1\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "cmd1.savedform.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := CCCSavedForm 5\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "cmd1.savedform.5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := CCCSavedForm 9\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "cmd1.savedform.9",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := rA.CCCGetReputation\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
+   "label": "cmd1.reputation.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.GetHitNode)\nEnd\n",
+   "label": "cmd1.hitnode.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"645D5\"\nlet aA := ListToArray rObj\nSetFunctionValue (sv_Construct \"%g %g\" (ar_Size aA) (ListGetCount rObj))\nEnd\n",
+   "label": "cmd1.listtoarray",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"645D5\"\nlet aA := ListToArray rObj\nlet rC := aA[0]\nSetFunctionValue (sv_Construct \"%i %i\" rC (ListGetNthForm rObj 0))\nEnd\n",
+   "label": "cmd1.listtoarray.first",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4477\"\nSetFunctionValue (rA.AttachLight \"Bip01 Head\" rObj 0 0 10)\nEnd\n",
+   "label": "cmd1.light.attach",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4477\"\nSetFunctionValue (rA.AttachLight \"Bip01 Head\" rObj 0 0 10)\nEnd\n",
+   "label": "cmd1.light.attach2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet aA := rA.GetChildBlocks \"Bip01 Head\"\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "cmd1.light.children",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4477\"\nSetFunctionValue (rA.AttachLight \"NVFNone\" rObj 0 0 0)\nEnd\n",
+   "label": "cmd1.light.attach.nonode",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (rA.AttachLight \"Bip01 Head\" rObj 0 0 0)\nEnd\n",
+   "label": "cmd1.light.attach.notlight",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.RemoveLight \"Bip01 Head\")\nEnd\n",
+   "label": "cmd1.light.remove",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nlet aA := rA.GetChildBlocks \"Bip01 Head\"\nlet fRes := 0\nlet sText := sv_Construct \"%g:\" (ar_Size aA)\nwhile fRes < (ar_Size aA)\n  let sText += \" \" + aA[fRes]\n  let fRes += 1\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "cmd1.light.children.after",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.RemoveLight \"Bip01 Head\")\nEnd\n",
+   "label": "cmd1.light.remove2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4477\"\nSetFunctionValue (rC.AttachLight \"Scene Root\" rObj 0 0 20)\nEnd\n",
+   "label": "cmd1.light.attach.box",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rC := rP.AuxVarGetRef \"*nvfCC\"\nSetFunctionValue (rC.RemoveLight \"Scene Root\")\nEnd\n",
+   "label": "cmd1.light.remove.box",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.RefreshAnimData)\nEnd\n",
+   "label": "cmd1.refreshanim.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.RefreshAnimData)\nEnd\n",
+   "label": "cmd1.refreshanim.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.CCCSetFollowState 1)\nEnd\n",
+   "label": "cmd1.followstate.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.GetDistance rP)\nEnd\n",
+   "label": "cmd1.moveaway.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.MoveAwayFromPlayer)\nEnd\n",
+   "label": "cmd1.moveaway",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.moveaway.settle29",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.GetDistance rP)\nEnd\n",
+   "label": "cmd1.moveaway.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.KillActorAlt rP)\nEnd\n",
+   "label": "cmd1.kill.alt",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "cmd1.kill.settle",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (rA.GetDead)\nEnd\n",
+   "label": "cmd1.kill.dead",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfCA\"\nSetFunctionValue (GetFormIDString (rA.GetKiller))\nEnd\n",
+   "label": "cmd1.kill.killer",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

@@ -13,11 +13,13 @@
 //! - [`lex`]: lines and tokens;
 //! - [`parse`]: statements of the vanilla grammar;
 //! - `gen`: names, parameter encodings and the bytes;
-//! - [`env`]: the names of a load order, as one plugin sees them.
+//! - [`env`]: the names of a load order, as one plugin sees them;
+//! - `nvsescript`: the extender's second language, written out in the first.
 
 pub mod env;
 mod gen;
 pub mod lex;
+mod nvsescript;
 pub mod parse;
 
 use crate::table::FunctionTable;
@@ -88,7 +90,33 @@ impl Compiled {
 /// Compile one unit's source. With a `seed`, names resolve against the unit's own
 /// reference list first and keep its indices; new ones are added after them.
 pub fn compile(src: &str, table: &FunctionTable, env: &dyn Env, seed: Option<Seed<'_>>) -> Compiled {
-    gen::Gen::new(table, env, seed).unit(src)
+    either(src, |s, nvse| {
+        let mut g = gen::Gen::new(table, env, seed);
+        g.declared_types_win = nvse;
+        g.unit(s)
+    })
+}
+
+/// A unit in NVSEScript is compiled from its text in the first grammar
+/// (`nvsescript::translate`), its diagnostics naming the source's lines; any other unit
+/// as it is.
+fn either(src: &str, unit: impl FnOnce(&str, bool) -> Compiled) -> Compiled {
+    if !nvsescript::is_nvsescript(src) {
+        return unit(src, false);
+    }
+    match nvsescript::translate(src) {
+        Ok(t) => {
+            let mut c = unit(&t.text, true);
+            for d in &mut c.diags {
+                if d.line >= 1 {
+                    d.line = t.lines.get(d.line - 1).copied().unwrap_or(d.line);
+                }
+            }
+            c.diags.extend(t.diags);
+            c
+        }
+        Err(d) => Compiled { bytes: Vec::new(), variables: Vec::new(), refs: Vec::new(), diags: vec![d] },
+    }
 }
 
 /// Compile source as the extender's runtime compiler does: the console, the Script
@@ -100,7 +128,21 @@ pub fn compile(src: &str, table: &FunctionTable, env: &dyn Env, seed: Option<See
 /// carries is compiled by [`compile`] with a seed, so neither meets these refusals
 /// [decision: #2037, owner 2026-11-10 "Yes, refuse them"].
 pub fn compile_runtime(src: &str, table: &FunctionTable, env: &dyn Env) -> Compiled {
-    let mut g = gen::Gen::new(table, env, None);
+    either(src, |s, _| {
+        let mut g = gen::Gen::new(table, env, None);
+        g.runtime = true;
+        g.unit(s)
+    })
+}
+
+/// A mod's text compiled at run time (JIP's Script Runner files, CompileScript's): as
+/// [`compile_runtime`], and as a mod's source the engine compiles ([`Seed::unknown_calls`]):
+/// a name nothing knows where a call stands is a call of that name, which reports "not
+/// built" when it runs, instead of costing the whole file [decision, #2275: the owner's Blue
+/// Moon list skipped whole Script Runner files over one plugin function the catalogue has
+/// no page for (EnableImprovedRecipeMenu, GetExtraAccuracyPenaltyMult, …)].
+pub fn compile_mod_runtime(src: &str, table: &FunctionTable, env: &dyn Env) -> Compiled {
+    let mut g = gen::Gen::new(table, env, Some(Seed { variables: &[], refs: &[], unknown_calls: true }));
     g.runtime = true;
     g.unit(src)
 }

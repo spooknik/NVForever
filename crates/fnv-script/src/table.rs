@@ -305,7 +305,13 @@ impl FunctionTable {
                     // Called by shipped scripts and not listed: every call decodes with
                     // tagged values only.
                     (Vec::new(), Vec::new(), EncodingSource::Observed)
-                } else if xedit_types.iter().any(|x| xedit_rule.contains_key(x)) {
+                // Also a function whose page gives no parameter list at all: it takes what
+                // its condition takes [documented: the xEdit definitions' parameter types;
+                // GetFactionRank, `ptFaction`, the one such row]. Without them it took
+                // nothing, and `ref.GetFactionRank SomeFaction > 9` in an extender
+                // expression did not compile [observed: JIP Companions Command & Control
+                // 2.60, JIPCCCMainScript].
+                } else if xedit_types.iter().any(|x| xedit_rule.contains_key(x)) || (params.is_empty() && !xedit_types.is_empty()) {
                     let p = xedit_types.iter().map(|x| xedit_rule.get(x).cloned().unwrap_or(ParamEnc::Value)).collect();
                     (p, Vec::new(), EncodingSource::XeditType)
                 } else {
@@ -353,6 +359,18 @@ impl FunctionTable {
         // `compiler.not_commands`, [observed]): they read as text.
         for name in strings(comp.and_then(|c| c.get("not_commands"))) {
             t.unnumbered.remove(&name.to_ascii_lowercase());
+        }
+        // Spellings the installed extender registers beside a catalogued name
+        // (encodings.json `compiler.aliases`, [observed]).
+        for (spelling, name) in comp.and_then(|c| c.get("aliases")).and_then(Value::as_object).into_iter().flatten() {
+            let (Some(name), false) = (name.as_str(), spelling.starts_with('_')) else { continue };
+            let (low, target) = (spelling.to_ascii_lowercase(), name.to_ascii_lowercase());
+            if let Some(op) = t.by_name.get(&target).copied() {
+                t.by_name.entry(low.clone()).or_insert(op);
+            }
+            if let Some(u) = t.unnumbered.get(&target).cloned() {
+                t.unnumbered.entry(low).or_insert(u);
+            }
         }
         // Arguments the catalogue's pages leave out but the original compiles
         // (encodings.json `compiler.extra_params`, each [observed]).

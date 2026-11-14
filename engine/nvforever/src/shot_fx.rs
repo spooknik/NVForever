@@ -176,6 +176,8 @@ struct ShotFx {
     flying: HashMap<u64, Option<(Entity, Option<f32>, f32)>>,
     /// Model paths that were reported.
     reported: HashSet<String>,
+    /// PROJs whose flying model's heading was reported ([`draw_flying`]).
+    headed: HashSet<FormId>,
     flashes: u32,
     lights: u32,
     /// Other actors' flashes: under their weapon's muzzle marker, and where the shot
@@ -560,7 +562,7 @@ fn draw_flying(
         let out = |tail: f32| if v.beam.is_some() || v.travelled >= tail { Visibility::Inherited } else { Visibility::Hidden };
         let place = |beam_end: Option<f32>| Transform {
             translation: Vec3::from_array(v.pos),
-            rotation: Quat::from_rotation_arc(Vec3::Y, dir.normalize_or(Vec3::Y)),
+            rotation: flight_rotation(dir),
             scale: match (v.beam, beam_end) {
                 (Some(len), Some(end)) if end > 0.0 => Vec3::new(1.0, len / end, 1.0),
                 _ => Vec3::ONE,
@@ -592,7 +594,19 @@ fn draw_flying(
                         v.beam.map_or(String::new(), |l| format!(", a beam {l:.0} units long"))
                     );
                     let tail = pm.bounds.map_or(0.0, |(lo, _)| (-lo.y).max(0.0));
-                    let (e, _) = spawn_effect(&mut commands, fx, world_root, &pm, place(end), model.unwrap_or_default(), v.beam.is_some());
+                    let placed = place(end);
+                    // Once a PROJ: the way its model points against the shot's (smoke
+                    // `missile-shot-one-model`, #2470).
+                    if fx.headed.insert(v.projectile) {
+                        let off = (placed.rotation * Vec3::Y).angle_between(dir.normalize_or(Vec3::Y)).to_degrees();
+                        info!(
+                            "shot fx: projectile {} {} drawn along its flight: its +y {off:.1} degrees off the shot's direction, its long axis {}",
+                            p.and_then(|p| p.edid.as_deref()).unwrap_or("?"),
+                            fnv_actor::resolve::mesh_path(model.unwrap_or_default()),
+                            long_axis(pm.bounds)
+                        );
+                    }
+                    let (e, _) = spawn_effect(&mut commands, fx, world_root, &pm, placed, model.unwrap_or_default(), v.beam.is_some());
                     // Its own particle systems too (the flamer's flame strips, the laser's
                     // sparks; particles.md §6.2).
                     commands.entity(e).insert((out(tail), crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(model.unwrap_or_default()))));
@@ -613,6 +627,28 @@ fn draw_flying(
         }
         keep
     });
+}
+
+/// How a projectile's model is turned for its flight (game space): its +y along `dir`
+/// [observed: of the models decoded, the missile's, the mini nuke's, the 10mm bullet's,
+/// the 25 mm grenade's, the orbital nuke's and the Red Glare's are longest along y (the
+/// 40 mm rounds are squat), and the missile's and the orbital nuke's exhaust flames lie
+/// behind them at -y; `fnvtool nif decode`, #2470].
+fn flight_rotation(dir: Vec3) -> Quat {
+    Quat::from_rotation_arc(Vec3::Y, dir.normalize_or(Vec3::Y))
+}
+
+/// The axis along which a model's bounds reach farthest (`x`, `y` or `z`), for the log.
+fn long_axis(bounds: Option<(Vec3, Vec3)>) -> &'static str {
+    let Some((lo, hi)) = bounds else { return "unknown" };
+    let e = hi - lo;
+    if e.y >= e.x && e.y >= e.z {
+        "y"
+    } else if e.x >= e.z {
+        "x"
+    } else {
+        "z"
+    }
 }
 
 /// Shell casings: the WEAP's casing model thrown from the `ShellCasingNode`, falling
@@ -891,5 +927,31 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
         if fx.beams_animated > 0 {
             info!("shot fx: {} beams played their own animation, {} faded out over their fade duration", fx.beams_animated, fx.beams_faded);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_flying_model_points_its_plus_y_along_the_shot() {
+        // Level, up, down, straight back and a slant: the missile's nose (+y) goes the
+        // way the shot goes, never across it (#2470).
+        for d in [Vec3::X, Vec3::Y, Vec3::Z, Vec3::NEG_Z, Vec3::NEG_Y, Vec3::new(-3.0, 4.0, 1.5)] {
+            let along = flight_rotation(d) * Vec3::Y;
+            assert!(along.angle_between(d.normalize()) < 1e-3, "{d}: {along}");
+        }
+        // No direction: as built.
+        assert!((flight_rotation(Vec3::ZERO) * Vec3::Y).abs_diff_eq(Vec3::Y, 1e-6));
+    }
+
+    #[test]
+    fn the_long_axis_of_a_model() {
+        // MLProjectile.NIF's bounds, flame included (`fnvtool nif decode`).
+        assert_eq!(long_axis(Some((Vec3::new(-5.7, -55.7, -5.9), Vec3::new(5.7, 12.7, 5.9)))), "y");
+        assert_eq!(long_axis(Some((Vec3::new(-9.0, -1.0, -1.0), Vec3::new(9.0, 1.0, 1.0)))), "x");
+        assert_eq!(long_axis(Some((Vec3::new(-1.0, -1.0, -4.0), Vec3::new(1.0, 1.0, 4.0)))), "z");
+        assert_eq!(long_axis(None), "unknown");
     }
 }

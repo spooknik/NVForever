@@ -97,3 +97,51 @@ fn a_script_set_of_the_same_value_is_the_time() {
     }
     assert_eq!(g.world.global(days).unwrap(), 1000.0);
 }
+
+/// A script's write that moves GameHour more than an hour on the clock face is noted for
+/// the engine's actors (#2353: VCG01 stage 200's `set GameHour to 8`); a small move, or a
+/// write to another time global, is not; taking it clears it.
+#[test]
+fn a_script_jump_of_game_hour_is_noted_once() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "Set GameHour to 12.5");
+    assert_eq!(g.take_hour_jump(), None, "half an hour is no jump");
+    q(&mut g, "Set GameDaysPassed to 9");
+    assert_eq!(g.take_hour_jump(), None, "not GameHour");
+    q(&mut g, "Set GameHour to 8");
+    let j = g.take_hour_jump().expect("four and a half hours back");
+    assert_eq!((j.from, j.to), (12.5, 8.0));
+    assert_eq!(g.take_hour_jump(), None, "taken");
+    // Over midnight: 23:00 to 01:00 is two hours on the clock face.
+    q(&mut g, "Set GameHour to 23");
+    g.take_hour_jump();
+    q(&mut g, "Set GameHour to 1");
+    let j = g.take_hour_jump().expect("two hours over midnight");
+    assert_eq!((j.from, j.to), (23.0, 1.0));
+}
+
+/// Several writes before the engine looks are one jump, from the first hour to the last;
+/// one that comes back to about where it started is none.
+#[test]
+fn script_writes_between_two_looks_are_one_jump() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "Set GameHour to 18");
+    q(&mut g, "Set GameHour to 20");
+    let j = g.take_hour_jump().unwrap();
+    assert_eq!((j.from, j.to), (12.0, 20.0));
+    q(&mut g, "Set GameHour to 2");
+    q(&mut g, "Set GameHour to 20.5");
+    assert_eq!(g.take_hour_jump(), None);
+}
+
+/// JIP's SetGameHour moves the clock as a wait does: a jump too.
+#[test]
+fn set_game_hour_function_is_a_jump() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetGameHour 16");
+    let j = g.take_hour_jump().expect("four hours on");
+    assert!((j.from - 12.0).abs() < 1e-4 && (j.to - 16.0).abs() < 1e-4, "{j:?}");
+}

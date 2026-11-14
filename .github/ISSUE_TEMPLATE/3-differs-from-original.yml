@@ -97,7 +97,7 @@ body:
     id: log
     attributes:
       label: NVForever run log
-      description: From `%LOCALAPPDATA%\NVForever\logs` (newest `nvforever-….log`). Optional for a pure look difference, very useful for behaviour.
+      description: From `Documents\My Games\NVForever\logs` (on Linux, `logs` in NVForever's home folder): the newest `nvforever-….log`. Optional for a pure look difference, very useful for behaviour.
 
   - type: input
     id: version

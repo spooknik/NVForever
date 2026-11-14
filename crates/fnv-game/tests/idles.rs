@@ -99,6 +99,24 @@ const GET_PLANTED_EXPLOSIVE: u16 = 0x1AC;
 const IDLE_PANIC: u32 = 0xC40;
 const IDLE_PANIC_PA: u32 = 0xC41;
 const IDLE_PANIC_PLAIN: u32 = 0xC42;
+/// As FalloutNV.esm's activation branch (idles.md §16, #2349): a root wanting
+/// GetUsedItemActivate == 1, a node below it wanting IsWaterObject == 1, and its two
+/// leaves, the first for the player in first person, the second for anybody.
+const IDLE_ACTIVATE: u32 = 0xC50;
+const IDLE_ACT_WATER: u32 = 0xC51;
+const IDLE_WATER_1ST: u32 = 0xC52;
+const IDLE_WATER_3RD: u32 = 0xC53;
+/// Condition function indices: GetUsedItemActivate, IsWaterObject, IsPC1stPerson.
+const GET_USED_ITEM_ACTIVATE: u16 = 259;
+const IS_WATER_OBJECT: u16 = 304;
+const IS_PC_1ST_PERSON: u16 = 392;
+/// An activator that gives water (ACTI WNAM, a sink) and one that does not, placed.
+const SINK: u32 = 0xC60;
+const CRATE: u32 = 0xC61;
+const SINK_REF: u32 = 0xC62;
+const CRATE_REF: u32 = 0xC63;
+/// The water the sink names (no WATR record is needed for it to count as water).
+const WATER: u32 = 0xC64;
 
 /// An IDLE with a file below `parent` in the tree, after `previous` (ANAM), with conditions.
 fn leaf(fid: u32, edid: &str, parent: u32, previous: u32, conds: Vec<Subrecord>) -> Vec<u8> {
@@ -182,6 +200,35 @@ fn plugin_bytes() -> Vec<u8> {
         ),
         leaf(IDLE_PANIC_PA, "PanicGrenadePlantPA", IDLE_PANIC, 0, vec![ctda(GET_IS_ID, 0xBAD)]),
         leaf(IDLE_PANIC_PLAIN, "PanicGrenadePlant", IDLE_PANIC, IDLE_PANIC_PA, vec![]),
+        record(
+            b"IDLE",
+            IDLE_ACTIVATE,
+            &[
+                sub(b"EDID", z("ActivateIdles")),
+                sub(b"MODL", z("Characters\\_Male\\IdleAnims")),
+                ctda_eq(GET_USED_ITEM_ACTIVATE, 1.0, false),
+                sub(b"ANAM", [0u32.to_le_bytes(), IDLE_PANIC.to_le_bytes()].concat()),
+                sub(b"DATA", vec![7, 0, 0, 0, 0, 0, 0, 0]),
+            ],
+        ),
+        record(
+            b"IDLE",
+            IDLE_ACT_WATER,
+            &[
+                sub(b"EDID", z("ActWaterSource")),
+                sub(b"MODL", z("Characters\\_Male\\IdleAnims")),
+                ctda_eq(IS_WATER_OBJECT, 1.0, false),
+                sub(b"ANAM", [IDLE_ACTIVATE.to_le_bytes(), 0u32.to_le_bytes()].concat()),
+                sub(b"DATA", vec![7, 0, 0, 0, 0, 0, 0, 0]),
+            ],
+        ),
+        leaf(IDLE_WATER_1ST, "1stPersonActWater", IDLE_ACT_WATER, 0, vec![ctda(GET_IS_ID, 0x7), ctda_eq(IS_PC_1ST_PERSON, 1.0, false)]),
+        leaf(IDLE_WATER_3RD, "3rdPersonActWater", IDLE_ACT_WATER, IDLE_WATER_1ST, vec![]),
+    ]
+    .concat();
+    let actis = [
+        record(b"ACTI", SINK, &[sub(b"EDID", z("TestSink")), sub(b"MODL", z("Test\\Sink.nif")), sub(b"WNAM", WATER.to_le_bytes().to_vec())]),
+        record(b"ACTI", CRATE, &[sub(b"EDID", z("TestCrate")), sub(b"MODL", z("Test\\Crate.nif"))]),
     ]
     .concat();
     let packs = [
@@ -195,11 +242,17 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", NPC, &[sub(b"EDID", z("Somebody")), sub(b"PKID", P_PLAIN.to_le_bytes().to_vec())]),
     ]
     .concat();
-    let actor = record(b"ACHR", ACTOR, &[sub(b"EDID", z("SomebodyRef")), sub(b"NAME", NPC.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let actor = [
+        record(b"ACHR", ACTOR, &[sub(b"EDID", z("SomebodyRef")), sub(b"NAME", NPC.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]),
+        record(b"REFR", SINK_REF, &[sub(b"NAME", SINK.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]),
+        record(b"REFR", CRATE_REF, &[sub(b"NAME", CRATE.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]),
+    ]
+    .concat();
     let cell = [record(b"CELL", CELL, &[sub(b"EDID", z("TestCell"))]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &actor))].concat();
     [
         tes4(),
         top(b"NPC_", &npcs),
+        top(b"ACTI", &actis),
         top(b"IDLE", &idles),
         top(b"PACK", &packs),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
@@ -249,7 +302,7 @@ fn asked(g: &mut Game) -> Vec<(u32, u32, IdleSource)> {
 fn idle_records_and_package_idle_data_are_read() {
     let f = fixture();
     let d = &f.data;
-    assert_eq!(d.idles.len(), 13);
+    assert_eq!(d.idles.len(), 17, "13, and the four of the activation branch");
     let wake = &d.idles[&FormId(IDLE_WAKE)];
     assert_eq!((wake.model.as_deref(), wake.loop_min, wake.loop_max, wake.has_file()), (Some("Characters\\_Male\\IdleAnims\\Wake.kf"), 255, 255, true));
     assert!(!d.idles[&FormId(IDLE_FOLDER)].has_file());
@@ -459,4 +512,83 @@ fn an_unconscious_actor_stands_in_its_switched_off_idle() {
     assert_eq!(g.unconscious_idle(actor, "creatures\\dog"), None, "another folder: nothing");
     call(&mut g, SET_UNCONSCIOUS, actor, &[ArgValue::Value(Value::Num(0.0))]);
     assert_eq!(g.standing_idle(actor, folder), Some(FormId(IDLE_LEAF_LOOK)), "switched on: its look again");
+}
+
+/// #2349: the player's activation asks the tree's activation root, whose conditions
+/// choose: while the player activates placeable water (an activator with a Water Type),
+/// the way goes through ActWaterSource to the first-person leaf in first person and to
+/// the third-person one in third; activating anything else, or nothing, gives no idle.
+/// Only the player's activation is queued for the animating layer, and only that walk
+/// sees the activation in GetUsedItemActivate: elsewhere, and for an NPC that has just
+/// activated something, it answers and picks as before (idles.md §16).
+#[test]
+fn activating_placeable_water_picks_the_drinking_idle() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    let folder = "characters\\_male";
+    let names = |g: &Game, way: &[FormId]| way.iter().map(|i| g.data.name(*i)).collect::<Vec<_>>();
+    assert_eq!(g.activate_idle(p, folder, &|_| false), None, "activating nothing");
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0, "GetUsedItemActivate: nothing used or activated");
+    // A crate: the root passes (activating), the water node does not.
+    g.default_activation_by_hand(FormId(CRATE_REF)).unwrap().expect("not refused");
+    assert_eq!(g.activate_idles, vec![p], "the player's activation asks the tree");
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0, "GetUsedItemActivate outside the activation walk: as before");
+    assert_eq!(g.activate_idle(p, folder, &|_| false), None, "a crate is no water");
+    g.activate_idles.clear();
+    // The sink.
+    g.default_activation_by_hand(FormId(SINK_REF)).unwrap().expect("not refused");
+    assert_eq!(g.activate_idles, vec![p]);
+    let (idle, way) = g.activate_idle(p, folder, &|_| false).expect("the drinking idle");
+    assert_eq!(idle, FormId(IDLE_WATER_1ST), "first person (the default view)");
+    assert_eq!(names(&g, &way), ["ActivateIdles", "ActWaterSource", "1stPersonActWater"]);
+    g.set_first_person(false);
+    let (idle, way) = g.activate_idle(p, folder, &|_| false).expect("the drinking idle");
+    assert_eq!(idle, FormId(IDLE_WATER_3RD), "third person");
+    assert_eq!(names(&g, &way), ["ActivateIdles", "ActWaterSource", "3rdPersonActWater"]);
+    assert_eq!(g.activate_idle(p, folder, &|i| i == FormId(IDLE_WATER_3RD)), None, "held back");
+    assert_eq!(g.activate_idle(p, "creatures\\dog", &|_| false), None, "another folder: nothing");
+    // The tree's other walks pass the activation root by, even with the folder's own
+    // leaves held back (the activation root next in chain order stays shut).
+    let folder_leaves = |i: FormId| [IDLE_LEAF_OWN, IDLE_LEAF_ANY, IDLE_LEAF_LOOK, IDLE_LEAF_OFF].contains(&i.0);
+    assert_eq!(g.pick_idle(p, folder, &|_| false), Some(FormId(IDLE_LEAF_ANY)));
+    assert_eq!(g.pick_idle(p, folder, &folder_leaves), None, "PickIdle does not see the activation");
+    // An NPC that has just activated the sink: not queued, GetUsedItemActivate as before,
+    // and its picks unchanged.
+    let npc = FormId(ACTOR);
+    g.activate_idles.clear();
+    g.default_activation(npc, FormId(SINK_REF), false).unwrap();
+    assert!(g.activate_idles.is_empty(), "only the player's activation asks the tree");
+    assert_eq!(g.activating(npc), Some(FormId(SINK_REF)));
+    assert_eq!(call(&mut g, 0x1103, npc, &[]).num(), 0.0, "the NPC's GetUsedItemActivate as before");
+    assert_eq!(g.pick_idle(npc, folder, &|_| false), Some(FormId(IDLE_LEAF_OWN)), "its PickIdle as before");
+    assert_eq!(g.pick_idle(npc, folder, &folder_leaves), None, "not the drinking idle");
+    assert_eq!(g.standing_idle(npc, folder), Some(FormId(IDLE_LEAF_LOOK)), "its standing look as before");
+    // The player's drink still picks it.
+    let (idle, way) = g.activate_idle(p, folder, &|_| false).expect("the drinking idle");
+    assert_eq!((idle, names(&g, &way)[1].as_str()), (FormId(IDLE_WATER_3RD), "ActWaterSource"));
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0, "the walk over: as before");
+    // The activation is over.
+    g.time += fnv_game::functions::senses::ACTIVATING_SECONDS + 1.0;
+    assert_eq!(g.activate_idle(p, folder, &|_| false), None, "no longer activating");
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0);
+}
+
+/// #2349 review: a `held_back` that panics during the activation walk lets the panic go on,
+/// and GetUsedItemActivate gives its ordinary answer afterwards (the walk's scope is put
+/// back on unwinding).
+#[test]
+fn a_panicking_walk_puts_get_used_item_activate_back() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    let folder = "characters\\_male";
+    g.default_activation_by_hand(FormId(SINK_REF)).unwrap().expect("not refused");
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0, "outside the walk");
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        g.activate_idle(p, folder, &|_| panic!("held_back fails"));
+    }));
+    assert!(caught.is_err(), "the panic goes on to the caller");
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0, "the walk's scope was put back");
+    assert_eq!(g.activate_idle(p, folder, &|_| false).map(|(i, _)| i), Some(FormId(IDLE_WATER_1ST)), "and the next walk works");
 }

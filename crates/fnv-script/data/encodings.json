@@ -1,6 +1,6 @@
 {
   "format": "fnv.script.encodings/1",
-  "note": "Bytecode parameter encodings that are not the default tagged value, and the spellings of enumerated codes. Observed in the ten shipped masters by lining up compiled calls with their source (docs/spec-notes/scripts.md section 2.4); names are the ones shipped source uses. Functions not listed here: every parameter is a tagged value (observed for every other function shipped scripts call). xedit_types: the rule used for functions shipped scripts never call [hypothesis: same encoding as the observed functions with that xEdit parameter type].",
+  "note": "Bytecode parameter encodings that are not the default tagged value, and the spellings of enumerated codes. Observed in the ten shipped masters by lining up compiled calls with their source (docs/spec-notes/scripts.md section 2.4); names are the ones shipped source uses (alignment: no master calls GetIsAlignment in a script; its codes are the ones mods compiled with the GECK ship, Karmic Balance.esp and Vegas Elysium.esp naming all five, #2275). Functions not listed here: every parameter is a tagged value (observed for every other function shipped scripts call). xedit_types: the rule used for functions shipped scripts never call [hypothesis: same encoding as the observed functions with that xEdit parameter type].",
   "functions": {
     "0x1004": {"name": "Rotate", "params": ["axis", "value"]},
     "0x1006": {"name": "GetPos", "params": ["axis"]},
@@ -44,7 +44,8 @@
     "block": {"0x10AE": true, "0x1120": false},
     "number_types": {"0x1004": {"1": "int"}, "0x1025": {"2": "int"}, "0x1122": {"0": "float"}, "0x1181": {"1": "float"}, "0x1240": {"1": "float", "2": "float", "3": "float"}, "0x1243": {"0": "float"}, "0x125A": {"2": "float"}},
     "begin_params": ["0x0001", "0x0002", "0x0003", "0x0004", "0x0005", "0x0006", "0x0007", "0x0008", "0x0009", "0x000A", "0x000F", "0x0010", "0x0014", "0x0016", "0x0017", "0x0018", "0x0019", "0x001A", "0x001B", "0x001C", "0x0023"],
-    "extra_params": {"_note": "[observed: nvse-actors probes in the original game, 2026-10-26: `GetHair rF`, `GetEyes rF`, `GetHairLength rF` compile and read rF; nvse-misc: `rD.GetNthPackage 0`; jip12 hash, 2026-11-09: `GetStringHash \"NVForever\"` compiles and gives -439019037]", "GetStringHash": ["text"], "GetHair": ["form"], "GetEyes": ["form"], "GetHairLength": ["form"], "GetNthPackage": ["index"]},
+    "extra_params": {"_note": "[observed: nvse-actors probes in the original game, 2026-10-26: `GetHair rF`, `GetEyes rF`, `GetHairLength rF` compile and read rF; nvse-misc: `rD.GetNthPackage 0`; jip12 hash, 2026-11-09: `GetStringHash \"NVForever\"` compiles and gives -439019037; JAM Misc Tweaks.esp ships `GetRefsInCell (Player.GPC) 28 2 0 2000 45` compiled with all six arguments, against the page's five, #2275; what the sixth does is not known]", "GetStringHash": ["text"], "GetRefsInCell": ["sixth"], "GetHair": ["form"], "GetEyes": ["form"], "GetHairLength": ["form"], "GetNthPackage": ["index"]},
+    "aliases": {"_note": "Spellings the installed extender and its plugins register beside a catalogued name, by spelling: the catalogued name [observed: the nvse.log of the owner's Blue Moon install, RegisterCommand lines with an alias in brackets, 2026-11-13, #2275]", "_note_shipped": "MoveToMarker: a mod's shipped bytes call MoveTo (0x109E) where its source says MoveToMarker [observed: TTW No Hardcore Sacrifice.esp, SCPT 0x0900090D, `CherryRef.MoveToMarker DLC03FollowerStartWaitMarkerREF`, #2335]. PC1st: a mod's shipped bytes call IsPC1stPerson (0x1188) where its source says `if PC1st` [observed: Enhanced FOV.esp, SCPT 0x06000802 in its own load order; the B42 mods' Script Runner files use it as a value, #2335]", "MoveToMarker": "MoveTo", "PC1st": "IsPC1stPerson", "AttachCam": "AttachExtraCamera", "CamShakeNHUD": "SetCameraShakeNoHUDShudder", "CreateDirectoryA": "CreateFolder", "DTAMP": "SetDamageToArmorMaxPercent", "FormListRemoveForm": "RemoveFormFromFormList", "GetAngVelAlt": "GetAngularVelocityAlt", "GetAnimsByGroup": "GetAnimationsByAnimGroup", "GetButtons": "GetPressedButtons", "GetCollLayer": "GetCollisionObjLayerType", "GetCollProp": "GetCollisionObjProperty", "GetEdID": "GetEditorID", "GetHash": "GetStringHash", "GetLinVelAlt": "GetLinearVelocityAlt", "GetMaxCarryWeightPerkModified": "GetCalculatedMaxCarryWeight", "GetNifParents": "GetNifBlockParentNodes", "HBSetTextTrait": "HudBarSetTextTrait", "HBSetValueMax": "HudBarSetValueMax", "IfIDecideToGoWithYourFunctionWhatAreThePerks": "ShowPerkMenu", "ImGoingToBorrowThis": "SetOwnershipTemp", "IsBasedForm": "IsBaseForm", "IsRefrCloned": "IsReferenceCloned", "ProjCam": "ProjectExtraCamera", "ReadFromJSONFile": "ReadFromJSON", "SetActorMovementFlags": "SetPlayerMovementFlags", "SetAngVelEx": "SetAngularVelocityEx", "SetCollLayer": "SetCollisionObjLayerType", "SetCollProp": "SetCollisionObjProperty", "SetRefModel": "SetRefrModelPath", "SorryYoureNotOnTheListAnymore": "RemoveFormFromLeveledList", "TIMM": "ToggleImmortalMode", "TPOU": "TogglePurgeOnUnload", "ToggleNoGunWobble": "SetNoGunWobble", "WriteToJSONFile": "WriteToJSON", "XLSGetWorkSheetCount": "ExcelGetWorkSheetCount", "XLSSetSheetName": "ExcelSetSheetName", "YoureAMurderer": "SetIsPCAMurderer", "scrci": "SetCustomReputationChangeIcon"},
     "not_commands": ["GetFOSEVersion", "GetFOSERevision", "GetFOSEBeta", "GetMessageDisplayTime", "GetMDT"]
   },
   "xedit_types": {
@@ -52,7 +53,9 @@
     "ptAxis": "axis",
     "ptSex": "enum:sex",
     "ptMiscStat": "enum:misc_stat",
-    "ptCriticalStage": "enum:critical_stage"
+    "ptCriticalStage": "enum:critical_stage",
+    "ptFormType": "enum:form_type",
+    "ptAlignment": "enum:alignment"
   },
   "enums": {
     "actor_value": {
@@ -73,9 +76,11 @@
     "anim_group": {
       "0": "Idle", "2": "SpecialIdle", "3": "Forward", "4": "Backward", "5": "Left", "6": "Right",
       "7": "FastForward", "8": "FastBackward", "9": "FastLeft", "10": "FastRight", "15": "TurnLeft",
-      "17": "Aim", "24": "Equip", "25": "Unequip"
+      "17": "Aim", "24": "Equip", "25": "Unequip", "44": "Attack4", "47": "Attack4IS", "50": "Attack5",
+      "62": "Attack7", "201": "JamB", "223": "Stagger", "227": "JumpStart", "228": "JumpLoop"
     },
     "sex": {"0": "Male", "1": "Female"},
+    "form_type": {"27": "Container"},
     "misc_stat": {
       "0": "Quests Completed", "1": "Locations Discovered", "2": "People Killed",
       "3": "Creatures Killed", "4": "Locks Picked", "5": "Computers Hacked",
@@ -95,6 +100,9 @@
     },
     "critical_stage": {
       "0": "None", "1": "GooStart", "2": "GooEnd", "3": "DisintegrateStart", "4": "DisintegrateEnd"
+    },
+    "alignment": {
+      "0": "Good", "1": "Neutral", "2": "Evil", "3": "VeryGood", "4": "VeryEvil"
     }
   }
 }

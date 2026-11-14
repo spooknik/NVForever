@@ -368,10 +368,10 @@ impl Plugin for SavePlugin {
             app.insert_resource(PendingEngine(body.engine, path.clone(), order));
             app.insert_resource(crate::script::PendingGame(Box::new(body.game), path));
         }
-        let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, get, set, slider: None };
+        let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, switches: "", get, set, slider: None };
         crate::settings::add_setting(
             app,
-            setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving the player); fast travel has its own switch.", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
+            setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving you); fast travel has its own row.", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
         );
         crate::settings::add_setting(
             app,
@@ -387,7 +387,7 @@ impl Plugin for SavePlugin {
         );
         crate::settings::add_setting(
             app,
-            setting("autosave-scripts", "Save when a script asks", "On: a script's Autosave saves to the autosave slot, as quests do at their milestones; SystemSave to the system slot; ForceSave as a new save.", |w| w.resource::<SaveConfig>().autosave_scripts, |w, on| w.resource_mut::<SaveConfig>().autosave_scripts = on),
+            setting("autosave-scripts", "Save when a script asks", "On: a script's Autosave saves to the autosave slot (quest milestones), SystemSave to the system slot, ForceSave as a new save.", |w| w.resource::<SaveConfig>().autosave_scripts, |w, on| w.resource_mut::<SaveConfig>().autosave_scripts = on),
         );
     }
 }
@@ -587,10 +587,10 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
         let rt = st.rt.as_mut().ok_or("the scripts are not running")?;
         // The extender's SaveGame event, with the save's name [documented: NVSE Event
         // Handling], before the state is taken.
-        Ok::<_, String>(crate::script::with_world(rt, &mut sim, |rt| {
+        crate::script::with_world(rt, &mut sim, |rt| {
             rt.game.dispatch_event("SaveGame", vec![fnv_script::vm::XVal::Str(name.to_string())], None);
-            rt.game.snapshot()
-        }))
+            rt.game.checked_snapshot()
+        })
     })?;
     // Test aid: this save reads as one from a later version (smoke `save-refused-load`).
     if std::env::var("NVF_PLAY_TEST_SAVE_UNKNOWN_FORMAT").is_ok_and(|n| n == name) {
@@ -977,6 +977,49 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Exercise the real save entry point, including its SaveGame callback. A
+    /// callback can introduce unsupported state after a preflight check.
+    #[test]
+    fn a_scene_clone_created_by_savegame_refuses_before_enqueue_or_overwrite() {
+        use crate::script_draw::tests::{play_over, record, sub, top};
+        let string = |sig: &[u8; 4], s: &str| sub(sig, [s.as_bytes(), &[0]].concat());
+        let play = play_over(&[top(b"NPC_", &record(b"NPC_", 0, 7, &[string(b"EDID", "Player")])), top(b"STAT", &record(b"STAT", 0, 0xD10, &[string(b"EDID", "OwnedSceneBase"), string(b"MODL", "owned\\original.nif")]))]);
+        let dir = std::env::temp_dir().join(format!("nvf-scene-save-callback-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for temporary in [false, true] {
+            let name = if temporary { "clone" } else { "ordinary" };
+            let path = dir.join(format!("{name}.nvfsave"));
+            let previous = b"owned previous save, must survive refusal";
+            std::fs::write(&path, previous).unwrap();
+            let mut scripts = ScriptState::over_plugins(play.lo.plugins);
+            let target = if temporary { "(TempCloneForm OwnedSceneBase 1)" } else { "OwnedSceneBase" };
+            let handler = format!("SetEventHandler \"SaveGame\" (begin function {{string_var ownName}}\nplayer.PlaceAtMe {target}\nend)");
+            scripts.rt.as_mut().unwrap().game.run_source(&handler, Default::default()).unwrap();
+            let sim = SimState::new(play.lo, play.schema, play.index);
+            let mut world = World::new();
+            world.insert_resource(play);
+            world.insert_resource(sim);
+            world.insert_resource(scripts);
+            world.insert_resource(SaveConfig::with_dir(Some(dir.clone())));
+            world.init_resource::<SaveHooks>();
+            world.init_resource::<SaveWrites>();
+            let result = save_now(&mut world, &SaveRequest { name: name.into(), kind: SaveKind::Manual });
+            let created = world.resource::<SimState>().world.created().count();
+            assert_eq!(created, 1, "the SaveGame handler must actually place its reference");
+            if temporary {
+                assert!(result.unwrap_err().contains("temporary cloned base"));
+                assert!(world.resource::<SaveWrites>().waiting.is_empty());
+                assert!(!world.resource::<SaveWrites>().busy());
+            } else {
+                result.unwrap();
+                assert_eq!(world.resource::<SaveWrites>().waiting.len(), 1);
+            }
+            assert_eq!(std::fs::read(&path).unwrap(), previous, "snapshotting alone must never overwrite the existing file");
+            std::fs::remove_file(&path).unwrap();
+        }
+        std::fs::remove_dir(&dir).unwrap();
+    }
 
     #[test]
     fn an_engine_snapshot_without_new_fields_still_reads() {

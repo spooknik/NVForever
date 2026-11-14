@@ -529,7 +529,7 @@ pub fn draw(
     // the player meets (worn armour at its condition and the DT actor value,
     // `crate::combat::target_armor`) [observed: "HP 205/205", "DT 8.0" on the owner's
     // screenshots; hypothesis: the figure is the one combat uses].
-    let hp = forms.as_mut().and_then(|f| super::stats::read::player_hp(f, sim, script.as_deref_mut()));
+    let hp = super::stats::read::player_hp(sim, script.as_deref_mut());
     let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
     let (hp, dt) = (hp_text(hp), dt_text(dt));
     let offer = super::repair::current(&active, sim, script.as_deref());

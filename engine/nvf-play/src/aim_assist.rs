@@ -311,7 +311,8 @@ impl Plugin for AimAssistPlugin {
                 key: "aim-assist",
                 group: GROUP,
                 label: "Aim assist",
-                note: "Controller only, never the mouse. On: the right stick turns slower while the crosshair is on a nearby hostile, and aiming down the sights turns the view onto one near the crosshair for a moment. Off: neither.",
+                note: "Controller only. On: the right stick turns slower over a nearby hostile, and aiming down the sights pulls the view onto one near the crosshair.",
+                switches: "",
                 get: |w| w.resource::<AimAssist>().on,
                 set: |w, on| w.resource_mut::<AimAssist>().on = on,
                 slider: None,
@@ -339,7 +340,7 @@ impl Plugin for AimAssistPlugin {
                 "aim-lock",
                 GROUP,
                 "Aim lock-on",
-                "How hard aiming down the sights turns the view onto a nearby hostile near the crosshair (0: not at all). Push the right stick away to break it.",
+                "How hard aiming down the sights turns the view onto a hostile near the crosshair (0: not at all). Push the right stick away to break it.",
                 Slider { get: |w| w.resource::<AimAssist>().lock, set: |w, v| w.resource_mut::<AimAssist>().lock = v, min: 0.0, step: 0.05, shown: Some(|v| if v <= 0.0 { "OFF".to_string() } else { format!("{:.0}%", v * 100.0) }) },
             ),
         );

@@ -599,6 +599,45 @@ impl PhysWorld {
         Some(arr3(self.w.bodies.get(best?.1)?.center_of_mass() / self.k))
     }
 
+    /// A sphere holding an actor's ragdoll, game units: its centre its heaviest body's (the
+    /// trunk of a person), its radius out to the far side of every one of its colliders'
+    /// bounds. What a blast reaches a corpse by, as it reaches a living actor by its hit
+    /// volume (#2346) [design]. None for a placed object's ragdoll, or none at all.
+    pub fn ragdoll_bounds(&self, form_id: u32) -> Option<([f32; 3], f32)> {
+        let r = self.ragdolls.get(&form_id).filter(|r| !r.object)?;
+        let center = *self.ragdoll_body_centers(form_id).first()?;
+        let c = vec3(center) * self.k;
+        let mut reach = 0.0f32;
+        for (lo, hi) in r.bodies.iter().flatten().filter_map(|&b| self.body_extent(b)) {
+            reach = reach.max(((lo + hi) * 0.5 - c).length() + ((hi - lo) * 0.5).length());
+        }
+        Some((center, reach / self.k))
+    }
+
+    /// The centres of an actor's ragdoll bodies (each the middle of its colliders' bounds),
+    /// heaviest first by their stored masses (the trunk of a person first), game units: the
+    /// points of a corpse a blast sees and measures to (#2346) [design]. The colliders'
+    /// bounds, not the bodies' mass centres, which the engine works out only at its next step.
+    /// Empty for a placed object's ragdoll, or none at all.
+    pub fn ragdoll_body_centers(&self, form_id: u32) -> Vec<[f32; 3]> {
+        let Some(r) = self.ragdolls.get(&form_id).filter(|r| !r.object) else { return Vec::new() };
+        let mut out: Vec<(f32, [f32; 3])> = r
+            .bodies
+            .iter()
+            .zip(&r.data.bodies)
+            .filter_map(|(b, d)| self.body_extent((*b)?).map(|(lo, hi)| (d.object.mass, arr3((lo + hi) * 0.5 / self.k))))
+            .collect();
+        // Stable: equal masses keep the stored order.
+        out.sort_by(|x, y| y.0.total_cmp(&x.0));
+        out.into_iter().map(|(_, p)| p).collect()
+    }
+
+    /// The bounds of a body's colliders (engine units), if it has any.
+    fn body_extent(&self, b: RigidBodyHandle) -> Option<(Vector, Vector)> {
+        let body = self.w.bodies.get(b)?;
+        body.colliders().iter().filter_map(|&h| self.w.colliders.get(h)).map(|co| co.compute_aabb()).map(|a| (a.mins, a.maxs)).reduce(|x, y| (x.0.min(y.0), x.1.max(y.1)))
+    }
+
     /// Change the velocity of the ragdoll body nearest to `at` by `dv` (game units per
     /// second), as a hit there does: the body's own velocity changes by `dv` whatever its
     /// mass, and it is turned as a blow at `at` turns it, by at most [`MAX_PUSH_SPIN`] (a

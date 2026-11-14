@@ -22,6 +22,7 @@ impl Plugin for LanguagePlugin {
                 group: "Interface",
                 label: "Language",
                 note: "The language of NVForever's own words (menus, messages). The game's own text is the install's.",
+                switches: "",
                 get: |_| false,
                 set: |_, _| {},
                 slider: None,

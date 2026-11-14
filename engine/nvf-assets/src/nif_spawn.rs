@@ -178,13 +178,6 @@ pub(crate) struct Props {
 }
 
 impl Props {
-    /// Helper geometry the game does not draw: properties attached, but neither a
-    /// shader property nor a texture. These are bone display boxes (`TTail1:0`,
-    /// `Bone01:0`), collision proxies (`c_Minigun`, `DummyCol:3`) and invisible markers
-    /// (`##PLRInvis:0`): 434 of 48,996 visible shapes in `Fallout - Meshes.bsa`, all with
-    /// only a NiMaterialProperty [observed: `crates/fnv-nif/examples/shape_survey.rs`;
-    /// hypothesis: the game skips them, consistent with the in-game look of the
-    /// Goodsprings flag]. Shapes with no properties at all (landscape LOD) are drawn.
     pub(crate) fn external_emittance(&self) -> bool {
         self.external_emittance
     }
@@ -206,9 +199,41 @@ impl Props {
         self.material_alpha.unwrap_or(1.0)
     }
 
-    pub(crate) fn is_helper(&self) -> bool {
-        self.has_properties && !self.shader && self.textures.is_empty()
+    /// Helper geometry the game does not draw: neither a shader property nor a texture,
+    /// and either some other property attached or none at all in a model that shades
+    /// other shapes (`shaded_model`, from [`shaded_model`]).
+    ///
+    /// With properties: bone display boxes (`TTail1:0`, `Bone01:0`), collision proxies
+    /// (`c_Minigun`, `DummyCol:3`) and invisible markers (`##PLRInvis:0`): 434 of 48,996
+    /// visible shapes in `Fallout - Meshes.bsa`, all with only a NiMaterialProperty
+    /// [observed: `crates/fnv-nif/examples/shape_survey.rs`; hypothesis: the game skips
+    /// them, consistent with the in-game look of the Goodsprings flag].
+    ///
+    /// Without any property: the furniture-marker figures, capsules and boundaries
+    /// copied into the Tops lounge chair (`furniture\loungechair_tops.nif`, the only
+    /// such model outside landscape LOD in the base and DLC archives), and the untextured
+    /// water-height shape of the landscape LOD chunks, which `lod.rs` never drew
+    /// [observed: `crates/fnv-nif/examples/marker_shape_survey.rs`; documented: GECK
+    /// wiki "Bethsoft Tutorial NPC population": a furniture marker's "white markers and
+    /// blue characters will not show up in-game"; hypothesis: the game draws none of
+    /// them; docs/spec-notes/nif.md §6 "Shapes with no property at all"]. A model with
+    /// no shader property anywhere keeps its bare shapes [design: no model in the
+    /// archives has bare shapes and no shader property; a rule that could blank a whole
+    /// model is not wanted].
+    pub(crate) fn is_helper(&self, shaded_model: bool) -> bool {
+        !self.shader && self.textures.is_empty() && (self.has_properties || shaded_model)
     }
+
+    /// No property at all on the shape or an ancestor.
+    pub(crate) fn is_bare(&self) -> bool {
+        !self.has_properties
+    }
+}
+
+/// Some block of the model derives from BSShaderProperty, so its shapes without any
+/// property are editor geometry ([`Props::is_helper`]).
+pub(crate) fn shaded_model(file: &NifFile, dec: &Decoded) -> bool {
+    (0..file.blocks.len()).any(|i| dec.is_a(i, "BSShaderProperty"))
 }
 
 /// BSShaderType 14 "SHADER_SKIN" [documented: nif.xml BSShaderType]. In
@@ -1121,6 +1146,7 @@ impl SpawnCtx<'_, '_> {
         let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
         let dec = Decoded::new(&file, &bytes, &schema);
         let objects = scene_objects(&file, &dec);
+        let shaded = shaded_model(&file, &dec);
         let mut report = SpawnReport { blocks: file.blocks.len(), ..Default::default() };
 
         // Pass 1: one entity per node or shape, with its local transform.
@@ -1182,7 +1208,7 @@ impl SpawnCtx<'_, '_> {
                 self.formats.as_deref(),
             );
             report.textures_missing.extend(missing);
-            if props.is_helper() {
+            if props.is_helper(shaded) {
                 self.commands.entity(entity_of[&o.block]).insert((NifHidden, Visibility::Hidden));
             }
 
@@ -1548,14 +1574,185 @@ mod tests {
 
     #[test]
     fn helper_shapes() {
-        // No properties at all (landscape LOD): drawn.
-        assert!(!Props::default().is_helper());
+        // No properties at all: skipped in a model that shades other shapes (the lounge
+        // chair's marker figures), drawn in one that shades none.
+        assert!(Props::default().is_helper(true) && Props::default().is_bare());
+        assert!(!Props::default().is_helper(false));
         // Material only (bone boxes, collision proxies): skipped.
         let material_only = Props { has_properties: true, ..Default::default() };
-        assert!(material_only.is_helper());
+        assert!(material_only.is_helper(false) && material_only.is_helper(true) && !material_only.is_bare());
         // A shader property, or a texture from NiTexturingProperty: drawn.
-        assert!(!Props { shader: true, ..material_only.clone() }.is_helper());
-        assert!(!Props { textures: vec!["textures\\a.dds".into()], ..material_only }.is_helper());
+        assert!(!Props { shader: true, ..material_only.clone() }.is_helper(true));
+        assert!(!Props { textures: vec!["textures\\a.dds".into()], ..material_only }.is_helper(true));
+    }
+
+    // A synthetic NIF (20.2.0.7, user version 11, BS version 34) in the layout of
+    // `crates/fnv-nif/tests/synthetic.rs` and `schemas/nif`; no game data.
+    fn words(out: &mut Vec<u8>, values: &[u32]) {
+        out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
+    }
+
+    fn floats(out: &mut Vec<u8>, values: &[f32]) {
+        out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
+    }
+
+    fn nif(blocks: &[(&str, Vec<u8>)], strings: &[&str]) -> Vec<u8> {
+        fn string(out: &mut Vec<u8>, s: &str) {
+            words(out, &[s.len() as u32]);
+            out.extend(s.as_bytes());
+        }
+        let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
+        words(&mut out, &[0x1402_0007]);
+        out.push(1);
+        words(&mut out, &[11, blocks.len() as u32, 34]);
+        out.extend([1, 0, 1, 0, 1, 0]); // three empty export strings
+        let mut types = vec![];
+        for (kind, _) in blocks {
+            if !types.contains(kind) {
+                types.push(*kind);
+            }
+        }
+        out.extend((types.len() as u16).to_le_bytes());
+        for kind in &types {
+            string(&mut out, kind);
+        }
+        for (kind, _) in blocks {
+            out.extend((types.iter().position(|t| t == kind).unwrap() as u16).to_le_bytes());
+        }
+        for (_, block) in blocks {
+            words(&mut out, &[block.len() as u32]);
+        }
+        words(&mut out, &[strings.len() as u32, strings.iter().map(|s| s.len()).max().unwrap_or(0) as u32]);
+        for s in strings {
+            string(&mut out, s);
+        }
+        words(&mut out, &[0]); // groups
+        for (_, block) in blocks {
+            out.extend(block);
+        }
+        words(&mut out, &[1, 0]); // footer: one root, block 0
+        out
+    }
+
+    /// NiAVObject fields: name (string index), no extra data or controller, flags 14,
+    /// identity transform, these properties, no collision.
+    fn av_object(name: u32, properties: &[u32]) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[name, 0, u32::MAX, 14]);
+        floats(&mut out, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0]);
+        words(&mut out, &[properties.len() as u32]);
+        words(&mut out, properties);
+        words(&mut out, &[u32::MAX]);
+        out
+    }
+
+    fn node(name: u32, children: &[u32]) -> Vec<u8> {
+        let mut out = av_object(name, &[]);
+        words(&mut out, &[children.len() as u32]);
+        words(&mut out, children);
+        words(&mut out, &[0]); // effects
+        out
+    }
+
+    fn strips(name: u32, properties: &[u32], data: u32) -> Vec<u8> {
+        let mut out = av_object(name, properties);
+        words(&mut out, &[data, u32::MAX, 0, u32::MAX]); // data, skin, materials, active
+        out.push(0); // material needs update
+        out
+    }
+
+    /// A 100 × 100 square at height `z`, one strip of two triangles.
+    fn square(z: f32) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[0]); // group id
+        out.extend(4u16.to_le_bytes());
+        out.extend([0, 0, 1]); // keep, compress, has vertices
+        floats(&mut out, &[0.0, 0.0, z, 100.0, 0.0, z, 0.0, 100.0, z, 100.0, 100.0, z]);
+        out.extend(1u16.to_le_bytes()); // one UV set
+        out.push(0); // no normals
+        floats(&mut out, &[50.0, 50.0, z, 71.0]); // bounding sphere
+        out.push(0); // no vertex colours
+        floats(&mut out, &[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+        out.extend(0u16.to_le_bytes()); // consistency
+        words(&mut out, &[u32::MAX]); // additional data
+        for v in [2u16, 1, 4] {
+            out.extend(v.to_le_bytes()); // triangles, strips, strip length
+        }
+        out.push(1); // has points
+        for v in [0u16, 1, 2, 3] {
+            out.extend(v.to_le_bytes());
+        }
+        out
+    }
+
+    /// BSShaderPPLightingProperty: no name, smooth shading, SHADER_DEFAULT, no flags,
+    /// wrap clamp mode, no texture set.
+    fn lit_shader() -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        out.extend(1u16.to_le_bytes());
+        words(&mut out, &[1, 0, 0]);
+        floats(&mut out, &[1.0]);
+        words(&mut out, &[3, u32::MAX]);
+        floats(&mut out, &[0.0]);
+        words(&mut out, &[0]);
+        floats(&mut out, &[4.0, 1.0]);
+        out
+    }
+
+    /// The lounge chair's set-up (`furniture\loungechair_tops.nif`): a seat shape with a
+    /// shader property, and a marker capsule under its own node with no property at all.
+    /// Without `shader` the seat has no property either and block 2 is an empty node.
+    fn chair(shader: bool) -> Vec<u8> {
+        let (seat_props, block2): (&[u32], (&str, Vec<u8>)) =
+            if shader { (&[2], ("BSShaderPPLightingProperty", lit_shader())) } else { (&[], ("NiNode", node(u32::MAX, &[]))) };
+        nif(
+            &[
+                ("BSFadeNode", node(0, &[1, 3])),
+                ("NiTriStrips", strips(1, seat_props, 5)),
+                block2,
+                ("NiNode", node(2, &[4])),
+                ("NiTriStrips", strips(3, &[], 6)),
+                ("NiTriStripsData", square(5.0)),
+                ("NiTriStripsData", square(50.0)),
+            ],
+            &["Shape01", "Shape01:0", "Capsule01", "Capsule01:0"],
+        )
+    }
+
+    /// Whether the model counts as shaded, and (is_helper, is_bare) of each shape by name.
+    fn chair_helpers(shader: bool) -> (bool, HashMap<String, (bool, bool)>) {
+        let schema = fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
+        let bytes = chair(shader);
+        let file = NifFile::parse(&bytes, Some(&schema)).unwrap();
+        let dec = Decoded::new(&file, &bytes, &schema);
+        let objects = scene_objects(&file, &dec);
+        let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+        let shaded = shaded_model(&file, &dec);
+        let shapes = objects
+            .iter()
+            .filter(|o| !o.is_node)
+            .map(|o| {
+                let p = shape_props(&file, &dec, o, &by_block);
+                (o.name.clone().unwrap(), (p.is_helper(shaded), p.is_bare()))
+            })
+            .collect();
+        (shaded, shapes)
+    }
+
+    #[test]
+    fn bare_shapes_beside_shaded_ones_are_editor_geometry() {
+        // Issue #2469: the lounge chair's marker capsule is left out, its seat drawn.
+        let (shaded, shapes) = chair_helpers(true);
+        assert!(shaded);
+        assert_eq!(shapes.len(), 2);
+        assert_eq!(shapes["Shape01:0"], (false, false), "the seat is drawn");
+        assert_eq!(shapes["Capsule01:0"], (true, true), "the bare capsule is editor geometry");
+        // A model with no shader property anywhere keeps its bare shapes.
+        let (shaded, shapes) = chair_helpers(false);
+        assert!(!shaded);
+        assert_eq!(shapes["Shape01:0"], (false, true));
+        assert_eq!(shapes["Capsule01:0"], (false, true));
     }
 
     #[test]

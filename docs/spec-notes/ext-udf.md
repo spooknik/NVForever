@@ -100,7 +100,13 @@ MapTo].
 - **Block form**: `(begin function {params} … end)` in parentheses, as an inline
   expression [documented: Lambda].
 - **One-line form**: `{params} => expr`. The expression's value is returned as if by
-  SetFunctionValue [documented: Lambda]. `({} => expr)` with no parameters.
+  SetFunctionValue [documented: Lambda]. `({} => expr)` with no parameters. The
+  expression runs to the end of what holds the lambda, an assignment included: `({} =>
+  iInventory = iRefresh = 1)` sets both when the lambda runs [observed:
+  JustAssortedMods.esp 4.6 ships that line in JLMScript, once stored in a ref and once as
+  SetEventHandler's handler, with compiled bytes; hypothesis: the original binds it so.
+  Until 2026-11-12 NVForever stopped the lambda before the `=`, which made the line an
+  assignment to the lambda itself, refused when it ran].
 - **Variables**: a lambda reads and changes every variable of the script it is written
   in; its parameters are also variables of that script, declared there [documented:
   Lambda, "access and modify all variables defined in the parent script"; the

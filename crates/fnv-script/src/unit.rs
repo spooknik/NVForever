@@ -341,9 +341,15 @@ pub fn read_record(
                         let ty = match v.get("type") {
                             Some(Value::String(t)) if t == "Integer" => VarType::Int,
                             Some(Value::String(t)) if t == "FloatOrRef" => VarType::FloatOrRef,
+                            // The types the extender's second compiler writes (NVSEScript,
+                            // xNVSE 6.3.6 on): 2 string, 3 array, 4 ref [documented: the
+                            // schema's SLSD enumeration (schemas/fnv/common.json); observed:
+                            // WeaponModCraftInfo.esp's units, whose `string`/`array`/`ref`
+                            // declarations carry them, #2275].
                             Some(Value::String(t)) if t == "String (xNVSE)" => VarType::Other("string_var".into()),
                             Some(Value::String(t)) if t == "Array (xNVSE)" => VarType::Other("array_var".into()),
                             Some(Value::String(t)) if t == "Ref (xNVSE)" => VarType::FloatOrRef,
+                            Some(Value::String(t)) => VarType::Other(t.clone()),
                             Some(t) => VarType::Other(t.to_string()),
                             None => VarType::Other(String::new()),
                         };

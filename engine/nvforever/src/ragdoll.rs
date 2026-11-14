@@ -17,6 +17,9 @@
 //!   physics world.
 //! - A corpse that gets under the terrain is lifted back above it (a guard, as for the
 //!   player).
+//! - A corpse whose ragdoll will not be built (bad data that breaks or empties the build)
+//!   or that fell through the terrain once too often is shown dead as an actor without a
+//!   ragdoll is ([`unbuilt`], #2347): its death pose, or laid on its back.
 //! - A corpse in water rises and floats at the surface (`fnv_phys::buoyancy`); it is
 //!   left moving for up to [`MAX_AWAKE_IN_WATER`] instead of [`MAX_AWAKE`] so that it
 //!   gets there. A corpse put back at rest (or in the pose its reference stores) stays
@@ -113,6 +116,11 @@ pub struct Ragdolls {
     shoved_at_rest: HashSet<u32>,
     /// Ragdolls that came to rest in water (floating).
     pub floated: usize,
+    /// Corpses shown dead without their ragdoll ([`unbuilt`]).
+    pub unbuilt: usize,
+    /// References whose ragdoll build is refused, as if it had failed: the test aid
+    /// `NVF_PLAY_TEST_RAGDOLL_FAIL=<hex FormIDs>` ([`forced_failures`]).
+    pub(crate) fail: HashSet<u32>,
     /// `PhysWorld::steps` when [`pose`] last ran: the calm and awake timers count the
     /// physics time stepped since, not the frame's time (#1049).
     last_steps: Option<u64>,
@@ -239,7 +247,7 @@ impl Ragdolls {
         for (b, &n) in bones.iter().enumerate() {
             body_of[n] = Some(b);
         }
-        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, limit: MAX_AWAKE, drawn_from: Vec::new(), drawn_to: Vec::new() })
+        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, laid_out: false, ragdolled: false, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, limit: MAX_AWAKE, drawn_from: Vec::new(), drawn_to: Vec::new() })
     }
 }
 
@@ -284,6 +292,12 @@ pub struct Corpse {
     /// The bones hold the pose the ragdoll went to sleep in.
     settled: bool,
     lifts: u8,
+    /// Shown dead without its ragdoll: by the death handling (`deaths.rs`, `knockouts.rs`,
+    /// when it did not fall: its death pose, or laid on its back), or by [`show_unbuilt`].
+    /// Cleared when its ragdoll starts (the ragdoll has the pose from then on).
+    pub laid_out: bool,
+    /// Its ragdoll has been in the world and posed its bones.
+    ragdolled: bool,
     /// Seconds it has been nearly still.
     calm: f32,
     /// The bones' poses at the start of the current calm window ([`CALM_WINDOW`]), and
@@ -359,7 +373,74 @@ impl Plugin for RagdollPlugin {
             .add_systems(Update, pose.after(nvf_play::PlaySet::Physics).run_if(resource_exists::<PhysState>))
             .add_systems(PostUpdate, start.after(bevy::transform::TransformSystems::Propagate).run_if(resource_exists::<PhysState>))
             .add_systems(Last, report);
+        app.world_mut().resource_mut::<Ragdolls>().fail = forced_failures(std::env::var("NVF_PLAY_TEST_RAGDOLL_FAIL").ok().as_deref());
     }
+}
+
+/// The references named by the test aid `NVF_PLAY_TEST_RAGDOLL_FAIL` (FormIDs in hex,
+/// `0x` optional, separated by commas): their ragdoll builds are refused, so a smoke run
+/// can show a corpse whose ragdoll failed (#2347). Unreadable entries are left out.
+pub(crate) fn forced_failures(aid: Option<&str>) -> HashSet<u32> {
+    aid.into_iter()
+        .flat_map(|v| v.split(','))
+        .filter_map(|s| {
+            let s = s.trim();
+            u32::from_str_radix(s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s), 16).ok()
+        })
+        .collect()
+}
+
+/// How a corpse whose ragdoll will not be built is shown dead (#2347).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unbuilt {
+    /// The death handling already shows it dead without one (`deaths.rs`, `knockouts.rs`:
+    /// dead when drawn, or its ground not loaded): left as it is.
+    AsShown,
+    /// Its death pose: from its first frame (a fresh death: it falls), or at its end.
+    DeathPose { from_start: bool },
+    /// Laid on its back about its feet.
+    OnItsBack,
+    /// Its bones keep the pose its ragdoll last gave them (where it last lay, lifted above
+    /// the ground by [`pose`]).
+    AsItLay,
+}
+
+/// A corpse whose ragdoll will not be built (its build panicked or made no body, or it fell
+/// through the terrain more than [`MAX_LIFTS`] times) is shown dead as an actor without a
+/// ragdoll is in `deaths.rs` [design, #2347]: its death pose, else laid on its back. Before,
+/// a fresh death kept the last frame of the clip it was playing, standing (a legionary
+/// killed running stood in his run, issue #2347). A corpse whose bones its ragdoll already
+/// posed is lying: its death pose at its end, else the pose it lay in. `laid_out`: the
+/// death handling already shows it dead without one; `ragdolled`: its ragdoll posed it.
+pub(crate) fn unbuilt(laid_out: bool, ragdolled: bool, has_death_pose: bool) -> Unbuilt {
+    match (laid_out, ragdolled, has_death_pose) {
+        (true, ..) => Unbuilt::AsShown,
+        (false, false, true) => Unbuilt::DeathPose { from_start: true },
+        (false, false, false) => Unbuilt::OnItsBack,
+        (false, true, true) => Unbuilt::DeathPose { from_start: false },
+        (false, true, false) => Unbuilt::AsItLay,
+    }
+}
+
+/// Show corpse `c` of actor `id` dead without its ragdoll ([`unbuilt`]), once: its
+/// [`Dying`] gets its death clip (`deaths.rs`' choice), or its root `t` is laid on its back.
+/// Returns what was done, for the log; `None` when it was already shown so.
+pub(crate) fn show_unbuilt(c: &mut Corpse, dying: Option<&mut Dying>, lo: Option<&crate::locomotion::Locomotion>, t: &mut Transform, id: u32) -> Option<Unbuilt> {
+    let clip = crate::deaths::death_clip(lo, id);
+    let how = unbuilt(c.laid_out, c.ragdolled, clip.is_some());
+    c.laid_out = true;
+    match how {
+        Unbuilt::AsShown => return None,
+        Unbuilt::DeathPose { from_start } => {
+            if let Some(d) = dying {
+                d.clip = clip;
+                d.t = if from_start { 0.0 } else { crate::deaths::END };
+            }
+        }
+        Unbuilt::OnItsBack => crate::deaths::lay_on_back(t),
+        Unbuilt::AsItLay => {}
+    }
+    Some(how)
 }
 
 /// A bone's world transform (Bevy space, any uniform scale) as a game-space pose.
@@ -402,7 +483,15 @@ fn body_parts(rig: &ActorRig, corpse: &Corpse, limbs: Option<&LimbRig>) -> Vec<u
 }
 
 /// What [`start`] reads of a corpse.
-type Waiting = (AnyRig, &'static mut Corpse, Option<&'static mut Dying>, Option<&'static LimbRig>, &'static InheritedVisibility);
+type Waiting = (
+    AnyRig,
+    &'static mut Corpse,
+    Option<&'static mut Dying>,
+    Option<&'static LimbRig>,
+    &'static InheritedVisibility,
+    Option<&'static crate::locomotion::Locomotion>,
+    &'static mut Transform,
+);
 
 /// Put waiting corpses' ragdolls in the world where the ground is loaded, and pass on
 /// the frame's shoves.
@@ -413,9 +502,19 @@ fn start(
     mut corpses: Query<Waiting>,
     globals: Query<&GlobalTransform>,
 ) {
-    for (rig, mut c, dying, limbs, vis) in &mut corpses {
-        let rig = rig_of(rig);
-        if c.live || !vis.get() || c.lifts > MAX_LIFTS {
+    for (any, mut c, mut dying, limbs, vis, lo, mut t) in &mut corpses {
+        // Placed actors only: the player's body (`death_cam.rs`) has no death pose here.
+        let actor = any.0.is_some();
+        let rig = rig_of(any);
+        if c.live || !vis.get() {
+            continue;
+        }
+        if c.lifts > MAX_LIFTS {
+            // Fallen through the terrain once too often (`pose`): shown dead without it.
+            if actor && !c.laid_out {
+                let why = format!("fell through the ground more than {MAX_LIFTS} times");
+                unbuilt_now(&mut ragdolls, &mut c, dying.as_deref_mut(), lo, &mut t, rig.reference, &why);
+            }
             continue;
         }
         let Ok(root) = globals.get(rig.nodes[0]) else { continue };
@@ -438,14 +537,23 @@ fn start(
         let asleep = stored.is_some();
         let velocity = std::mem::take(&mut c.velocity);
         let start = RagdollStart { form_id: rig.reference, ragdoll: &c.data, scale, nodes: &nodes, velocity, parts: &parts, asleep };
-        // Bad ragdoll data that breaks the physics build (a panic, caught): this corpse
-        // keeps its death pose, logged once (`lifts` past the limit stops the retries).
-        let r = match guarded(|| Ok(phys.world.add_ragdoll(&start))) {
+        // Bad ragdoll data that breaks the physics build (a panic, caught), or the test aid
+        // refusing it: this corpse is shown dead without it, logged once (`lifts` past the
+        // limit stops the retries: a panicking build is not tried again every frame).
+        let built = if ragdolls.fail.contains(&rig.reference) {
+            Err("refused by the test aid NVF_PLAY_TEST_RAGDOLL_FAIL".to_string())
+        } else {
+            guarded(|| Ok(phys.world.add_ragdoll(&start))).map_err(|e| e.to_string())
+        };
+        let r = match built {
             Ok(r) => r,
             Err(e) => {
-                warn!("ragdoll: actor {:08X}: not built ({e}); it keeps its death pose", rig.reference);
+                warn!("ragdoll: actor {:08X}: not built ({e})", rig.reference);
                 phys.world.remove_ragdoll(rig.reference);
                 c.lifts = MAX_LIFTS + 1;
+                if actor {
+                    unbuilt_now(&mut ragdolls, &mut c, dying.as_deref_mut(), lo, &mut t, rig.reference, "not built");
+                }
                 continue;
             }
         };
@@ -453,9 +561,15 @@ fn start(
         if r.bodies == 0 {
             phys.world.remove_ragdoll(rig.reference);
             c.lifts = MAX_LIFTS + 1;
+            if actor {
+                let why = format!("no body built ({} shape errors)", r.errors.len());
+                unbuilt_now(&mut ragdolls, &mut c, dying.as_deref_mut(), lo, &mut t, rig.reference, &why);
+            }
             continue;
         }
         c.live = true;
+        c.ragdolled = true;
+        c.laid_out = false;
         c.settled = false;
         c.calm = 0.0;
         c.since.clear();
@@ -481,6 +595,19 @@ fn start(
             }
         }
     }
+}
+
+/// [`show_unbuilt`] with its log line and count.
+fn unbuilt_now(ragdolls: &mut Ragdolls, c: &mut Corpse, dying: Option<&mut Dying>, lo: Option<&crate::locomotion::Locomotion>, t: &mut Transform, id: u32, why: &str) {
+    let Some(how) = show_unbuilt(c, dying, lo, t, id) else { return };
+    ragdolls.unbuilt += 1;
+    let how = match how {
+        Unbuilt::DeathPose { from_start: true } => "its death pose, from its first frame",
+        Unbuilt::DeathPose { from_start: false } => "its death pose, at its end",
+        Unbuilt::OnItsBack => "laid on its back",
+        Unbuilt::AsItLay | Unbuilt::AsShown => "the pose it last lay in",
+    };
+    info!("ragdoll: actor {id:08X}: {why}; shown dead without it: {how}");
 }
 
 /// Per body, how fast its bone moved and turned on average between the poses `a` and `b`
@@ -561,10 +688,9 @@ pub(crate) fn pose(
             ragdolls.lifted += 1;
             c.lifts += 1;
             c.live = false;
-            if c.lifts > MAX_LIFTS {
-                continue;
-            }
-            // Start again from the lifted pose (awake): `start` reads the bones.
+            // Start again from the lifted pose (awake): `start` reads the bones. Past the
+            // last lift it stays in that pose, above the ground, unless `start` gives it its
+            // death pose ([`unbuilt`], #2347).
             let states: Vec<Option<BodyState>> = nodes.iter().zip(&lifted).map(|(b, l)| b.zip(*l).map(|(b, l)| BodyState { translation: l.translation, rotation: l.rotation, ..b })).collect();
             write_bones(rig, &c, &states, &globals, &mut transforms);
             continue;
@@ -688,8 +814,11 @@ fn write_bones(rig: &ActorRig, c: &Corpse, bodies: &[Option<BodyState>], globals
 }
 
 fn report(mut exit: MessageReader<AppExit>, ragdolls: Res<Ragdolls>, phys: Option<Res<PhysState>>) {
-    if exit.read().last().is_none() || ragdolls.started + ragdolls.restored == 0 {
+    if exit.read().last().is_none() || ragdolls.started + ragdolls.restored + ragdolls.unbuilt == 0 {
         return;
+    }
+    if ragdolls.unbuilt > 0 {
+        info!("ragdolls: {} corpse(s) shown dead without their ragdoll (not built, or fallen through the ground too often)", ragdolls.unbuilt);
     }
     let (live, asleep) = phys.as_deref().map_or((0, 0), |p| (p.world.ragdolls().count(), p.world.ragdolls().filter(|&id| p.world.ragdoll_asleep(id)).count()));
     info!(
@@ -729,5 +858,177 @@ mod tests {
         let back = game_iso(&a);
         assert!(back.translation.iter().zip(&t).all(|(a, b)| (a - b).abs() < 1e-3), "{:?}", back.translation);
         assert!(back.rotation.iter().zip(&r).all(|(a, b)| (a - b).abs() < 1e-5), "{:?}", back.rotation);
+    }
+
+    #[test]
+    fn a_corpse_without_its_ragdoll_is_shown_as_one_without_a_ragdoll() {
+        // #2347: a fresh death falls in its death pose, or is laid on its back; one its
+        // ragdoll already posed lies (the death pose's end, or as it lay); one the death
+        // handling already shows dead without a ragdoll is left alone.
+        use Unbuilt::*;
+        assert_eq!(unbuilt(false, false, true), DeathPose { from_start: true });
+        assert_eq!(unbuilt(false, false, false), OnItsBack);
+        assert_eq!(unbuilt(false, true, true), DeathPose { from_start: false });
+        assert_eq!(unbuilt(false, true, false), AsItLay);
+        for ragdolled in [false, true] {
+            for death in [false, true] {
+                assert_eq!(unbuilt(true, ragdolled, death), AsShown);
+            }
+        }
+    }
+
+    #[test]
+    fn the_failing_build_aid_names_references_in_hex() {
+        assert_eq!(forced_failures(Some("00104C79, 0xFF000001,invalid,")), HashSet::from([0x0010_4C79, 0xFF00_0001]));
+        assert!(forced_failures(None).is_empty());
+        assert!(forced_failures(Some("")).is_empty());
+    }
+
+    /// A clip of no tracks, one second long.
+    fn clip() -> Arc<nvf_assets::anim_play::BoundClip> {
+        Arc::new(nvf_assets::anim_play::BoundClip {
+            clip: Arc::new(nvf_assets::anim_play::Clip {
+                name: String::new(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0, tracks: Vec::new(), priorities: Vec::new(), skipped: 0, accum_root: None, text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(), free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
+            }),
+            tracks: Vec::new(),
+            root: None,
+            root_track: None,
+            carried: None,
+            unbound: Default::default(),
+        })
+    }
+
+    const KILLED: u32 = 0x2347;
+
+    /// An actor just killed running (`Dying` with no clip: its ragdoll is to take the pose;
+    /// its root upright at the origin) on a loaded cell. Its ragdoll is one sphere on its
+    /// pelvis: of radius -1 when `empty` (it converts to no body: a build of no bodies),
+    /// else 8. `death`: its clips have a death pose; `refused`: the failing-build aid names it.
+    fn killed(empty: bool, death: bool, refused: bool) -> (World, Entity) {
+        use fnv_collide::ragdoll::RagdollBody;
+        use fnv_collide::{CollisionObject, Motion, Shape};
+        let mut world = World::new();
+        let mut phys = PhysState::default();
+        let cell = phys.cell_at([0.0; 3]);
+        phys.cells.insert(cell, nvf_play::phys::LoadedCell::default());
+        world.insert_resource(phys);
+        let mut ragdolls = Ragdolls::default();
+        if refused {
+            ragdolls.fail.insert(KILLED);
+        }
+        world.insert_resource(ragdolls);
+        world.init_resource::<Messages<ActorPush>>();
+        let root = world.spawn(GlobalTransform::IDENTITY).id();
+        let pelvis = world.spawn(GlobalTransform::from_translation(Vec3::new(0.0, 90.0, 0.0))).id();
+        let skel = nvf_assets::actor::PreparedSkeleton { parents: vec![None, Some(0)], by_name: HashMap::from([("Bip01".to_string(), 0), ("Bip01 Pelvis".to_string(), 1)]), ..Default::default() };
+        let rig = ActorRig { reference: KILLED, base: 1, body: 1, skeleton: String::new(), skel: Arc::new(skel), nodes: vec![root, pelvis], base_scale: 1.0 };
+        let object = CollisionObject {
+            node: Some("Bip01 Pelvis".into()),
+            node_block: 0,
+            node_transform: Iso::IDENTITY,
+            body_transform: Iso::IDENTITY,
+            motion: Motion::Dynamic,
+            layer: fnv_phys::layers::BIPED,
+            mass: 10.0,
+            friction: 0.3,
+            restitution: 0.0,
+            shape: Shape::Sphere { radius: if empty { -1.0 } else { 8.0 } }.into(),
+            shell: 0.0,
+            material: None,
+            wind: false,
+        };
+        let body = RagdollBody { object, linear_damping: 0.1, angular_damping: 0.05, stored: Iso::IDENTITY, unit: 7.0 };
+        let data = Arc::new(Ragdoll { bodies: vec![body], joints: vec![], problems: vec![] });
+        let corpse = Corpse { data, bones: vec![1], body_of: vec![None, Some(0)], limit: MAX_AWAKE, ..Default::default() };
+        let mut set = crate::locomotion::ClipSet::default();
+        if death {
+            set.death = vec![clip()];
+        }
+        let lo = crate::locomotion::Locomotion::new(Arc::new(set), 0.0);
+        let e = world.spawn((rig, corpse, Dying { clip: None, t: 0.0 }, InheritedVisibility::VISIBLE, Transform::IDENTITY, lo)).id();
+        (world, e)
+    }
+
+    fn run_start(world: &mut World) {
+        use bevy::ecs::system::RunSystemOnce;
+        world.run_system_once(start).expect("start runs");
+    }
+
+    /// Its root's up axis (game z: the actor's root is in game space) after `start`.
+    fn up(world: &World, e: Entity) -> Vec3 {
+        world.get::<Transform>(e).unwrap().rotation * Vec3::Z
+    }
+
+    #[test]
+    fn a_fresh_corpse_whose_ragdoll_builds_no_body_ends_lying_once() {
+        // #2347: it stood in the last frame of its run for good.
+        let (mut world, e) = killed(true, false, false);
+        run_start(&mut world);
+        assert!(up(&world, e).z.abs() < 1e-5, "laid on its back: up {:?}", up(&world, e));
+        let c = world.get::<Corpse>(e).unwrap();
+        assert!(!c.live && c.laid_out && c.lifts > MAX_LIFTS, "never built again");
+        assert!(!world.resource::<PhysState>().world.has_ragdoll(KILLED));
+        assert_eq!(world.resource::<Ragdolls>().unbuilt, 1);
+        // Not turned again, nor counted, on the frames after.
+        let before = world.get::<Transform>(e).unwrap().rotation;
+        run_start(&mut world);
+        run_start(&mut world);
+        assert!(world.get::<Transform>(e).unwrap().rotation.abs_diff_eq(before, 1e-6));
+        assert_eq!(world.resource::<Ragdolls>().unbuilt, 1);
+    }
+
+    #[test]
+    fn with_a_death_pose_it_falls_in_it_from_its_first_frame() {
+        let (mut world, e) = killed(true, true, false);
+        run_start(&mut world);
+        let d = world.get::<Dying>(e).unwrap();
+        assert!(d.clip.is_some() && d.t == 0.0, "its death pose plays from the start");
+        assert!((up(&world, e) - Vec3::Z).length() < 1e-6, "the clip lays it down, not the root");
+        assert!(world.get::<Corpse>(e).unwrap().laid_out);
+    }
+
+    #[test]
+    fn a_refused_build_is_shown_the_same_and_a_laid_out_corpse_is_left_alone() {
+        // The test aid refuses a ragdoll that would build.
+        let (mut world, e) = killed(false, false, true);
+        run_start(&mut world);
+        assert!(up(&world, e).z.abs() < 1e-5);
+        assert!(!world.resource::<PhysState>().world.has_ragdoll(KILLED));
+        // Without the aid the same corpse's ragdoll is built (the control).
+        let (mut world, e) = killed(false, false, false);
+        run_start(&mut world);
+        assert!(world.get::<Corpse>(e).unwrap().live && world.resource::<PhysState>().world.has_ragdoll(KILLED));
+        assert!((up(&world, e) - Vec3::Z).length() < 1e-6);
+        // Already shown dead without a ragdoll by `deaths.rs` (laid on its back there): left so.
+        let (mut world, e) = killed(true, false, false);
+        world.get_mut::<Corpse>(e).unwrap().laid_out = true;
+        run_start(&mut world);
+        assert!((up(&world, e) - Vec3::Z).length() < 1e-6, "not turned a second time");
+        assert_eq!(world.resource::<Ragdolls>().unbuilt, 0);
+    }
+
+    #[test]
+    fn a_corpse_out_of_terrain_lifts_lies_in_its_death_pose_at_its_end() {
+        // Its ragdoll posed it, then it fell through the ground more than MAX_LIFTS times.
+        let (mut world, e) = killed(false, true, false);
+        {
+            let mut c = world.get_mut::<Corpse>(e).unwrap();
+            c.ragdolled = true;
+            c.lifts = MAX_LIFTS + 1;
+        }
+        run_start(&mut world);
+        let d = world.get::<Dying>(e).unwrap();
+        assert!(d.clip.is_some() && d.t == crate::deaths::END, "straight at its end");
+        assert!(!world.resource::<PhysState>().world.has_ragdoll(KILLED), "not built again");
+        // Without a death pose: as it lay (`pose` wrote the lifted pose), the root not turned.
+        let (mut world, e) = killed(false, false, false);
+        {
+            let mut c = world.get_mut::<Corpse>(e).unwrap();
+            c.ragdolled = true;
+            c.lifts = MAX_LIFTS + 1;
+        }
+        run_start(&mut world);
+        assert!((up(&world, e) - Vec3::Z).length() < 1e-6);
+        assert!(world.get::<Corpse>(e).unwrap().laid_out && world.get::<Dying>(e).unwrap().clip.is_none());
     }
 }

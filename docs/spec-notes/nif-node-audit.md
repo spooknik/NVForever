@@ -61,7 +61,10 @@ Lower still, all **unused**:
 
 - `BobbleHeadRoot`/`Head` in 15 `clutter\bobblehead\*.nif`: perhaps the nodding head.
 - `MarkerSource`/`MarkerTarget` (23/17, `markers\furnituremarker*.nif`): editor marker
-  models.
+  models, skipped as markers. **Handled generically** inside a drawn model:
+  the Tops lounge chair (`furniture\loungechair_tops.nif`) holds property-less
+  copies, with `Capsule01` and `ChairBoundary`; the renderer leaves them out as editor
+  geometry (nif.md §6 "Shapes with no property at all", issue #2469).
 - `Havok<n>` (96, SCOLs and explosions): exporter helper names.
 - `PittedDecal` (14 road meshes): drawn as geometry already.
 - `Screen01Root`/`HouseScreenRoot` (Securitron and Mr. House screens): the screens are

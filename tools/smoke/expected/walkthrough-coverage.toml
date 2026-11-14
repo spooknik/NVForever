@@ -57,6 +57,7 @@ total = 28896
 # (vDialogueSecuritron); a first-generation super mutant's death line 0x0015CD35; the White
 # Legs' death sounds 0x020102DD-DF in place of GenericAdultCombat's 0x020112E4; the rest are
 # other picks from Random pools after those. No chain's stages changed.
+# claude/nvse-mod-tools with this main measures 2491 too [measured 2026-11-13].
 said = 2491
 
 [summary.actors]

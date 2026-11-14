@@ -119,9 +119,20 @@ impl ParamTypes {
         for (i, t) in XEDIT_ONLY {
             m.entry(*i).or_insert_with(|| t.iter().map(|s| s.to_string()).collect());
         }
+        // These two named extender getters already have portable implementations and
+        // observed opcodes in schemas/script/command_opcodes.json. The catalogue lists
+        // a perk-form parameter for GetPerkRank and none for GetPCUsingIronSights, but
+        // has no condition_index metadata for them. Keep this admission limited to
+        // those two aliases (extender-condition-aliases.md).
+        m.entry(GET_PERK_RANK).or_insert_with(|| vec!["ptPerk".into()]);
+        m.entry(GET_PC_USING_IRON_SIGHTS).or_default();
         ParamTypes(m)
     }
 }
+
+/// Condition indices are the existing observed command opcodes minus 0x1000.
+pub(crate) const GET_PERK_RANK: u16 = 0x05C3;
+pub(crate) const GET_PC_USING_IRON_SIGHTS: u16 = 0x177A;
 
 /// Condition indices xEdit knows that the catalogue has no entry for, with their
 /// parameter types: 451 IsLastIdlePlayed takes an IDLE; 518–521 and 525–528, the VATS

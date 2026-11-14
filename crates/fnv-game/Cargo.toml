@@ -62,6 +62,10 @@ name = "nvse_itr1"
 path = "tests/nvse_itr1.rs"
 
 [[test]]
+name = "array_file"
+path = "tests/array_file.rs"
+
+[[test]]
 name = "script_runner"
 path = "tests/script_runner.rs"
 
@@ -97,3 +101,11 @@ path = "tests/jip_cloned_list_wildcard.rs"
 [[test]]
 name = "jip_required_animation_codes"
 path = "tests/jip_required_animation_codes.rs"
+
+[[test]]
+name = "jip_handler_context"
+path = "tests/jip_handler_context.rs"
+
+[[test]]
+name = "jip_registration_provenance"
+path = "tests/jip_registration_provenance.rs"

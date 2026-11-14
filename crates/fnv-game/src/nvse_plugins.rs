@@ -549,10 +549,21 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             let Some(st) = g.senses.anim.get(&a) else { return Some(Ok(zero)) };
             let moving = st.moving != MoveDir::None;
+            // Movement: sub-type 0 any, 1–4 forward, backward, left, right, 5 jump;
+            // variation flags 1 fast, 2 dodge, 4 turn [documented: IsAnimPlayingEx], read
+            // from the movement group the body plays (`Jump…`, `Fast…`, `Turn…`). Before,
+            // every sub-type answered "moving", so Enhanced Movement's sprint, which
+            // stays off while `IsAnimPlayingEx 2 5` (a jump) holds, never started.
+            let group = st.group.unwrap_or("");
+            let jump = group.starts_with("Jump");
+            let flags = num(args, 2, 0.0) as i64;
+            let variation = (flags & 1 == 0 || group.starts_with("Fast")) && flags & 2 == 0 && (flags & 4 == 0 || group.starts_with("Turn"));
             yes(match (num(args, 0, -1.0) as i64, num(args, 1, 0.0) as i64) {
                 (1, 0) => true,
                 (1, _) => !moving,
-                (2, _) => moving,
+                (2, 0) => (moving || jump) && variation,
+                (2, 5) => jump,
+                (2, s) => variation && st.moving == [MoveDir::None, MoveDir::Forward, MoveDir::Backward, MoveDir::Left, MoveDir::Right].get(s.clamp(0, 4) as usize).copied().unwrap_or(MoveDir::None) && moving,
                 (3, _) => st.action.is_some_and(|x| matches!(x, AnimAction::Attack | AnimAction::FollowThrough | AnimAction::AttackReturn)),
                 (4, _) => st.action.is_some_and(|x| matches!(x, AnimAction::Reload | AnimAction::ReloadOpen)),
                 _ => false,

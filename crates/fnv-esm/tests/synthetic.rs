@@ -132,6 +132,26 @@ fn load_order_overrides_and_remap() {
     assert_eq!(lo.index[&0x0000_1001].len(), 2);
 }
 
+/// Two records under one FormID in one plugin: the first is the form [observed: oHUD.esm's
+/// QUST `aHUD` before its MESG `iHUDMainMenu`, #2276 job B]; a later plugin still
+/// overrides it.
+#[test]
+fn a_plugins_first_record_under_a_shared_formid_wins() {
+    let mut own = tes4(&[], 2, &[]);
+    own.extend(group(b"GLOB", 0, &[glob(0x0000_1000, "First", 1.0), glob(0x0000_1000, "Second", 2.0)].concat()));
+    let mut patch = tes4(&["Own.esm"], 1, &[]);
+    patch.extend(group(b"GLOB", 0, &glob(0x0000_1000, "Patched", 3.0)));
+    let one = vec![Plugin::parse(&own, "Own.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&one).unwrap();
+    assert_eq!(lo.index[&0x0000_1000].len(), 1);
+    let (_, r) = lo.winner(0x0000_1000).unwrap();
+    assert!(decode_record(r, &schema()).to_string().contains("First"));
+    let both = vec![Plugin::parse(&own, "Own.esm".into()).unwrap(), Plugin::parse(&patch, "Patch.esp".into()).unwrap()];
+    let lo = LoadOrder::new(&both).unwrap();
+    assert_eq!(lo.index[&0x0000_1000].len(), 2);
+    assert!(decode_record(lo.winner(0x0000_1000).unwrap().1, &schema()).to_string().contains("Patched"));
+}
+
 #[test]
 fn load_order_errors() {
     let d = Plugin::parse(&dlc(), "Dlc.esm".into()).unwrap();

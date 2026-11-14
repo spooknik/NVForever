@@ -140,6 +140,8 @@ pub fn show_sleep_wait_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
 /// The rule is [`Game::would_attack`]'s with the player as the other, which the
 /// detection states use too (`crate::awareness`).
 pub fn hostile_to_player(g: &mut Game, actor: FormId) -> bool {
+    // The hours waited may have ended crimes (`crate::crime`, #2467).
+    g.expire_crimes();
     let hostile = g.would_attack(actor, FormId::PLAYER_REF);
     tracing::debug!(%actor, hostile, "hostile to the player?");
     hostile

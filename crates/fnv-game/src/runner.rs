@@ -506,7 +506,7 @@ fn close_container(g: &mut Game) {
 
 /// [`Action::SaveLoad`]: the save's size in bytes.
 fn save_and_load(g: &mut Game) -> Result<usize, String> {
-    let snap = g.snapshot();
+    let snap = g.checked_snapshot()?;
     let body = serde_json::to_vec(&snap).map_err(|e| e.to_string())?;
     let bytes = fnv_save::encode(&fnv_save::SaveHeader::new(fnv_save::SaveKind::Quick), &[], &body);
     let file = fnv_save::decode(std::path::Path::new("runner save"), &bytes, true).map_err(|e| e.to_string())?;

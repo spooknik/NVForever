@@ -239,6 +239,19 @@ fn cells_light_and_settings() {
     // The settings, by their names, filtered by kind.
     assert_eq!(s(&mut g, "let aList := GetGameSettings\nSetFunctionValue (sv_Construct \"%g %z\" aList[\"fTestSetting\"] aList[\"sTestText\"])"), "2.5 Hello");
     assert_eq!(n(&mut g, "ar_Size (GetGameSettings 2)"), 1.0);
+    // A setting named with or without quotes: unquoted, the word is the setting's own
+    // record, whose Editor ID is the name (`nvse_misc::setting_name`) [observed: mods
+    // write `GetNumericGameSetting fVATSShotLongBurstTime`].
+    assert_eq!(n(&mut g, "GetNumericGameSetting \"fTestSetting\""), 2.5);
+    assert_eq!(n(&mut g, "GetNumericGameSetting fTestSetting"), 2.5);
+    assert_eq!(s(&mut g, "SetFunctionValue (GetStringGameSetting sTestText)"), "Hello");
+    assert_eq!(n(&mut g, "10 / GetNumericGameSetting fTestSetting"), 4.0);
+    q(&mut g, "SetNumericGameSetting fTestSetting 5");
+    assert_eq!(n(&mut g, "GetNumericGameSetting fTestSetting"), 5.0);
+    q(&mut g, "ModNumericGameSetting fTestSetting -2.5");
+    assert_eq!(n(&mut g, "GetNumericGameSetting \"fTestSetting\""), 2.5);
+    // Another record's name is no setting.
+    assert_eq!(n(&mut g, "GetNumericGameSetting TestMarker"), 0.0);
     assert_eq!(n(&mut g, "GetStringHash"), 0.0);
 
     // Internal markers: the marker model's own, a script's.

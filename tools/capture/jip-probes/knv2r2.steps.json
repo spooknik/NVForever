@@ -1,0 +1,13 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "knv2r2",
+ "title": "knv2r2, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rA\nref rObj\nfloat fA\nfloat fB\nstring_var s\nstring_var k\narray_var aA\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := rP.AuxVarGetRef \"*nvfKN\"\nSetFunctionValue (rP.EraseCurrentAnimAction)\nEnd\n",
+   "label": "knv2.erase.player",
+   "field": "value"
+  }
+ ]
+}

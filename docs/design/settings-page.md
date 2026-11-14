@@ -19,6 +19,16 @@ none of that: no key, label, note, default or group changes, and nothing is reor
 What changed is presentation only: `engine/nvf-play/src/settings_layout.rs` (where a row
 is shown) and `engine/nvf-play/src/settings_view.rs` (what the page lists, as data).
 
+**A row's command-line switches** [design: #2377]: `Setting::switches` names the switches
+whose state the row replaces, as `--a, --b` (`Setting::with_switches` for a slider row;
+empty: none). Until #2377 they were written at the end of the note, which the page showed;
+now the note says only what the row does (§10) and the switches are their own field, not
+shown (the search finds them, §6; docs/settings-reference.md lists them). `note_switches`
+reads the field with the parse the notes had (each `--name` once, a value after it
+ignored, one the text is "a part of" left out), so every row names the same switches as
+before: in a test run a switch given keeps its rows at the command line's state over the
+INI's (`GivenSwitches`, `apply_stored`, `after_ini`), as #1382 has it.
+
 ## 2. The layout table
 
 Seven tabs, the original's four categories first: **Gameplay, Display, Audio, Controls,
@@ -78,9 +88,9 @@ registrations nor `resolve_layout`'s interface change for it.
 - **A row** (`RowId`) is a registered setting by its registry index, or one of the
   Controls tab's own rows by what it is (`ControlRow`: `Device`, `Binding(control,
   device)`, `Invert`, `Sensitivity(device)`, `Rumble`), never by where it stands.
-- **A line** (`ViewEntry`) is a heading or a row. A heading takes one of the window's nine
-  lines and counts in the scroll bar, but it is never chosen: no box, no pointer, no
-  value [design: #1953]. It is drawn dim in the page's font (font 7, `Shade::Dim`).
+- **A line** (`ViewEntry`) is a heading or a row. A heading takes one of the window's lines
+  (§4) and counts in the scroll bar, but it is never chosen: no box, no pointer, no value
+  [design: #1953]. It is drawn dim in the page's font (font 7, `Shade::Dim`).
 - **What is listed** (`SettingsScope`): a tab, or the search's results or the Changed
   list (§6, §7). These two list rows of every tab, each under a heading saying where it
   lives (`listing`: `Gameplay > Dialogue`, `Controls`); an empty one says "No results."
@@ -117,7 +127,21 @@ rail's lines are Search, Changed, the tabs, then Defaults and Back (those two ke
 place at the bottom right); with a controller in use the rail's keys pass over Search.
 Ctrl+F opens the search (§6).
 
-The window shows nine lines from `PauseView::scroll`: the keys keep the chosen row in it,
+**The window's lines** [design: #2377]: the original's options list shows nine items
+[documented: `options_container` `_number_of_visible_items` 9], and so did this page until
+#2377. Now the count comes from the layout (`pause::window_lines`): as many lines as fit
+between the rows' top (`OPTIONS_TOP`) and a three-line note (`NOTE_LINES`) that ends above
+"Report a bug" at the bottom left (`REPORT_TOP`), 12 today. It is worked out in one place and
+carried as a value (`PauseView::lines`, `Drawn::lines`) to the drawing, the keys, the
+pointer, the wheel, the scroll bar and the inspect aid, so a later layout can make it
+depend on the view; the `settings_view` functions (`follow`, `window_first`,
+`drawn_slots`, `clamp_into_window`) take it as an argument and work with any count of at
+least one (with one line the chosen row is shown rather than its heading). A new count is
+logged (`pause menu: settings window of 12 lines`). The note under the window is drawn to
+three lines at most: two for a row's own note, one for what it stands for (§6) or a
+choice's reason.
+
+The window shows its lines from `PauseView::scroll`: the keys keep the chosen row in it,
 and its heading too when it is the heading's first row (`follow`); a heading is never drawn
 alone on the window's last line (`drawn_slots`: it comes with its first row in the next
 window); the wheel and the scroll bar move the window, the choice moving to the nearest row
@@ -125,6 +149,35 @@ still drawn (`clamp_into_window`), and the window stays where they put it: the h
 the chosen row is brought back only when the choice changes (`window_first`, after
 `PauseView::followed`). The pointer takes a row, its meter or its arrows only
 when the row is drawn in the current window.
+
+**The list's width** [design: #2377; #1210 for the rail]: the list (its rows, headings,
+note, search line and heading links; the scroll bar right of it, the band round both) is as
+wide as the room left of the rail allows (`pause::ListBox::of`): the band starts
+`LEFT_MARGIN` (60 units) from the view's left edge and ends `TABS_GAP` clear of the rail as
+wide as its translated words, the list at most `OPTIONS_MAX` (1300) and centred in the room
+once capped. No fixed least width: a narrow view gets a narrower list rather than one under
+the rail. In interface units (960 high): a 16:9 view (1280x720, 1920x1080) is 1707 wide and,
+with the English rail as measured in the smoke runs, gets a list 1101 wide (820 before
+#2377); 16:10 (1536) 930; 4:3 (1280) about 674; 3440x1440 (2293) the full 1300. The
+width follows the rail's measured words, so another language's longer tab names give a
+narrower list. The list's place is logged when it changes
+(`pause menu: settings list <w> wide from <x> in a view <w> wide, band <l>-<r>`).
+
+**A row's parts** [design: #2377]: the places in a row (a switch's state and a reason
+centred at the value's place, a slider's arrows, meter and value, a list's box, a key's
+binding) keep their distance from the row's right end that they had in the 820-unit row
+(`pause::RowX`), so a row of that width is drawn as before and a wider one gives its extra
+room to the label. `pause::row_parts` lays every row out from its fonts' measured widths:
+the label ends 16 units (`LABEL_GAP`) before the value's part; a wide reason or binding
+takes room from the label, down to 160 units (`LABEL_MIN`); wide slider words ("Performance")
+take room from the meter, down to 100 units (`METER_MIN`); a list's words stay in its box.
+What still does not fit is cut with "..." at its measured width (`fit_text`) instead of
+running into its neighbour: labels, values, reasons, a list's words, the open dropdown's
+choices and heading lines. Only the drawing is cut: the search, the log and the hidden texts
+the aids read keep the full words. When the page's fonts are first loaded,
+`check_page_text` lays every registered row out at the 16:9 page width over all its values
+and logs each row it had to cut (`settings: text of `<key>` cut to fit: ...`) and a summary
+(`settings: <n> rows laid out, <cut> cut to fit`).
 
 **One dispatcher** (`pause.rs` `act_on_row`, `RowAction::{Activate, Step, Clear}`) does
 what the keys, the pointer and the aids ask of a row, a registered row or a Controls row
@@ -234,8 +287,9 @@ results and every other key does nothing. W/S, A/D and Space are no keys of the 
 `PreUpdate` before the game's input and still on the frame the search closes.
 
 **Matching** (`settings_view::search`) [design: #1953]: a row's words are its label and
-note in the language shown and in English and its INI key (a tweak's note names its
-Stewie's Tweaks key); the Controls tab's own rows have their label, note and INI name
+note in the language shown and in English, its INI key (a tweak's note names its
+Stewie's Tweaks key) and its command-line switches (§1; `--msaa` finds Anti-aliasing,
+#2377); the Controls tab's own rows have their label, note and INI name
 (`pause::control_words`), both devices' controls, so a controller's button is found from
 the keyboard. The query is split at whitespace and lowercased (Unicode); a row is found
 when every word is somewhere in its words. No stemming, no ranking: the results are in the
@@ -244,7 +298,8 @@ text lists every row. A row hidden where it lives is listed as the row that stan
 (`shown_as`: a colour's channel as its colour; a controller row, a control's binding or the
 sensitivity of the device not in use, and Rumble without a controller as Input Device),
 once, in the page's order of the rows shown. Its note then begins with what it stands for
-(`stands_for`: "Stands for: Jump (Controller)."). So a result of the other device is never
+(`stands_for`: "Stands for: Jump (Controller)."; past three rows, "Stands for: A, B, C and
+2 more.", so the note keeps to its lines, #2377). So a result of the other device is never
 edited through the device in use: acting on it switches the device, and the row is then
 listed as itself.
 
@@ -337,7 +392,13 @@ pause menu: heading Gameplay > Saving; selected autosave-travel
 pause menu: the keys on the rail (Display)
 pause menu: rail Changed
 pause menu: colour sliders HUD shown, Pip-Boy hidden
-pause menu: inspect: Display, keys on the rows, selected hud-colour, lines 1-9 of 21
+pause menu: inspect: Display, keys on the rows, selected hud-colour, lines 1-12 of 21
+pause menu: inspect: window 12 lines, 12 drawn
+pause menu: settings window of 12 lines
+pause menu: settings list 1101 wide from 90 in a view 1707 wide, band 60-1257
+settings: 103 notes checked, 0 over the budget (200 characters)
+settings: 103 notes checked, 0 over the budget (200 characters, two lines)
+settings: 103 rows laid out, 0 cut to fit (a list 1036 units wide in a 16:9 view)
 pause menu: search open
 pause menu: search "menu-pause": 1 result(s); keys menu-pause
 pause menu: the keys on the results
@@ -357,8 +418,31 @@ pause menu: inspect: hovered Debug
 Smoke scenarios: `settings-layout`, `settings-headings`, `settings-scroll-headings`, `settings-custom-sliders`,
 `settings-controller-navigation`, `settings-search`, `settings-search-input`,
 `settings-changed`, `settings-heading-pointer`, `settings-search-language`,
-`settings-reopen`, `settings-tab-write` and `settings-tab-read` (a pair), `settings-rail-hover`
+`settings-reopen`, `settings-tab-write` and `settings-tab-read` (a pair), `settings-rail-hover`,
+`settings-note-budget`, `settings-layout-ultrawide`
 (tools/smoke/scenarios.toml).
+
+## 10. The notes: short, within a budget (#2377)
+
+[design: #2377] A row's note says what the row does in one or two short sentences: at most
+200 characters (`settings::NOTE_BUDGET`, counted as characters) and no command-line switch
+(those are the row's `switches`, §1). That is about two lines at the page's width in a 16:9
+view in the small face (font 3); the note's third line is left for what a search result
+stands for or a choice's reason. The explanations cut from the notes in #2377, and the
+switches, are in docs/settings-reference.md, one entry per key in the page's order, with
+links to the specialist docs.
+
+The budget is checked twice. Once every row is registered (`settings::check_notes`,
+`PostStartup`) each note goes through `settings::note_over_budget`: one over it logs
+`settings: note of `<key>` over the budget: <reason>`, then `settings: <n> notes checked,
+<bad> over the budget (200 characters)`. When the pause menu's fonts are first loaded
+(`pause::check_page_text`) each note is also wrapped at the page's 16:9 width: one wrapping
+to more than two lines is over the budget too (`... over the budget (200 characters, two
+lines)`). Unit tests cover the check itself, the Controls tab's own notes (which are not in
+the registry) and the renderer's rows that register without the game's files; the smoke
+scenario `settings-note-budget` reads the two summaries. The page still cuts a note to its
+three lines when one is longer (a translation, a narrow view: at 4:3 the list is about 609
+units wide and a two-line note at 16:9 may take three or four).
 
 
 ## Performance usage availability (#2249)

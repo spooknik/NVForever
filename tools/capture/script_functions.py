@@ -331,7 +331,311 @@ PAGELESS = [
                 {"name": "text", "type": "formattedString", "kind": "string"},
                 {"name": "formatVars(up to 20)", "type": None, "kind": "unknown", "optional": True}],
      "categories": ["Functions (MCM)"]},
+    # TTW NVSE (ttw_nvse.dll): "toggle radios working in child worldspaces on/off"
+    # [documented: the TTW NVSE mod page's function list; the GECK wiki has no page].
+    {"name": "TTW_EnableRadioFix", "page": None, "origin": "TTW", "returns": {"type": "void", "name": None},
+     "params": [_i("enable")], "categories": ["Functions (TTW)", "Radio Functions"]},
 ]
+
+
+# Commands JIP LN 57.30 registers (nvse.log RegisterCommand lines, opcodes 0x2212 and
+# 0x26FD-0x2941) that have no wiki page, called by the Blue Moon and High and Dry lists'
+# mods: their argument shapes from those mods' script source, what they do from probes in
+# the original (jip_probes.py sets cmd1-cmd3; docs/spec-notes/ext-unlisted-commands.md).
+def _p(name, kind, typ=None, optional=False):
+    d = {"name": name, "type": typ or kind, "kind": kind}
+    if optional:
+        d["optional"] = True
+    return d
+
+
+def _jip(name, returns, params=(), ref="reference", cat="Functions (JIP)"):
+    rec = {"name": name, "page": None, "origin": "JIP", "returns": {"type": returns, "name": None},
+           "params": list(params), "categories": [cat, "Functions (JIP)"] if cat != "Functions (JIP)" else [cat]}
+    if ref:
+        rec["calling_reference"] = ref
+    if not rec["params"]:
+        del rec["params"]
+    return rec
+
+
+_FMT = [_p("text", "string", "formattedString"), _p("formatVars(up to 20)", "unknown", None, True)]
+_FMT[1]["type"] = None
+PAGELESS += [
+    _jip("AttachLight", "successful:0/1", [_p("nodeName", "string"), _p("light", "form"), _p("x", "float"),
+                                           _p("y", "float"), _p("z", "float")], cat="Model Functions (JIP)"),
+    _jip("RemoveLight", "int", [_p("nodeName", "string")], cat="Model Functions (JIP)"),
+    _jip("RefreshAnimData", "void", cat="Actor Functions (JIP)"),
+    _jip("LockEquipment", "void", [_p("lock", "int")], cat="Actor Functions (JIP)"),
+    _jip("GetTeammateUsingAmmo", "int", cat="Actor Functions (JIP)"),
+    _jip("SetTeammateUsingAmmo", "void", [_p("usesAmmo", "int")], cat="Actor Functions (JIP)"),
+    _jip("ToggleDetectionFix", "void", [_p("enable", "int")], cat="Actor Functions (JIP)"),
+    _jip("ToggleIgnoreLockedDoors", "void", [_p("enable", "int")], cat="Actor Functions (JIP)"),
+    _jip("MoveAwayFromPlayer", "void", cat="Actor Functions (JIP)"),
+    _jip("KillActorAlt", "void", [_p("killer", "reference", "ref", True)], cat="Actor Functions (JIP)"),
+    _jip("GetHitNode", "string_var", cat="Actor Functions (JIP)"),
+    _jip("RefToPosStr", "string_var", cat="Misc Reference Functions (JIP)"),
+    _jip("MoveToPosStr", "successful:0/1", [_p("position", "string")], cat="Misc Reference Functions (JIP)"),
+    _jip("GetCenterPos", "float", [_p("axis", "axis", "X/Y/Z")], cat="Misc Reference Functions (JIP)"),
+    _jip("DisableScriptedActivate", "void", [_p("disable", "int")], cat="Misc Reference Functions (JIP)"),
+    _jip("GetConditionDamagePenalty", "float", ref=None, cat="Inventory Functions (JIP)"),
+    _jip("ListToArray", "array", [_p("formList", "form")], ref=None, cat="Form List Functions (JIP)"),
+    # The Companions Command & Control mod's own functions.
+    _jip("CCCInFaction", "int", [_p("faction", "form"), _p("includeBase", "int", None, True)], cat="CCC Functions (JIP)"),
+    _jip("CCCGetDistance", "float", [_p("target", "reference", "ref"), _p("mode", "int")], cat="CCC Functions (JIP)"),
+    _jip("CCCLocationName", "string_var", cat="CCC Functions (JIP)"),
+    _jip("CCCGetReputation", "ref", cat="CCC Functions (JIP)"),
+    _jip("CCCSavedForm", "ref", [_p("index", "int")], ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCSetFloat", "void", [_p("index", "int"), _p("value", "float")], ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCSetString", "void", [_p("index", "int")] + [dict(p) for p in _FMT], ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCSetTrait", "void", [_p("index", "int"), _p("value", "float"), _p("value2", "float", None, True)], ref=None,
+         cat="CCC Functions (JIP)"),
+    _jip("CCCSetEquipped", "int", cat="CCC Functions (JIP)"),
+    _jip("CCCSetNCCS", "void", [_p("enable", "int")], cat="CCC Functions (JIP)"),
+    _jip("CCCSMS", "void", [_p("actor", "reference", "ref")], ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCSetFollowState", "int", [_p("state", "int", None, True)], cat="CCC Functions (JIP)"),
+    _jip("CCCSayTo", "void", [_p("target", "reference", "ref"), _p("topic", "form")], cat="CCC Functions (JIP)"),
+    _jip("CCCRunResultScripts", "void", [_p("topic", "form")], cat="CCC Functions (JIP)"),
+    _jip("CCCLoadNCCS", "void", ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCOnLoad", "void", ref=None, cat="CCC Functions (JIP)"),
+]
+
+
+
+# The rest of the registered commands no wiki page lists (#2326), batch 1: argument counts
+# and kinds from the compile-shape run in the original (each name compiled with 23 argument
+# patterns inside `if 0`; docs/spec-notes/ext-unlisted-rest.md §1), behaviour from set rest1.
+def _x(name, origin, returns, params=(), ref=None, aliases=None, cat=None):
+    rec = {"name": name, "page": None, "origin": origin, "returns": {"type": returns, "name": None},
+           "params": list(params), "categories": [cat or f"Functions ({origin})"]}
+    if aliases:
+        rec["aliases"] = aliases
+    if ref:
+        rec["calling_reference"] = ref
+    if not rec["params"]:
+        del rec["params"]
+    return rec
+
+
+_S, _I, _F, _R = (lambda n, o=False: _p(n, "string", None, o)), (lambda n, o=False: _p(n, "int", None, o)), \
+    (lambda n, o=False: _p(n, "float", None, o)), (lambda n, o=False: _p(n, "reference", "ref", o))
+_A = lambda n, o=False: _p(n, "array", "array_var", o)  # noqa: E731
+_SO = "ShowOff"
+PAGELESS += [
+    # SUP's network services, tests and log (answer 0, extender-compat.md §5.8).
+    _x("BBAPIKeyExist", "SUP", "int"), _x("BBAreMessagesFetched", "SUP", "int"), _x("BBDeleteUserMessage", "SUP", "int", [_I("id")]),
+    _x("BBGetBBKey", "SUP", "string_var"), _x("BBGetCurrentNotesInCell", "SUP", "array"),
+    _x("BBGetInfoForReference", "SUP", "array", [_R("ref")]), _x("BBGetTextMenuString", "SUP", "string_var"),
+    _x("BBGetUserInfo", "SUP", "array", [_I("id")]), _x("BBGetUserMessages", "SUP", "array"), _x("BBHideMessage", "SUP", "int", [_I("id")]),
+    _x("BBIsBBLoaded", "SUP", "int"), _x("BBIsReferenceNote", "SUP", "int", [_R("ref")]), _x("BBIsTextEditMenuActive", "SUP", "int"),
+    _x("BBLikeMessage", "SUP", "int", [_I("id")]), _x("BBNexusAPIKeyExist", "SUP", "int"), _x("BBOnCellChange", "SUP", "void", [_R("cell")]),
+    _x("BBPostMessage", "SUP", "int", [_S("text"), _R("ref")]), _x("BBReportMessage", "SUP", "int", [_I("id"), _S("reason")]),
+    _x("BBReturnAllMessagesToDefaultCell", "SUP", "void"), _x("BBSetTextMenuTitle", "SUP", "void", [_S("title")]),
+    _x("UpdateCheckerCheckForUpdates", "SUP", "int", [_I("a"), _I("b"), _S("url")]),
+    _x("UpdateCheckerReturnArray", "SUP", "array", [_I("id")]),
+    _x("GetSUPDateCheckerCurrentStage", "SUP", "int"), _x("GetSUPDateCheckerDoneStage", "SUP", "int"),
+    _x("GetPastebinReaderCurrentStage", "SUP", "int"), _x("GetPastebinReaderDoneStage", "SUP", "int"),
+    _x("SUPTest", "SUP", "void"), _x("LunetteCMD", "SUP", "void", [_I("command")]), _x("SUPWRITETOLOG", "SUP", "void", [_S("text")]),
+    _x("DumpTileInfoChilds", "SUP", "void", [_S("tile", True)]),
+    _x("StringContainsOnlyASCII", "SUP", "int", [_S("text")]), _x("IsNewGame", "SUP", "int"),
+    _x("ERDTestFunc", "One111", "void", [_I("value")]),
+    _x("GetFuncCodeByName", "One111", "int", [_S("name")]), _x("GetFuncNameByCode", "One111", "string_var", [_I("code")]),
+    _x("NullArgs", "JohnnyGuitar", "void", [_I("value", True)]), _x("RefAddrxData", "JohnnyGuitar", "int", [_I("type")]),
+    _x("kNVSEReset", "kNVSE", "void"),
+    # ShowOff's `_OLD` commands, answering as the current ones.
+    _x("Matrix_IsMatrix_OLD", _SO, "int", [_A("array")], aliases=["Mat_IsMat_OLD"]),
+    _x("Matrix3x3_GetQuaternion_OLD", _SO, "array", [_A("3x3RotationMatrix")], aliases=["Mat_GetQuat_OLD"]),
+    _x("Quaternion_GetMatrix_OLD", _SO, "array", [_A("quaternion")], aliases=["Quat_GetMat_OLD"]),
+    _x("Matrix_Transpose_OLD", _SO, "array", [_A("matrix")], aliases=["Mat_T_OLD"]),
+    _x("Matrix_Dump_OLD", _SO, "void", [_A("matrix")], aliases=["Mat_Dump_OLD"]),
+    _x("Matrix_ApplyOperationWithScalar_OLD", _SO, "array", [_A("matrix"), _S("operator"), _F("scalar")], aliases=["Mat_ApplyOpWithScal_OLD"]),
+    _x("Matrix_ApplyOperationWithMatrix_OLD", _SO, "array", [_A("matrixA"), _S("operator"), _A("matrixB")], aliases=["Mat_ApplyOpWithMat_OLD"]),
+    _x("ListAddArray_OLD", _SO, "int", [_p("formlist", "form"), _A("array"), _I("index", True)], aliases=["AddArrayToFormList_OLD"]),
+    _x("TopicInfoSetResponseStrings_OLD", _SO, "void", [_p("TopicInfo", "form"), _A("newStrings")]),
+    _x("IsJumping_BROKEN", _SO, "int", ref="reference"),
+    # ShowOff's string maps.
+    _x("AuxStringMapArrayGetSize", _SO, "int", [_S("name")], aliases=["AuxStringMapSize"]),
+    _x("AuxStringMapArrayGetValueType", _SO, "int", [_S("name"), _S("key")], aliases=["AuxStringMapGetValueType"]),
+    _x("AuxStringMapArrayGetFloat", _SO, "float", [_S("name"), _S("key")], aliases=["AuxStringMapGetFlt"]),
+    _x("AuxStringMapArrayGetRef", _SO, "ref", [_S("name"), _S("key")], aliases=["AuxStringMapGetRef"]),
+    _x("AuxStringMapArrayGetString", _SO, "string_var", [_S("name"), _S("key")], aliases=["AuxStringMapGetStr"]),
+    _x("AuxStringMapArrayGetFirst", _SO, "array", [_S("name")], aliases=["AuxStringMapFirst"]),
+    _x("AuxStringMapArrayGetNext", _SO, "array", [_S("name")], aliases=["AuxStringMapNext"]),
+    _x("AuxStringMapArrayGetKeys", _SO, "array", [_S("name")], aliases=["AuxStringMapKeys"]),
+    _x("AuxStringMapArrayGetAll", _SO, "array", [_I("temporary")], aliases=["AuxStringMapGetAll"]),
+    _x("AuxStringMapArrayGetAsArray", _SO, "array", [_S("name")], aliases=["AuxStringMapGetAsArr"]),
+    _x("AuxStringMapArraySetFromArray", _SO, "int", [_S("name"), _A("array"), _I("keep", True)], aliases=["AuxStringMapSetFromArr"]),
+    _x("AuxStringMapArraySetFloat", _SO, "int", [_S("name"), _S("key"), _F("value")], aliases=["AuxStringMapSetFlt"]),
+    _x("AuxStringMapArraySetRef", _SO, "int", [_S("name"), _S("key"), _R("value")], aliases=["AuxStringMapSetRef"]),
+    _x("AuxStringMapArraySetString", _SO, "int", [_S("name"), _S("key"), _S("value")], aliases=["AuxStringMapSetStr"]),
+    _x("AuxStringMapArrayEraseKey", _SO, "int", [_S("name"), _S("key")], aliases=["AuxStringMapEraseKey"]),
+    _x("AuxStringMapArrayValidateValues", _SO, "int", [_S("name")], aliases=["AuxStringMapValidateVals"]),
+    _x("AuxStringMapArrayDestroy", _SO, "int", [_S("name")], aliases=["AuxStringMapDestroy"]),
+]
+
+
+
+# Batch 2 (#2326): SUP's JSON commands, shapes from the compile-shape run, behaviour from
+# sets json1 and json2 (docs/spec-notes/ext-unlisted-rest.md §6).
+_JP = lambda: _S("path")  # noqa: E731
+PAGELESS += [
+    _x("JSONCacheFile", "SUP", "int", [_JP(), _I("flag")]),
+    _x("JSONCacheFileFromString", "SUP", "int", [_S("json"), _S("path")]),
+    _x("JSONIsFileCached", "SUP", "int", [_JP()]),
+    _x("JSONToString", "SUP", "string_var", [_JP()]),
+    _x("JSONCloseFile", "SUP", "int", [_JP(), _I("flag"), _I("extra", True)]),
+    _x("JSONGetValueType", "SUP", "int", [_JP(), _S("key"), _I("cached")]),
+    _x("JSONGetValueArray", "SUP", "array", [_JP(), _S("key"), _I("cached")]),
+    _x("JSONSetValueFloat", "SUP", "int", [_JP(), _S("key"), _F("value"), _I("cached"), _I("extra", True)]),
+    _x("JSONSetValueString", "SUP", "int", [_JP(), _S("key"), _S("value"), _I("cached")]),
+    _x("JSONAppendValueFloat", "SUP", "int", [_JP(), _S("key"), _F("value"), _I("cached"), _I("extra", True)]),
+    _x("JSONAppendValueString", "SUP", "int", [_JP(), _S("key"), _S("value"), _I("cached"), _I("extra", True)]),
+    _x("JSONEraseArrayElement", "SUP", "int", [_JP(), _S("key"), _I("index"), _I("cached")]),
+    _x("JSONClearKey", "SUP", "int", [_JP(), _S("key"), _I("cached")]),
+    _x("JSONEraseKey", "SUP", "int", [_JP(), _S("key"), _I("cached")]),
+]
+
+
+
+# Batch 3 (#2326): kNVSE's animation commands, shapes from the compile-shape run,
+# behaviour from sets knv1-knv3 (docs/spec-notes/ext-unlisted-rest.md §7).
+_KF = lambda: _S("animPath")  # noqa: E731
+_KN = "kNVSE"
+PAGELESS += [
+    _x("GetAnimPathBySequenceType", _KN, "string_var", [_I("sequenceType"), _I("flag", True)], ref="reference", aliases=["GetAnimPathByType"]),
+    _x("GetAnimWeight", _KN, "float", [_KF()], ref="reference"),
+    _x("GetAnimHandType", _KN, "int", [_KF()], ref="reference"),
+    _x("IsAnimAdditive", _KN, "int", [_KF()], ref="reference"),
+    _x("IsAnimQueued", _KN, "int", [_KF()], ref="reference"),
+    _x("GetAnimInterpPriority", _KN, "int", [_KF(), _S("node")], ref="reference"),
+    _x("SetAnimInterpPriority", _KN, "int", [_KF(), _S("node"), _I("priority")], ref="reference"),
+    _x("GetAnimTextKeyTime", _KN, "float", [_KF(), _S("textKey")], ref="reference"),
+    _x("RemoveAnimTextKey", _KN, "int", [_KF(), _I("index")], ref="reference"),
+    _x("CopyAnimPriorities", _KN, "int", [_KF(), _S("fromPath")], ref="reference"),
+    _x("SetAnimCycleType", _KN, "int", [_KF(), _I("cycleType"), _I("flag", True)], ref="reference"),
+    _x("SetAnimDestFrame", _KN, "int", [_KF(), _F("frame"), _I("flag", True)], ref="reference"),
+    _x("SetAnimAdditiveInterpsWeightMult", _KN, "int", [_I("a"), _I("b"), _I("c"), _F("mult"), _I("flag", True)], ref="reference"),
+    _x("QueueNextAnim", _KN, "int", [_KF(), _I("flag", True)], ref="reference"),
+    _x("RegisterCustomAnimGroup", _KN, "int", [_I("group"), _S("name")]),
+    _x("EraseCurrentAnimAction", _KN, "int", ref="reference"),
+    _x("EjectWeapon", _KN, "int", ref="reference"),
+    _x("ThisAnim", _KN, "string_var"),
+    _x("ThisAnimDir", _KN, "string_var"),
+    _x("CreateIdleAnimForm", _KN, "ref", [_KF(), _I("flag", True)]),
+    _x("PlayGroupAlt", _KN, "int", [_S("group"), _I("flag")], ref="reference"),
+    _x("GetDirectoryFiles", _KN, "array", [_S("pattern"), _I("flag", True)]),
+]
+
+
+
+# Batch 4 (#2326): ShowOff, SUP, One111, ITR and JohnnyGuitar's small families; shapes
+# from the compile-shape run (a shape no pattern compiled gets optional numbers),
+# behaviour from set rest4 (docs/spec-notes/ext-unlisted-rest.md §8).
+_ANY = [_p(f"arg{i}", "unknown", None, True) for i in range(1, 7)]
+for _a in _ANY:
+    _a["type"] = None
+_IT, _JG, _O1 = "ITR", "JohnnyGuitar", "One111"
+PAGELESS += [
+    _x("GetActorCoverState", _IT, "int", ref="reference"), _x("GetActorCoverInfo", _IT, "array", ref="reference"),
+    _x("GetCurrentDialogue", _IT, "int"), _x("GetEligiblePerksEx", _IT, "array", [_R("actor"), _I("flag", True)]),
+    _x("SetDismemberedLimbVelocity", _IT, "int", [_I("limb"), _F("x"), _F("y"), _F("z"), _I("a", True), _I("b", True)], ref="reference"),
+    _x("SpawnTempParticle", _IT, "int", [_F(f"v{i}") for i in range(1, 10)]),
+    _x("GetCameraShotPath", _JG, "int", [_p("cameraShot", "form")]),
+    _x("SetCameraShotPath", _JG, "int", [_p("cameraShot", "form"), _S("path")]),
+    _x("GetCasinoDeckTexture", _JG, "string_var", [_p("casino", "form"), _I("deck", True)]),
+    _x("SetCasinoDeckTexture", _JG, "int", [_p("casino", "form"), _I("deck", True), _I("flag", True)]),
+    _x("GetExtraAccuracyPenaltyMult", _JG, "float", [_S("key", True)], ref="reference"),
+    _x("SetExtraAccuracyPenaltyMult", _JG, "int", [_F("mult"), _S("key", True)], ref="reference"),
+    _x("RemoveExtraAccuracyPenaltyMult", _JG, "int", [_S("key", True)], ref="reference"),
+    _x("GetSwitchNodeIndex", _JG, "int", [_S("node"), _I("flag", True)], ref="reference"),
+    _x("SetMusicTypePath", _JG, "int", [_p("musicType", "form"), _S("path")]),
+    _x("SetMediaLocationControllerOverride", _JG, "int", [_p("controller", "form")], aliases=["SetMLCOverride"]),
+    _x("ClearMediaLocationControllerOverride", _JG, "int", aliases=["ClearMLCOverride"]),
+    _x("GetPackedPlayerFOV", _JG, "int", list(_ANY)), _x("JGLegacyWorldToScreen", _JG, "int", list(_ANY)),
+    _x("SetBlockTransform", _JG, "int", list(_ANY)), _x("SetDialogResponseOverrideValues", _JG, "int", list(_ANY)),
+    _x("GetWeapAdditionalFloat", _O1, "float", [_p("weapon", "form"), _I("which")]),
+    _x("SetWeapAdditionalFloat", _O1, "int", [_p("weapon", "form"), _I("which"), _F("value")]),
+    _x("SetWeapAdditionalFlag", _O1, "int", [_p("weapon", "form"), _I("flag"), _I("on")]),
+    _x("SetOnDamageCalcFlag", _O1, "int", [_I("flag")]), _x("AddPerkEntry", _O1, "int", list(_ANY)),
+    _x("IsTemporaryReference", _SO, "int", ref="reference", aliases=["IsTempRefr"]),
+    _x("GetWorldOffsetPosArray", _SO, "array", ref="reference"),
+    _x("GetLevelUpMenuUnspentPoints", _SO, "int", [_I("which")]), _x("SetLevelUpMenuPoints", _SO, "int", [_I("which"), _I("points")]),
+    _x("GetPipboyRadioVoiceEntryData", _SO, "array", [_I("index"), _I("flag", True)]),
+    _x("GetNoEquipShowOff", _SO, "int", [_p("item", "form"), _I("flag")], aliases=["GetNoEquipSO"]),
+    _x("SetNoEquipShowOff", _SO, "int", [_p("item", "form"), _I("noEquip")], aliases=["SetNoEquipSO"]),
+    _x("SayTo_GetSpeakingActor", _SO, "ref"), _x("SayTo_GetQuest", _SO, "ref"),
+    _x("GetLiveEffectBaseTrait", _SO, "float", [_I("trait")]),
+    _x("SetLiveEffectMagnitudeModifier", _SO, "int", [_I("effect"), _F("modifier")]),
+    _x("ShowingOffDisable", _SO, "int", [_I("value", True)], aliases=["DisableIFYouDidntNotice"]),
+    _x("ShowingOffEnable", _SO, "int", [_I("value", True)], aliases=["EnableIFYouDidntNotice"]),
+    _x("MessageExAltShowoff", _SO, "int", [_F("time"), _I("flag")] + [dict(p) for p in _FMT]),
+    _x("BaseCopyFaceGenFrom", _SO, "int", [_p("to", "form"), _p("from", "form")]),
+    _x("SetFactionCombatReactionTemp", _SO, "int", list(_ANY)),
+    _x("CompareNifBlocks", "SUP", "array", [_S("node"), _I("flag")], ref="reference"),
+    _x("GetNifChildrenIDsByName", "SUP", "array", [_S("node")], ref="reference"),
+    _x("GetNifChildrenIDsByID", "SUP", "array", [_I("id"), _I("flag")], ref="reference"),
+    _x("GetNifTypeByID", "SUP", "int", [_I("id"), _I("flag")], ref="reference"),
+    _x("GetNifStringByID", "SUP", "string_var", [_I("id"), _I("flag")], ref="reference"),
+    _x("SUPGetConditionVarFloat", "SUP", "float", [_I("index")]),
+    _x("TopicGetTopicInfoQuest", "SUP", "ref", [_p("info", "form")]),
+    _x("HudBarSetForceHide", "SUP", "int", [_I("bar"), _I("hide"), _S("name")], aliases=["HBSetForceHide"]),
+    _x("HudBarGetPos", "SUP", "int", list(_ANY), aliases=["HBGetPos"]),
+    _x("GetCalculatedPosFrame", "SUP", "int", list(_ANY)), _x("GetNifBlockTranslationToVars", "SUP", "int", list(_ANY)),
+    _x("TopicReplaceTopicInfo", "SUP", "int", list(_ANY)),
+]
+
+
+
+# Batch 5 (#2326): JIP's unlisted commands; shapes from the compile-shape run, behaviour
+# from set rest5 (docs/spec-notes/ext-unlisted-rest.md §9).
+_J = "JIP"
+PAGELESS += [
+    _x("GetRaceAgeRace", _J, "ref", [_p("race", "form"), _I("younger")]), _x("SetRaceAgeRace", _J, "int", [_p("race", "form"), _I("younger"), _p("ageRace", "form")]),
+    _x("GetRaceVoice", _J, "ref", [_p("race", "form"), _I("female")]), _x("SetRaceVoice", _J, "int", [_p("race", "form"), _I("female"), _p("voice", "form")]),
+    _x("GetScriptBlockDisabled", _J, "int", [_p("script", "form"), _I("block")]),
+    _x("SetScriptBlockDisabled", _J, "int", [_p("script", "form"), _I("block"), _I("disable", True)]),
+    _x("GetBodyPartVATSTarget", _J, "string_var", [_p("bodyPartData", "form"), _I("part", True)]),
+    _x("GetObjectiveTeleportLinks", _J, "array", [_p("quest", "form"), _I("objective")]),
+    _x("CalculateShotsPerSec", _J, "float", [_p("weapon", "form")]),
+    _x("GetEquippedArmorRefs", _J, "array", ref="reference"), _x("GetCollisionNodes", _J, "array", ref="reference"),
+    _x("HasActionRef", _J, "int", ref="reference"), _x("IsAttackQueued", _J, "int", ref="reference"),
+    _x("GetQuestTargetsChanged", _J, "int"), _x("GetRecipeMenuNumSubcategories", _J, "int"),
+    _x("RefMapArrayGetValue", _J, "array", [_S("name"), _R("key", True)], aliases=["RefMapGetVal"]),
+    _x("RefMapArraySetValue", _J, "int", [_S("name"), _p("value", "unknown"), _R("key", True)], aliases=["RefMapSetVal"]),
+    _x("GetArrayValue", _J, "unknown", [_A("array"), _I("index")]),
+    _x("SetContainerOpenSound", _J, "int", [_p("sound", "form"), _p("container", "form", None, True)]),
+    _x("SetContainerCloseSound", _J, "int", [_p("sound", "form"), _p("container", "form", None, True)]),
+    _x("SetWaterTrait", _J, "int", [_p("water", "form"), _I("trait"), _F("value")]),
+    _x("SetWindSpeedMult", _J, "int", [_F("mult")]), _x("ToggleDepthClear", _J, "int", [_I("enable")]),
+    _x("ToggleHitEffects", _J, "int", [_I("enable", True)], ref="reference"),
+    _x("ToggleNoMovementCombat", _J, "int", [_I("enable", True)], ref="reference"),
+    _x("ToggleNoZPosReset", _J, "int", [_I("enable")], ref="reference"),
+    _x("ToggleNodeCollision", _J, "int", [_S("node"), _I("enable")], ref="reference"),
+    _x("SuppressQuestMessages", _J, "int"), _x("UnlockRecipeMenuQuantity", _J, "int", [_I("unlock", True)]),
+    _x("SetItemFilter", _J, "int", [_S("filter", True)]), _x("InitItemFilter", _J, "int"),
+    _x("SetTextureTransformKey", _J, "int", [_I("a"), _I("b"), _I("c"), _F("value")], ref="reference", aliases=["SetTexTransKey"]),
+    _x("ClearModelAltTextures", _J, "int", [_p("form", "form")]), _x("InitRockItLauncher", _J, "int", [_p("weapon", "form")]),
+    _x("EnableImprovedRecipeMenu", _J, "int"), _x("SwapObjectLOD", _J, "int", [_p("object", "form"), _I("a"), _I("b")]),
+    _x("ScrollMouseWheel", _J, "int", [_I("delta", True)]), _x("InitMiniMap", _J, "int"),
+    _x("UpdateMiniMap", _J, "int", [_I("a"), _I("b", True)]), _x("ProjectUITile", _J, "int", [_F(f"v{i}") for i in range(1, 7)]),
+    _x("ReloadCharController", _J, "int", ref="reference"), _x("ReloadCloudTextures", _J, "int"), _x("ResetClouds", _J, "int"),
+    _x("ExecuteScript", _J, "int"), _x("ShowLevelUpMenuEx", _J, "int", [_I("mode")]),
+    _x("CCCTaskPackageFlags", _J, "int", list(_ANY)), _x("GetCameraMovement", _J, "string_var", list(_ANY)),
+    _x("GetTranslatedPos", _J, "int", list(_ANY)), _x("GetWorldMapPosMults", _J, "int", list(_ANY)),
+    _x("TransformWorldToLocal", _J, "int", list(_ANY)),
+]
+
+
+# A short command of xNVSE's with no page and no RegisterCommand line, called by a mod's
+# loose script (B42 Interact's ln_B42Interact.txt: `if GPCDEx 2 4 && GPCDEx 2 8 ...`):
+# it compiled in the original and answered as GetPlayerControlsDisabledAltEx does,
+# `disabledHow flags` [observed: #2430 probe 2026-11-14, Blue Moon sandbox: 2 4 gave 0,
+# 1 after DisablePlayerControlsAltEx 4, 0 after EnablePlayerControlsAltEx 4; 2 8 gave 0
+# and 1 4 gave 1 while 4 was disabled].
+PAGELESS += [
+    _x("GPCDEx", "NVSE", "int", [_I("disabledHow", True), _I("flags", True)]),
+]
+
 
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,

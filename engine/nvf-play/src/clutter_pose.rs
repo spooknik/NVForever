@@ -22,24 +22,30 @@
 //! - Nodes without a body keep their place under their parent.
 //!
 //! The collision is posed by the same rule from the same entries, on the physics side
-//! (`nvf_play::phys::prepare`, `fnv_collide::nif::NodeTree`), and held where it lies.
+//! (`crate::phys::prepare`, `fnv_collide::nif::NodeTree`), and held where it lies.
+//!
+//! Both drawing paths pose through [`drawn`] and [`shape_transform`]: render streaming
+//! for references enabled at the start (nvforever `world.rs`) and `crate::script_draw`
+//! for those a script, or a save, enables later (issue #2339: the Wild Wasteland
+//! refrigerator skeleton stood upright, drawn by `script_draw` without its `XRGD`). Kept
+//! here, in the crate both use, so the two cannot drift [design, #2339].
 
-use crate::authored_pose::{self, Bone};
 use bevy::math::{Affine3A, Mat3, Vec3};
+use fnv_esm::LoadOrder;
 use fnv_nif::scene::Decoded;
 use fnv_nif::NifFile;
 use nvf_assets::data::GameData;
-use nvf_assets::model::ModelNode;
+use nvf_assets::model::{ModelNode, PreparedShape};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex};
 
 /// The nodes a file's collision objects hang on, in body order.
-type BodyNodes = Arc<Vec<Option<String>>>;
+pub type BodyNodes = Arc<Vec<Option<String>>>;
 
 /// [`BodyNodes`] by archive path (`None`: no collision).
 static BODIES: LazyLock<Mutex<HashMap<String, Option<BodyNodes>>>> = LazyLock::new(Default::default);
 
-pub use fnv_world::xrgd::{matching, posable, stored};
+pub use fnv_world::xrgd::{matching, posable, stored, Bone};
 
 /// The nodes the collision objects of the file at `path` hang on, in body order. A file
 /// that breaks the reader (a panic, caught) counts as one without collision.
@@ -80,7 +86,8 @@ pub fn pose(nodes: &[ModelNode], bodies: &[Option<String>], bones: &[Bone]) -> R
         let name = body.as_deref().ok_or("a body's node is unnamed")?;
         let i = nodes.iter().position(|n| n.name.as_deref().is_some_and(|m| m.eq_ignore_ascii_case(name))).ok_or("a body's node is not in the model")?;
         let scale = Vec3::new(local[i].matrix3.x_axis.length(), local[i].matrix3.y_axis.length(), local[i].matrix3.z_axis.length());
-        let r: Mat3 = authored_pose::rotation(bone.angles);
+        // The entry's rotation in a reference's convention (row-major, `v' = M v`).
+        let r: Mat3 = Mat3::from_cols_array(&bone.rotation()).transpose();
         local[i] = Affine3A::from_mat3_translation(r * Mat3::from_diagonal(scale), Vec3::from(bone.position));
     }
     // Parents come before their children (`model_nodes`).
@@ -93,6 +100,44 @@ pub fn pose(nodes: &[ModelNode], bodies: &[Option<String>], bones: &[Bone]) -> R
         world.push(parent * local[i]);
     }
     Ok(world)
+}
+
+/// A reference drawn in its stored pose: every node's transform from the model's root
+/// ([`pose`]) and how many bodies were posed.
+#[derive(Debug, Clone)]
+pub struct Posed {
+    pub nodes: Vec<Affine3A>,
+    pub bodies: usize,
+}
+
+/// The pose reference `r` (base type `sig`, model `path` with `nodes`) is drawn in, or
+/// `None` when it is drawn in the file's own pose: not a [`posable`] type, no `XRGD`, a
+/// model without collision, or entries that do not fit (logged once per model,
+/// [`log_refused`]). `bodies` gives the model's body nodes ([`body_nodes`], which reads
+/// the file; asked for only when the reference is posable and has `XRGD`). The one rule
+/// both drawing paths use (module notes).
+pub fn drawn(lo: &LoadOrder, sig: &[u8; 4], r: u32, path: &str, nodes: &[ModelNode], bodies: impl FnOnce() -> Option<BodyNodes>) -> Option<Posed> {
+    if !posable(sig) {
+        return None;
+    }
+    let bones = stored(lo, r)?;
+    let bodies = bodies()?;
+    match pose(nodes, &bodies, &bones) {
+        Ok(nodes) => Some(Posed { nodes, bodies: bodies.len() }),
+        Err(why) => {
+            log_refused(path, why, &bones, &bodies);
+            None
+        }
+    }
+}
+
+/// Where a shape is drawn under the reference: posed, under its node's stored pose
+/// (`p[n] * own`); otherwise, or for a shape on the root, the file's own transform.
+pub fn shape_transform(posed: Option<&Posed>, s: &PreparedShape) -> Affine3A {
+    match (posed, s.node) {
+        (Some(p), Some(n)) => p.nodes.get(n).map_or(s.transform, |t| *t * s.own),
+        _ => s.transform,
+    }
 }
 
 /// Once per model, log why a reference's `XRGD` does not pose it (issue #1400). `why` is

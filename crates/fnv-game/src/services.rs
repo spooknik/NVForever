@@ -119,7 +119,7 @@ impl Game<'_> {
         let Some(b) = crate::functions::base_of(self, actor) else { return 0 };
         let Some((_, ai)) = self.template_source(b, actor, |d| d.template_ai) else { return 0 };
         if ai.autocalc_service {
-            let class = self.traits_def(actor).and_then(|d| d.class);
+            let class = self.traits_class(actor);
             if let Some(s) = class.and_then(|c| self.data.class_services.get(&c)) {
                 return *s;
             }

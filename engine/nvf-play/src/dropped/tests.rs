@@ -347,3 +347,40 @@ fn a_created_marker_or_explosion_draws_nothing_and_items_their_models() {
     assert!(draws_model(&play, FormId(NOTHING), 0));
     assert!(model_path(&play, FormId(NOTHING), 0).is_none());
 }
+
+/// Drawing and add_created's collision path share created_model_path. These
+/// metadata fixtures do not claim to load a NIF or create a collision body.
+#[test]
+fn temporary_scene_models_resolve_overrides_and_inherited_paths_consistently() {
+    use crate::script_draw::tests::{play_over, record, sub, top};
+    use fnv_sim::world::TemporarySceneBase;
+    let string = |sig: &[u8; 4], s: &str| sub(sig, [s.as_bytes(), &[0]].concat());
+    let play = play_over(&[
+        top(b"STAT", &[record(b"STAT", 0, 0xD10, &[string(b"MODL", "owned\\original.nif")]), record(b"STAT", 0, 0xD11, &[string(b"MODL", "owned\\tree.spt")])].concat()),
+        top(b"PROJ", &record(b"PROJ", 0, 0xD20, &[string(b"MODL", "owned\\projectile.nif")])),
+        top(b"MSTT", &record(b"MSTT", 0, 0xD30, &[string(b"MODL", "owned\\movable.nif")])),
+    ]);
+    let mut sim = crate::sim::SimState::new(play.lo, play.schema, play.index);
+    let original = FormId(0xD10);
+    assert_eq!(created_model_path(&play, &sim.world, original, 0).as_deref(), Some(r"meshes\owned\original.nif"));
+    let cases = [
+        // Isolate the reviewed original-SPT/replacement-NIF selector case first.
+        (0xD11, Some("owned/replacement.nif"), Some(r"meshes\owned\replacement.nif"), true),
+        (0xD10, None, Some(r"meshes\owned\original.nif"), true),
+        (0xD10, Some("OWNED/Replacement.NIF"), Some(r"meshes\owned\replacement.nif"), true),
+        (0xD10, Some(""), None, false),
+        (0xD10, Some("owned/tree.spt"), None, false),
+        (0xD10, Some("markers/own.nif"), Some(r"meshes\markers\own.nif"), false),
+        (0xD11, None, None, false),
+        (0xD20, Some("owned/projectile-visual.nif"), Some(r"meshes\owned\projectile-visual.nif"), true),
+        (0xD30, None, Some(r"meshes\owned\movable.nif"), true),
+    ];
+    for (i, (base, path, expected, drawn)) in cases.into_iter().enumerate() {
+        let original = FormId(base);
+        let alias = FormId(0xFF00_F000 + i as u32);
+        let placed = sim.world.place_temporary_scene_base(alias, TemporarySceneBase { original, model_override: path.map(str::to_string) }, None, [0.0; 3], [0.0; 3], 1).unwrap();
+        assert_eq!(sim.world.peek(placed).unwrap().base, alias);
+        assert_eq!(created_model_path(&play, &sim.world, alias, 0).as_deref(), expected);
+        assert_eq!(created_draws_model(&play, &sim.world, alias, 0), drawn);
+    }
+}

@@ -528,7 +528,7 @@ pub(crate) mod tests {
             race_facegen: false, show_disabled: false, pose: crate::actors::ActorPose::Bind,
             pose_time: None, walk_test: None, weapon_mode: crate::weapons::WeaponMode::Holstered,
             weapon_test: None, anims: Default::default(), rolls: Default::default(),
-            changes: Default::default(), levels: Default::default(), faces: Default::default(),
+            changes: Default::default(), levels: Default::default(), faces: Default::default(), face_bases: Default::default(),
         }
     }
 

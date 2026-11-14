@@ -255,7 +255,8 @@ pub fn register(app: &mut App) {
             // (0000017D) and `HelpVATS2`, whose names are "V.A.T.S." and "V.A.T.S. --
             // Advanced" (`fnvtool esm inventory`); #1740, LEGAL.md]; "style" is ours.
             label: "V.A.T.S. style",
-            note: "What the V.A.T.S. key starts. Classic: the world stops, you pick a target and its body parts from their chances to hit, then the queued attacks play. Mark and Fire: time runs very slowly while you mark targets under the crosshair.",
+            note: "What the V.A.T.S. key starts. Classic: the world stops and you pick body parts to hit. Mark and Fire: time runs very slowly while you mark targets.",
+            switches: "",
             get: |_| false,
             set: |_, _| {},
             slider: None,
@@ -276,7 +277,7 @@ pub fn register(app: &mut App) {
             crate::pause::GROUP_MENUS,
             // "V.A.T.S." as the data spells it (MESG `HelpVATS`, as the row above).
             "V.A.T.S. time slowdown",
-            "How far the world slows while you choose targets in the Classic style: 100% stops it, 50% runs it at half speed. Enemies keep attacking at anything less than a full stop.",
+            "How far the world slows while you choose targets in Classic: 100% stops it, 50% runs at half speed. Enemies attack at anything less than a stop.",
             crate::settings::Slider {
                 get: |w| w.resource::<VatsSlowdown>().0,
                 set: |w, v| w.resource_mut::<VatsSlowdown>().0 = v.clamp(SLOWDOWN_MIN, 1.0),

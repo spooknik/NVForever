@@ -1292,6 +1292,7 @@ impl<'a> Game<'a> {
             two_d: false,
             end_ran: def.has(info_flag::RUN_IMMEDIATELY),
             leads_on: false,
+            through: None,
         });
         self.farewell_said = Some((actor, info));
         self.end_dialogue_as(ended::GOODBYE);
@@ -1515,9 +1516,19 @@ impl<'a> Game<'a> {
         let (speaker, Some(listener)) = (said.speaker, said.target) else { return };
         let end = |g: &mut Self, reason: &'static str| g.emit(EventKind::ActorConversationEnded { speaker, target: listener, reason, lines });
         let Some(def) = dv.info(&said.info) else { return end(self, ended::NO_LINKS) };
-        if def.goodbye {
+        // A Goodbye line ends the conversation [documented: Conversation Tab], unless it
+        // links on (Link To, follow-ups): then the conversation goes on [hypothesis from
+        // the data: 19 Conversation lines of FalloutNV.esm carry both, among them Jason
+        // Bright's speech, whose script starts only its first part (SCPT 0008D41A,
+        // JasonBrightSpeech1) and whose Goodbye part 4 links to parts 5 to 9, and
+        // Veronica's exchange with Ramos at Hidden Valley's intercom, whose third line's
+        // end script opens the bunker (INFO 0015B6D3, issue #2451); observer check 139].
+        if def.goodbye && def.choices.is_empty() && def.follow_ups.is_empty() {
             return end(self, ended::GOODBYE);
         }
+        // The two sides as they stand in the world: a speaker that said its line
+        // through a talking activator is that activator (`Speech::through`).
+        let speaker = said.through.unwrap_or(speaker);
         if [speaker, listener].iter().any(|&a| !self.present(a) || self.extra.get(&a).is_some_and(|e| e.dead)) {
             return end(self, ended::ACTOR_GONE);
         }
@@ -1534,16 +1545,25 @@ impl<'a> Game<'a> {
         // but it carries the history on.
         let earlier: Vec<FormId> = said.earlier_topics.iter().copied().chain(std::iter::once(said.topic)).collect();
         for &(who, to) in turns {
-            if let Some(&f) = def.follow_ups.iter().find(|&&f| dv.info(&f).is_some_and(between_actors) && self.can_say(who, Some(to), f)) {
+            let (talker, via) = self.talker(who);
+            self.talking_through = via.map(|t| (talker, t));
+            let follow = def.follow_ups.iter().copied().find(|&f| dv.info(&f).is_some_and(between_actors) && self.can_say(talker, Some(to), f));
+            self.talking_through = None;
+            if let Some(f) = follow {
                 let topic = dv.info(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
-                self.say_line(who, Some(to), topic, f, next);
-                self.set_line_look(who, said.look);
-                if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == who && s.info == f) {
+                self.say_line(talker, Some(to), topic, f, next);
+                self.set_line_look(talker, said.look);
+                if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == talker && s.info == f) {
                     s.earlier_topics = earlier;
+                    s.through = via;
                 }
                 return;
             }
             let mut linked: Vec<(FormId, FormId)> = Vec::new();
+            // A talking activator says the lines of its talking actor (`Game::talker`),
+            // which are chosen with IsActorTalkingThroughActivator 1.
+            let (who, through) = self.talker(who);
+            self.talking_through = through.map(|t| (who, t));
             for link in self.links_after(said.topic, def) {
                 if let Some(i) = self.link_line_where(who, Some(to), link, between_actors, Says::Actor) {
                     let repeats_ok = dv.info(&i).and_then(|d| d.quest).and_then(|q| data.quests.get(&q)).is_some_and(|q| q.repeated_topics());
@@ -1553,6 +1573,7 @@ impl<'a> Game<'a> {
                     linked.push((link.topic, i));
                 }
             }
+            self.talking_through = None;
             let (topic, info) = match linked.len() {
                 0 => continue,
                 1 => linked[0],
@@ -1562,6 +1583,7 @@ impl<'a> Game<'a> {
             self.set_line_look(who, said.look);
             if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == who && s.info == info) {
                 s.earlier_topics = earlier;
+                s.through = through;
             }
             return;
         }

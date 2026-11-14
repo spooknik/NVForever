@@ -112,7 +112,7 @@ impl Game<'_> {
     }
 
     /// Put a reference at a place, as MoveTo does (`functions::refs::move_ref`).
-    fn place_ref(&mut self, r: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> bool {
+    pub(crate) fn place_ref(&mut self, r: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> bool {
         let cell = cell.map(|c| self.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
         let Ok(s) = self.world.get(r) else { return false };
         s.cell = cell;
@@ -340,9 +340,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             });
             match (name, rec) {
                 (_, None) => XVal::Num(-1.0),
-                ("getnthperkentryvalue1", Some(v)) => XVal::Num(f64::from(g.jip2.perk_values.get(&(p, i)).copied().or(v).unwrap_or(0.0))),
+                ("getnthperkentryvalue1", Some(v)) => XVal::Num(f64::from(v.unwrap_or(0.0))),
+                // Into the perk's session copy that the entry points read (the one LU's
+                // perk functions edit, `crate::nvse_lu3`), so the new value takes effect
+                // [documented: SetNthPerkEntryValue1, "sets the value"; Enhanced Movement
+                // sets its sprint speed perk's Modify Run Speed factor so, #2275].
                 _ => {
-                    g.jip2.perk_values.insert((p, i), num(args, 2, 0.0) as f32);
+                    let v = num(args, 2, 0.0) as f32;
+                    if let Some(e) = crate::nvse_lu3::perk_entry_mut(g, p, i as f64) {
+                        if let crate::data::PerkEffect::EntryPoint(ep) = &mut e.effect {
+                            ep.value = Some(v);
+                        }
+                    }
                     zero
                 }
             }
@@ -368,8 +377,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         "getkiller" => XVal::Ref(subject.and_then(|a| g.extra.get(&a)).and_then(|e| e.killer).map_or(0, |k| k.0)),
+        // Without a value the current one is applied again [documented: SetSpeedMult]; the
+        // engine reads Speed Mult every frame, so there is nothing more to do.
         "setspeedmult" => {
             let a = subject.unwrap_or(FormId(0));
+            if args.is_empty() {
+                return Some(Ok(zero));
+            }
             let v = num(args, 0, 100.0);
             if let Err(e) = crate::functions::console::call_words(g, Some(a), "SetActorValue", &["SpeedMult".into(), format!("{v}")], "SetSpeedMult") {
                 return Some(Err(e));

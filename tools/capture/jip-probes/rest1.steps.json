@@ -1,0 +1,477 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "rest1",
+ "title": "rest1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetSize \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.size.none",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArraySetFloat \"*nvfsm\" \"k1\" 5)\nEnd\n",
+   "label": "rest1.sm.setfloat",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArraySetFloat \"*nvfsm\" \"k1\" 6)\nEnd\n",
+   "label": "rest1.sm.setfloat.again",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArraySetString \"*nvfsm\" \"k2\" \"hello\")\nEnd\n",
+   "label": "rest1.sm.setstring",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArraySetRef \"*nvfsm\" \"k3\" rP)\nEnd\n",
+   "label": "rest1.sm.setref",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetSize \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetFloat \"*nvfsm\" \"k1\")\nEnd\n",
+   "label": "rest1.sm.getfloat",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetFloat \"*nvfsm\" \"K1\")\nEnd\n",
+   "label": "rest1.sm.getfloat.case",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetFloat \"*nvfsm\" \"k2\")\nEnd\n",
+   "label": "rest1.sm.getfloat.string",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetFloat \"*nvfsm\" \"nokey\")\nEnd\n",
+   "label": "rest1.sm.getfloat.missing",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetString \"*nvfsm\" \"k2\")\nEnd\n",
+   "label": "rest1.sm.getstring",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetString \"*nvfsm\" \"k1\")\nEnd\n",
+   "label": "rest1.sm.getstring.float",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rP.AuxStringMapArrayGetRef \"*nvfsm\" \"k3\"))\nEnd\n",
+   "label": "rest1.sm.getref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rP.AuxStringMapArrayGetRef \"*nvfsm\" \"k1\"))\nEnd\n",
+   "label": "rest1.sm.getref.float",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetValueType \"*nvfsm\" \"k1\")\nEnd\n",
+   "label": "rest1.sm.type.k1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetValueType \"*nvfsm\" \"k2\")\nEnd\n",
+   "label": "rest1.sm.type.k2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetValueType \"*nvfsm\" \"k3\")\nEnd\n",
+   "label": "rest1.sm.type.k3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetValueType \"*nvfsm\" \"nokey\")\nEnd\n",
+   "label": "rest1.sm.type.nokey",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetValueType \"*nvfnone\" \"k1\")\nEnd\n",
+   "label": "rest1.sm.type.nomap",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetFirst \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.first",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetNext \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.next1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetNext \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.next2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetNext \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.next3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetFirst \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.first.again",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := rP.AuxStringMapArrayGetKeys \"*nvfsm\"\nSetFunctionValue (sv_Join aA \",\")\nEnd\n",
+   "label": "rest1.sm.keys",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := rP.AuxStringMapArrayGetKeys \"*nvfsm\"\nSetFunctionValue (ar_Size aA)\nEnd\n",
+   "label": "rest1.sm.keys.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := rP.AuxStringMapArrayGetAsArray \"*nvfsm\"\nSetFunctionValue (sv_Construct \"%g %g %z %z\" (ar_Size aA) (TypeOf aA) (TypeOf aA[\"k1\"]) (TypeOf aA[\"k2\"]))\nEnd\n",
+   "label": "rest1.sm.asarray",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := rP.AuxStringMapArrayGetAsArray \"*nvfsm\"\nlet fA := aA[\"k1\"]\nlet sText := aA[\"k2\"]\nSetFunctionValue (sv_Construct \"%g %z\" fA sText)\nEnd\n",
+   "label": "rest1.sm.asarray.values",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := rP.AuxStringMapArrayGetAll 0\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))\nEnd\n",
+   "label": "rest1.sm.getall.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := rP.AuxStringMapArrayGetAll 1\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))\nEnd\n",
+   "label": "rest1.sm.getall.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := rP.AuxStringMapArrayGetAll 0\nlet aB := ar_Keys aA\nSetFunctionValue (sv_Join aB \",\")\nEnd\n",
+   "label": "rest1.sm.getall.keys",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_Map \"x\"::1 \"y\"::\"two\"\nlet fA := rP.AuxStringMapArraySetFromArray \"*nvfsm2\" aA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA (rP.AuxStringMapArrayGetSize \"*nvfsm2\") (rP.AuxStringMapArrayGetFloat \"*nvfsm2\" \"x\"))\nEnd\n",
+   "label": "rest1.sm.fromarray",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_Map \"z\"::3\nlet fA := rP.AuxStringMapArraySetFromArray \"*nvfsm2\" aA 1\nSetFunctionValue (sv_Construct \"%g %g\" fA (rP.AuxStringMapArrayGetSize \"*nvfsm2\"))\nEnd\n",
+   "label": "rest1.sm.fromarray.keep",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_Map \"w\"::4\nlet fA := rP.AuxStringMapArraySetFromArray \"*nvfsm2\" aA 0\nSetFunctionValue (sv_Construct \"%g %g\" fA (rP.AuxStringMapArrayGetSize \"*nvfsm2\"))\nEnd\n",
+   "label": "rest1.sm.fromarray.replace",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayValidateValues \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.validate",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayEraseKey \"*nvfsm\" \"k1\")\nEnd\n",
+   "label": "rest1.sm.erase",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayEraseKey \"*nvfsm\" \"k1\")\nEnd\n",
+   "label": "rest1.sm.erase.missing",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetSize \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.size.erased",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rA.AuxStringMapArrayGetSize \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.other.ref",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (AuxStringMapArrayGetSize \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.noref.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (AuxStringMapArraySetFloat \"*nvfsm3\" \"a\" 1)\nEnd\n",
+   "label": "rest1.sm.noref.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (AuxStringMapArrayGetFloat \"*nvfsm3\" \"a\")\nEnd\n",
+   "label": "rest1.sm.noref.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetFloat \"*nvfsm3\" \"a\")\nEnd\n",
+   "label": "rest1.sm.noref.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArraySetFloat \"nvfsm4\" \"a\" 9)\nEnd\n",
+   "label": "rest1.sm.saved.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetFloat \"nvfsm4\" \"a\")\nEnd\n",
+   "label": "rest1.sm.saved.get",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayDestroy \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.destroy",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayDestroy \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.destroy.again",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayGetSize \"*nvfsm\")\nEnd\n",
+   "label": "rest1.sm.size.destroyed",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayDestroy \"nvfsm4\")\nEnd\n",
+   "label": "rest1.sm.destroy.saved",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.AuxStringMapArrayDestroy \"*nvfsm2\")\nEnd\n",
+   "label": "rest1.sm.destroy.2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (AuxStringMapArrayDestroy \"*nvfsm3\")\nEnd\n",
+   "label": "rest1.sm.destroy.3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nSetFunctionValue (Matrix_IsMatrix_OLD aA)\nEnd\n",
+   "label": "rest1.old.ismatrix",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nSetFunctionValue (Matrix_IsMatrix aA)\nEnd\n",
+   "label": "rest1.new.ismatrix",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List 0.7071 0 0 0.7071\nSetFunctionValue (Matrix_IsMatrix_OLD aA)\nEnd\n",
+   "label": "rest1.old.ismatrix.vec",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List 0.7071 0 0 0.7071\nSetFunctionValue (Matrix_IsMatrix aA)\nEnd\n",
+   "label": "rest1.new.ismatrix.vec",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nlet aA := Matrix_Transpose_OLD aA\nlet sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rest1.old.transpose",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nlet aA := Matrix_Transpose aA\nlet sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rest1.new.transpose",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nlet aA := Matrix_ApplyOperationWithScalar_OLD aA \"*\" 2\nlet sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rest1.old.scalar",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nlet aA := Matrix_ApplyOperationWithScalar aA \"*\" 2\nlet sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rest1.new.scalar",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nlet aA := Matrix_ApplyOperationWithMatrix_OLD aA \"+\" aA\nlet sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rest1.old.matrix",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nlet aA := Matrix_ApplyOperationWithMatrix aA \"+\" aA\nlet sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rest1.new.matrix",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 0 0) (ar_List 0 0 -1) (ar_List 0 1 0)\nlet aA := Matrix3x3_GetQuaternion_OLD aA\nSetFunctionValue (sv_Join aA \",\")\nEnd\n",
+   "label": "rest1.old.quat",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 0 0) (ar_List 0 0 -1) (ar_List 0 1 0)\nlet aA := Matrix3x3_GetQuaternion aA\nSetFunctionValue (sv_Join aA \",\")\nEnd\n",
+   "label": "rest1.new.quat",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List 0.7071 0 0 0.7071\nlet aA := Quaternion_GetMatrix_OLD aA\nlet sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rest1.old.quatmat",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List 0.7071 0 0 0.7071\nlet aA := Quaternion_GetMatrix aA\nlet sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\nSetFunctionValue sText\nEnd\n",
+   "label": "rest1.new.quatmat",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nSetFunctionValue (Matrix_Dump_OLD aA)\nEnd\n",
+   "label": "rest1.old.dump",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aA := ar_List (ar_List 1 2) (ar_List 3 4)\nSetFunctionValue (Matrix_Dump aA)\nEnd\n",
+   "label": "rest1.new.dump",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"17BA3B\"\nlet fA := ListGetCount rA\nlet aA := ar_List rP\nlet fB := ListAddArray_OLD rA aA 0\nlet fRes := ListGetCount rA\nListRemoveForm rA rP\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fRes (ListGetCount rA))\nEnd\n",
+   "label": "rest1.old.listadd",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"17BA3B\"\nlet fA := ListGetCount rA\nlet aA := ar_List rP\nlet fB := ListAddArray rA aA 0\nlet fRes := ListGetCount rA\nListRemoveForm rA rP\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fRes (ListGetCount rA))\nEnd\n",
+   "label": "rest1.new.listadd",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsJumping_BROKEN)\nEnd\n",
+   "label": "rest1.old.isjumping",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsJumping)\nEnd\n",
+   "label": "rest1.new.isjumping",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (StringContainsOnlyASCII \"Hello 123 !?\")\nEnd\n",
+   "label": "rest1.ascii.plain",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (StringContainsOnlyASCII \"\")\nEnd\n",
+   "label": "rest1.ascii.empty",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (StringContainsOnlyASCII \"caf\u00e9\")\nEnd\n",
+   "label": "rest1.ascii.high",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFuncCodeByName \"GetAV\")\nEnd\n",
+   "label": "rest1.funccode.getav",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFuncCodeByName \"GetActorValue\")\nEnd\n",
+   "label": "rest1.funccode.getactorvalue",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFuncCodeByName \"getactorvalue\")\nEnd\n",
+   "label": "rest1.funccode.case",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFuncCodeByName \"AttachLight\")\nEnd\n",
+   "label": "rest1.funccode.jip",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFuncCodeByName \"NoSuchCommand\")\nEnd\n",
+   "label": "rest1.funccode.none",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFuncNameByCode 4110)\nEnd\n",
+   "label": "rest1.funcname.100e",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFuncNameByCode 10361)\nEnd\n",
+   "label": "rest1.funcname.2879",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFuncNameByCode 1)\nEnd\n",
+   "label": "rest1.funcname.none",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFuncNameByCode 65000)\nEnd\n",
+   "label": "rest1.funcname.big",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (IsNewGame)\nEnd\n",
+   "label": "rest1.isnewgame",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (NullArgs)\nEnd\n",
+   "label": "rest1.nullargs",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (NullArgs 1)\nEnd\n",
+   "label": "rest1.nullargs.1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\narray_var aB\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (SUPWRITETOLOG \"nvf probe line\")\nEnd\n",
+   "label": "rest1.writetolog",
+   "field": "value"
+  }
+ ]
+}

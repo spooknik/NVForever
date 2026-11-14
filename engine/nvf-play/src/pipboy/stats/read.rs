@@ -8,6 +8,7 @@ use crate::sim::SimState;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_game::actor_values::{self as av, SKILLS, SPECIALS};
 use fnv_game::functions as gf;
+use fnv_game::game::ActiveEffect;
 use fnv_sim::FormId;
 use fnv_world::fields::{formid_of, global, winner, Fields};
 use std::collections::HashMap;
@@ -195,8 +196,6 @@ const PLAYER_BASE: FormId = FormId(7);
 /// left out ("--").
 pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut ScriptState>) -> Snapshot {
     let mut s = Snapshot { name: sim.name(PLAYER_BASE).unwrap_or("").to_string(), limbs: [1.0; 6], ..Snapshot::default() };
-    let (effects, temporary) = worn(forms, sim);
-    s.effects = effects;
     // The hints' counts.
     let mut texts: [String; 4] = Default::default();
     let mut counts = [0; 4];
@@ -248,8 +247,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         let p = FormId::PLAYER_REF;
-        let t = &temporary;
-        let value = |g: &mut fnv_game::Game<'static>, code: u16| shown_and_permanent(g, t, code);
+        let value = shown_and_permanent;
         let level = g.player_level();
         s.level = Some(level as i64);
         // The statistics' counters (`fnv_game::misc_stats`), by name.
@@ -324,6 +322,28 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             s.karma_title = Some(model::karma_title(level as i64, word, setting));
             s.karma_setting_title = model::karma_title_setting(level as i64, word, setting);
         }
+        // Worn apparel's enchantments taking effect now, as the game holds them: one
+        // line per worn item, its Value Modifier effects (`Forms::effect`) at the amounts
+        // the game applied [hypothesis: the line is named by the enchantment, else the
+        // item]. Inactive and dispelled effects are left out (#2495).
+        for ((item, ench), effects) in worn_effects(g) {
+            let changes: Vec<Change> = effects
+                .iter()
+                .filter_map(|x| {
+                    let c = x.change?;
+                    let (modifier, detrimental) = forms.effect(x.effect.0);
+                    modifier.then(|| Change { value: short(forms, c.code), amount: c.amount.abs(), detrimental })
+                })
+                .collect();
+            if changes.is_empty() {
+                continue;
+            }
+            let mut name = forms.text(ench.0).name.clone();
+            if name.is_empty() {
+                name = forms.text(item.0).name.clone();
+            }
+            s.effects.push(EffectLine { name, text: model::changes_text(&changes) });
+        }
         // Aid items taking effect now (ALCH sources of active effects), after the worn
         // apparel [hypothesis: the order]. An effect whose conditions fail (a Stimpak's
         // Hardcore heal outside Hardcore) is held inactive and changes nothing: not
@@ -356,11 +376,6 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     s
 }
 
-/// An actor value of the player: what the page shows (base, permanent modifier and
-/// worn apparel's changes, less damage) and its permanent value (base and permanent
-/// modifier) [design: worn enchantments do not change the game's actor values yet
-/// (`fnv_game::functions::actor`, the temporary modifier); the page adds them so that
-/// it reads as the original's].
 /// The player's health (current and whole, as the heading), limb conditions (0 to 1, as
 /// the CND bars) and whether Hardcore mode is on: what the CND page's hints are judged
 /// by; `None` without the scripts' game.
@@ -369,10 +384,10 @@ pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option
     Some(crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, av::HEALTH);
-        let hp = shown_and_permanent(g, &[], av::HEALTH).map_or((0.0, 0.0), |(v, max)| (v, max + t));
+        let hp = shown_and_permanent(g, av::HEALTH).map_or((0.0, 0.0), |(v, max)| (v, max + t));
         let mut limbs = [1.0; 6];
         for (i, &code) in LIMBS.iter().enumerate() {
-            if let Some((v, max)) = shown_and_permanent(g, &[], code).filter(|v| v.1 > 0.0) {
+            if let Some((v, max)) = shown_and_permanent(g, code).filter(|v| v.1 > 0.0) {
                 limbs[i] = (v / max).clamp(0.0, 1.0);
             }
         }
@@ -385,41 +400,43 @@ pub fn hint_item(sim: &SimState, hint: usize) -> Option<FormId> {
     HINT_ITEMS.get(hint).and_then(|e| sim.forms.by_edid(e))
 }
 
-fn shown_and_permanent(g: &mut fnv_game::Game<'static>, temporary: &[(u16, f64, bool)], code: u16) -> Option<(f64, f64)> {
+/// An actor value of the player: what the page shows (base, permanent and temporary
+/// modifiers, less damage) and its permanent value (base and permanent modifier). The
+/// temporary modifier already holds the worn apparel's enchantments, active effects
+/// since #377 (`fnv_game::abilities` `sync_worn`) [documented: GECK wiki ActorValue,
+/// armour's object effects "all of them target the temporary pool"], and the aid
+/// items'; the page adds nothing of its own (#2495).
+fn shown_and_permanent(g: &mut fnv_game::Game<'_>, code: u16) -> Option<(f64, f64)> {
     let [b, m, d] = gf::actor_value_parts(g, FormId::PLAYER_REF, code).ok()?;
-    // Active effects' temporary modifier (aid items) is the game's own; worn apparel's
-    // is added here.
     let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, code);
-    Some((b + m + t - d + model::added(temporary, code), b + m))
+    Some((b + m + t - d, b + m))
 }
 
-/// What is worn: the enchantments of the player's equipped apparel, as the EFF list's
-/// lines and as the changes they make.
-fn worn(forms: &mut Forms, sim: &SimState) -> (Vec<EffectLine>, Vec<(u16, f64, bool)>) {
-    let worn: Vec<FormId> = sim.world.peek(FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
-    let (mut lines, mut temporary) = (Vec::new(), Vec::new());
-    for item in worn {
-        if sim.forms.sig(item) != Some(*b"ARMO") {
-            continue;
+/// The worn apparel's enchantments taking effect on the player now, as the game holds
+/// them: each (worn item, enchantment) with its active effects, in the game's order. An
+/// effect whose conditions fail is held inactive and changes nothing, and a dispelled one
+/// is gone: neither is here (#2495).
+fn worn_effects<'g>(g: &'g fnv_game::Game<'_>) -> Vec<((FormId, FormId), Vec<&'g ActiveEffect>)> {
+    let mut out: Vec<((FormId, FormId), Vec<&ActiveEffect>)> = Vec::new();
+    for e in g.effects.iter().filter(|e| e.target == FormId::PLAYER_REF && !e.inactive) {
+        let Some(item) = e.worn else { continue };
+        let key = (item, e.source);
+        match out.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, v)) => v.push(e),
+            None => out.push((key, vec![e])),
         }
-        let Some(e) = forms.item_ench(item.0).map(|e| forms.ench(e)).filter(|e| e.apparel && !e.changes.is_empty()) else { continue };
-        let changes: Vec<Change> = e.changes.iter().map(|&(code, amount, detrimental)| Change { value: short(forms, code), amount, detrimental }).collect();
-        let name = if e.name.is_empty() { sim.name(item).unwrap_or("").to_string() } else { e.name.clone() };
-        lines.push(EffectLine { name, text: model::changes_text(&changes) });
-        temporary.extend(e.changes);
     }
-    (lines, temporary)
+    out
 }
 
 /// The player's health out of its whole, as the STATS page's HP card reads it
 /// ([`snapshot`]); `None` without the scripts' game. For the ITEMS page's HP card.
-pub fn player_hp(forms: &mut Forms, sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<(f64, f64)> {
+pub fn player_hp(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<(f64, f64)> {
     let rt = script.and_then(|s| s.rt.as_mut())?;
-    let (_, temporary) = worn(forms, sim);
     crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, av::HEALTH);
-        shown_and_permanent(g, &temporary, av::HEALTH).map(|(v, max)| (v, max + t))
+        shown_and_permanent(g, av::HEALTH).map(|(v, max)| (v, max + t))
     })
 }
 
@@ -448,3 +465,7 @@ impl Forms {
         f.decode(s)?.get("actor_value")?.as_str().and_then(gf::av_by_name)
     }
 }
+
+#[cfg(test)]
+#[path = "read_tests.rs"]
+mod tests;

@@ -31,9 +31,10 @@ What exists already and is reused, not rewritten:
   (§3.2), "Delete my reports" (§6), `[Log]` levels and folded repeats
   (§4.1), the structured events file (§4.1, local only, not sent), the flight recorder
   (§4.2, log events only), the world snapshot (§4.3) and the anomaly detectors in
-  `anomaly.rs` (§4.4).
+  `anomaly.rs` (§4.4), and the hand report form (§3.3, #2151).
 - Not yet:
-  - the hand report form (§3.3);
+  - the settings page's "Open reports folder" button and last-sent line (§1 point 3, §2.2:
+    the Reports rows are only Send reports and Delete my reports);
   - the summary's count of loose files in Data (§3.1; it needs the server's schema first);
   - breadcrumbs the log does not already carry (§4.2);
   - the AI's procedure and the most expensive scripts in the snapshot (§4.3);
@@ -72,7 +73,7 @@ menu, on a player's start only (not with `--data`, `NVFOREVER_DATA`, a test aid 
 > NVForever can send a report after each session: the build, your PC's hardware and
 > settings, your mod list, how it ran, the game's log and any problems it noticed.
 > No personal details, no saves.
-> You can change this at any time in Settings → General → Reports.
+> You can change this at any time in Settings → Gameplay → Reports.
 >
 > [ Send reports ]  [ Not now ]   *What is sent?* (opens §3 in the browser)
 
@@ -95,8 +96,9 @@ Endpoint=           ; empty = the project's server; set for a self-hosted one
 
 - `InstallId` is random, made at opt-in, not derived from hardware or account. Turning
   reports off and on again makes a new one (the old one is unlinked).
-- Settings → General → Reports: a toggle (Send reports), "Open reports folder",
-  "Delete my reports" (§6), last sent time. The hand report (§3.3) is opened from the
+- Settings → Gameplay → Reports (`engine/nvf-play/src/settings_layout.rs`): a toggle
+  (Send reports) and "Delete my reports" (§6); "Open reports folder" and the last sent
+  time are designed but not built. The hand report (§3.3) is opened from the
   pause menu's "Report a bug", not from Settings.
 - `NVF_REPORTS=0` forces off for any run (developers, CI, the smoke tests set it).
 

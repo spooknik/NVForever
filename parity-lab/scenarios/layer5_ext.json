@@ -1460,6 +1460,492 @@
    "tags": ["ext", "jip", "probes", "jip14"]
   },
   {
+   "id": "L5.ext.rest1",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest, batch 1 (#2326; docs/spec-notes/ext-unlisted-rest.md): ShowOff's string maps, the _OLD commands against the current ones, StringContainsOnlyASCII, GetFuncCodeByName, GetFuncNameByCode, IsNewGame, NullArgs, SUPWRITETOLOG; set rest1 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game (xNVSE 6.4.9, JIP LN 57.30).",
+   "oracle": {"golden": "jip/rest1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest1.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest1"]
+  },
+  {
+   "id": "L5.ext.json1",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): SUP's JSON commands on a file of its own: caching, value types by key and path, arrays, the setters and erasers with and without the cache flag, JSONCacheFileFromString, JSONCloseFile (§6); set json1 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Reads nvfprobe.json in the game folder (and, json1, Data\\nvfprobe.json and Data\\nvfprobe2.json; json2, nvfprobe3.json), written just before the run with the contents in unlisted_rest_probes.JSON1_FILE / JSON2_FILE; the candidate needs the same files. The original stopped after 37 of its 52 rows; the golden holds those. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/json1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/json1.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "json1"]
+  },
+  {
+   "id": "L5.ext.json2",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): SUP's JSON commands, round 2: paths with slashes, arrays' element types, the cache flag's writes, a file not cached (§6); set json2 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Reads nvfprobe.json in the game folder (and, json1, Data\\nvfprobe.json and Data\\nvfprobe2.json; json2, nvfprobe3.json), written just before the run with the contents in unlisted_rest_probes.JSON1_FILE / JSON2_FILE; the candidate needs the same files. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/json2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/json2.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "json2"]
+  },
+  {
+   "id": "L5.ext.json2r0",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of json2's risky rows in a launch of its own: the file cached, the row, then the file and the cache read again (§6); set json2r0 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Reads nvfprobe.json in the game folder (and, json1, Data\\nvfprobe.json and Data\\nvfprobe2.json; json2, nvfprobe3.json), written just before the run with the contents in unlisted_rest_probes.JSON1_FILE / JSON2_FILE; the candidate needs the same files. The original stopped after 1 of its 4 rows; the golden holds those. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/json2r0.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/json2r0.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "json2r0"]
+  },
+  {
+   "id": "L5.ext.json2r1",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of json2's risky rows in a launch of its own: the file cached, the row, then the file and the cache read again (§6); set json2r1 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Reads nvfprobe.json in the game folder (and, json1, Data\\nvfprobe.json and Data\\nvfprobe2.json; json2, nvfprobe3.json), written just before the run with the contents in unlisted_rest_probes.JSON1_FILE / JSON2_FILE; the candidate needs the same files. The original stopped after 1 of its 4 rows; the golden holds those. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/json2r1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/json2r1.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "json2r1"]
+  },
+  {
+   "id": "L5.ext.json2r2",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of json2's risky rows in a launch of its own: the file cached, the row, then the file and the cache read again (§6); set json2r2 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Reads nvfprobe.json in the game folder (and, json1, Data\\nvfprobe.json and Data\\nvfprobe2.json; json2, nvfprobe3.json), written just before the run with the contents in unlisted_rest_probes.JSON1_FILE / JSON2_FILE; the candidate needs the same files. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/json2r2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/json2r2.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "json2r2"]
+  },
+  {
+   "id": "L5.ext.json2r3",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of json2's risky rows in a launch of its own: the file cached, the row, then the file and the cache read again (§6); set json2r3 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Reads nvfprobe.json in the game folder (and, json1, Data\\nvfprobe.json and Data\\nvfprobe2.json; json2, nvfprobe3.json), written just before the run with the contents in unlisted_rest_probes.JSON1_FILE / JSON2_FILE; the candidate needs the same files. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/json2r3.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/json2r3.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "json2r3"]
+  },
+  {
+   "id": "L5.ext.json2r4",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of json2's risky rows in a launch of its own: the file cached, the row, then the file and the cache read again (§6); set json2r4 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Reads nvfprobe.json in the game folder (and, json1, Data\\nvfprobe.json and Data\\nvfprobe2.json; json2, nvfprobe3.json), written just before the run with the contents in unlisted_rest_probes.JSON1_FILE / JSON2_FILE; the candidate needs the same files. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/json2r4.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/json2r4.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "json2r4"]
+  },
+  {
+   "id": "L5.ext.json2r5",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of json2's risky rows in a launch of its own: the file cached, the row, then the file and the cache read again (§6); set json2r5 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Reads nvfprobe.json in the game folder (and, json1, Data\\nvfprobe.json and Data\\nvfprobe2.json; json2, nvfprobe3.json), written just before the run with the contents in unlisted_rest_probes.JSON1_FILE / JSON2_FILE; the candidate needs the same files. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/json2r5.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/json2r5.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "json2r5"]
+  },
+  {
+   "id": "L5.ext.knv1",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): kNVSE's unlisted animation commands on a placed Doc Mitchell and the player: ThisAnim, GetAnimPathBySequenceType, the sequence getters by path, GetDirectoryFiles, the setters' answers (§7); set knv1 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. The original stopped after 60 of its 64 rows; the golden holds those. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/knv1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/knv1.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "knv1"]
+  },
+  {
+   "id": "L5.ext.knv2",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): kNVSE's unlisted animation commands, round 2, the paths written with single backslashes (§7); set knv2 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/knv2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/knv2.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "knv2"]
+  },
+  {
+   "id": "L5.ext.knv2r2",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of knv2's risky rows (CreateIdleAnimForm, EraseCurrentAnimAction) in a launch of its own (§7); set knv2r2 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/knv2r2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/knv2r2.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "knv2r2"]
+  },
+  {
+   "id": "L5.ext.knv3",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): kNVSE, round 3: GetDirectoryFiles with patterns, the getters with the path the game itself gives, PlayGroupAlt (§7); set knv3 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/knv3.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/knv3.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "knv3"]
+  },
+  {
+   "id": "L5.ext.rest4",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): the small families' unlisted commands: ITR, JohnnyGuitar, One111, ShowOff and SUP getters and setters' answers on a placed Doc Mitchell (§8); set rest4 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest4.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest4.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest4"]
+  },
+  {
+   "id": "L5.ext.rest4r0",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest4's setters that change the world in a launch of its own, after placing Doc Mitchell (§8); set rest4r0 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest4r0.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest4r0.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest4r0"]
+  },
+  {
+   "id": "L5.ext.rest4r1",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest4's setters that change the world in a launch of its own, after placing Doc Mitchell (§8); set rest4r1 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest4r1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest4r1.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest4r1"]
+  },
+  {
+   "id": "L5.ext.rest4r2",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest4's setters that change the world in a launch of its own, after placing Doc Mitchell (§8); set rest4r2 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest4r2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest4r2.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest4r2"]
+  },
+  {
+   "id": "L5.ext.rest4r3",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest4's setters that change the world in a launch of its own, after placing Doc Mitchell (§8); set rest4r3 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest4r3.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest4r3.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest4r3"]
+  },
+  {
+   "id": "L5.ext.rest4r4",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest4's setters that change the world in a launch of its own, after placing Doc Mitchell (§8); set rest4r4 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest4r4.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest4r4.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest4r4"]
+  },
+  {
+   "id": "L5.ext.rest4r5",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest4's setters that change the world in a launch of its own, after placing Doc Mitchell (§8); set rest4r5 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest4r5.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest4r5.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest4r5"]
+  },
+  {
+   "id": "L5.ext.rest5",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): JIP LN's unlisted commands: race and script getters, ref maps, container sounds set and put back, the toggles' answers (§9); set rest5 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5"]
+  },
+  {
+   "id": "L5.ext.rest5r00",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r00 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r00.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r00.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r00"]
+  },
+  {
+   "id": "L5.ext.rest5r01",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r01 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r01.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r01.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r01"]
+  },
+  {
+   "id": "L5.ext.rest5r02",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r02 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r02.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r02.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r02"]
+  },
+  {
+   "id": "L5.ext.rest5r03",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r03 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r03.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r03.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r03"]
+  },
+  {
+   "id": "L5.ext.rest5r04",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r04 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r04.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r04.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r04"]
+  },
+  {
+   "id": "L5.ext.rest5r05",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r05 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r05.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r05.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r05"]
+  },
+  {
+   "id": "L5.ext.rest5r06",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r06 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r06.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r06.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r06"]
+  },
+  {
+   "id": "L5.ext.rest5r07",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r07 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r07.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r07.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r07"]
+  },
+  {
+   "id": "L5.ext.rest5r08",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r08 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r08.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r08.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r08"]
+  },
+  {
+   "id": "L5.ext.rest5r09",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r09 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r09.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r09.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r09"]
+  },
+  {
+   "id": "L5.ext.rest5r10",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r10 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r10.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r10.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r10"]
+  },
+  {
+   "id": "L5.ext.rest5r11",
+   "layer": 5,
+   "description": "the registered commands with no wiki page, the rest (#2326; docs/spec-notes/ext-unlisted-rest.md): one of rest5's risky rows in a launch of its own, after placing Doc Mitchell (§9); set rest5r11 of tools/capture/jip_probes.py (rows in tools/capture/unlisted_rest_probes.py), keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game on 2026-11-13 (xNVSE 6.4.9, JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203).",
+   "oracle": {"golden": "jip/rest5r11.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/rest5r11.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "rest5r11"]
+  },
+  {
+   "id": "L5.ext.cmd1",
+   "layer": 5,
+   "description": "unlisted JIP LN commands, round 1 (#2318; docs/spec-notes/ext-unlisted-commands.md): GetCenterPos, CCCGetDistance, CCCInFaction, CCCLocationName, RefToPosStr, MoveToPosStr, container sounds, GetConditionDamagePenalty, teammate ammo, LockEquipment, the switches, CCCSavedForm, CCCGetReputation, GetHitNode, ListToArray, AttachLight/RemoveLight, RefreshAnimData, MoveAwayFromPlayer and KillActorAlt on a placed Doc Mitchell and a footlocker; set cmd1 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game (xNVSE 6.4.9, JIP LN 57.30).",
+   "oracle": {"golden": "jip/cmd1.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/cmd1.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "cmd1"]
+  },
+  {
+   "id": "L5.ext.cmd2",
+   "layer": 5,
+   "description": "unlisted JIP LN commands, round 2 (#2318): CCCGetDistance between two still crates, CCCInFaction against the base's factions, reputations, exterior location names and position strings, MoveToPosStr, container sounds set, ListToArray on a real list, the light's node, the CCC setters' answers; set cmd2 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game (xNVSE 6.4.9, JIP LN 57.30).",
+   "oracle": {"golden": "jip/cmd2.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/cmd2.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "cmd2"]
+  },
+  {
+   "id": "L5.ext.cmd3",
+   "layer": 5,
+   "description": "unlisted JIP LN commands, round 3 (#2318): MoveAwayFromPlayer over a few seconds, location names out in the wasteland, MoveToPosStr refusals, GetConditionDamagePenalty at each difficulty; set cmd3 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game (xNVSE 6.4.9, JIP LN 57.30).",
+   "oracle": {"golden": "jip/cmd3.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/cmd3.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "cmd3"]
+  },
+  {
+   "id": "L5.ext.cmd4",
+   "layer": 5,
+   "description": "unlisted JIP LN commands, round 4 (#2318): LockEquipment against EquipItem and UnequipItem with frames between, RefToPosStr against GetPos in one frame, MoveToPosStr's whole numbers; set cmd4 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`), recorded in the Blue Moon sandbox's stock game (xNVSE 6.4.9, JIP LN 57.30).",
+   "oracle": {"golden": "jip/cmd4.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/cmd4.steps.json", "--save", "{save_path}", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "cmd4"]
+  },
+  {
    "id": "L5.ext.jg10",
    "layer": 5,
    "description": "JohnnyGuitar batch 10 (#1007; docs/spec-notes/ext-jg10.md): navmesh triangles at and far from the player in Doc Mitchell's house, the land texture underfoot indoors, Doc Mitchell's FaceGen values by type and one set and put back, the return values of the highlight, obstacle, refresh and muzzle light calls, RemoveScopeModelPath on the 10mm pistol, RemapLand's reset; set jg10 of tools/capture/jip_probes.py, keyed by probe id, steps in order; puts back what it changes. Not probed yet. Oracle and candidate as L5.ext.jip.getters. Both start from the owner's save the golden was recorded in (nvfairport, `--save {save_path}`, a documented input like the load order; owner-review.md, #1023).",

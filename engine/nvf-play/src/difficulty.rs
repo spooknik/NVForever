@@ -34,7 +34,7 @@ impl Plugin for DifficultyPlugin {
                 "difficulty",
                 crate::pause::GROUP_MENUS,
                 "Difficulty",
-                "How hard the fights are: from Very Easy (the player's hits do double damage and the player takes half) to Very Hard (half and double); Normal as they are. (console: SetGameDifficulty 0-4)",
+                "How hard the fights are: from Very Easy (your hits do double damage, you take half) to Very Hard (half and double); Normal as they are.",
                 Slider::choice(LEVELS.len(), |_| choice_part(level().code(), LEVELS.len()), |_, v| set_level(LEVELS[choice_index(v, LEVELS.len())]), |v| LEVELS[choice_index(v, LEVELS.len())].name().to_string()),
             ),
         );

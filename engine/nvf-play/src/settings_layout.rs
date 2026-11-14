@@ -282,7 +282,7 @@ mod tests {
     use crate::settings::Settings;
 
     fn row(key: &'static str, group: &'static str) -> Setting {
-        Setting { key, group, label: key, note: "", get: |_| false, set: |_, _| {}, slider: None }
+        Setting { key, group, label: key, note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None }
     }
 
     /// The registry as `Settings::add` orders it.

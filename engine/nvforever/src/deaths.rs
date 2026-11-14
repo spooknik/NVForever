@@ -13,7 +13,8 @@
 //! ground under it is not loaded, or it was dead when drawn), and for skeletons without a
 //! ragdoll, the earlier presentation holds: the death pose (played once, or straight at
 //! its end for an actor that is dead when it is drawn); without a death pose the pose
-//! freezes and the body is laid on its back about its feet [design].
+//! freezes and the body is laid on its back about its feet [design]. A corpse whose
+//! ragdoll then fails to build is shown the same way (`ragdoll::unbuilt`, #2347).
 //!
 //! A corpse laid out by a new game (`Game::starts_dead`) whose reference stores the pose
 //! its designer left it in (`XRGD`, `authored_pose.rs`) is put in that pose at rest
@@ -39,7 +40,19 @@ impl Plugin for DeathsPlugin {
 }
 
 /// Seconds that count as "the end" of any death pose (it is clamped to the clip).
-const END: f32 = 1.0e6;
+pub(crate) const END: f32 = 1.0e6;
+
+/// The death pose of an actor shown dead without a ragdoll, if its clips have one; it
+/// varies by reference [design].
+pub(crate) fn death_clip(lo: Option<&Locomotion>, form_id: u32) -> Option<std::sync::Arc<nvf_assets::anim_play::BoundClip>> {
+    lo.filter(|lo| !lo.set.death.is_empty()).map(|lo| lo.set.death[(form_id as usize) % lo.set.death.len()].clone())
+}
+
+/// An actor shown dead without a ragdoll or a death pose: its body is laid on its back
+/// about its feet [design].
+pub(crate) fn lay_on_back(t: &mut Transform) {
+    t.rotate_local_x(-std::f32::consts::FRAC_PI_2);
+}
 
 /// What [`show_hits_and_deaths`] reads of an actor that is not yet shown dead.
 type Living = (
@@ -86,9 +99,9 @@ fn show_hits_and_deaths(
             // Killed in sight on loaded ground: the ragdoll takes the pose as it is.
             let falls = died_now && corpse.is_some() && phys.as_deref().is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
             // The death pose varies by reference [design].
-            let clip = lo.filter(|lo| !falls && !lo.set.death.is_empty()).map(|lo| lo.set.death[(r.0 as usize) % lo.set.death.len()].clone());
+            let clip = death_clip(lo.filter(|_| !falls), r.0);
             if clip.is_none() && !falls {
-                t.rotate_local_x(-std::f32::consts::FRAC_PI_2);
+                lay_on_back(&mut t);
             }
             // Laid out by a new game, with the pose its designer left it in: at rest in it.
             if let (false, Some(c), Some(w)) = (died_now, corpse.as_ref(), world.as_deref()) {
@@ -98,7 +111,10 @@ fn show_hits_and_deaths(
             let mut ec = commands.entity(e);
             ec.insert(Dying { clip, t: start });
             ec.remove::<Flinch>();
-            if let Some(c) = corpse {
+            if let Some(mut c) = corpse {
+                // Not falling, it is shown dead without its ragdoll already: a build that
+                // fails later leaves it so (`ragdoll::unbuilt`).
+                c.laid_out = !falls;
                 ec.insert(c);
             }
         } else if let Some(lo) = lo {

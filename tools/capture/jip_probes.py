@@ -5,6 +5,7 @@
   jip_probes.py collect OUT.jsonl [--set S] [-o golden]  capture output -> fnv.ext.probes/1
   jip_probes.py compare GOLDEN.json                the golden against the expectations here
   jip_probes.py steps [--dir DIR]                  every set's job into tools/capture/jip-probes/
+  jip_probes.py shapes [--dir DIR]                 the #2326 argument-shape run (shp00.steps.json, ...)
 
 Each probe is a function script that nvf_capture compiles inside the running game and
 whose result it records (docs/spec-notes/xnvse-capture.md §4–§5): JIP is loaded in the
@@ -8831,6 +8832,519 @@ SETS.update({"jip14": JIP14_PROBES})  # JIP batch 14 (#1006)
 WRITING_SETS |= {"jip14"}
 
 
+
+# cmd1 (writes: a Doc Mitchell and a footlocker placed beside the player, a light on
+# Doc's head, Doc killed at the end; #2275 follow-up): commands the installed JIP LN
+# 57.30 registers (nvse.log) that have no wiki page and that Blue Moon's and High and
+# Dry's mods call (docs/spec-notes/ext-unlisted-commands.md). The questions: what each
+# returns, what each changes that a script can read back.
+CMD = {"doc": "104C0C", "player": "14", "pistol10": "434F", "fire420": "4477", "footlocker": "9874E",
+       "ncr": "A46E7", "goodsprings": "104C6E", "playerfac": "1B2A4", "teammate": "46312",
+       "greeting": "C8", "letsgo": "37082", "capslist": "645D5", "repncr": "F43DE", "docref": "104C0F"}
+_CMDH = ("ref rP\nref rA\nref rC\nref rObj\nfloat fA\nfloat fB\nfloat fC\nstring_var sText\narray_var aA\n"
+         "Begin Function { }\n" + _form("rP", CMD["player"]))
+_CA = 'let rA := rP.AuxVarGetRef "*nvfCA"\n'
+_CC = 'let rC := rP.AuxVarGetRef "*nvfCC"\n'
+
+
+def _c1(pid, body, text=False):
+    return (f"cmd1.{pid}", _CMDH + body, text, None, "")
+
+
+def _c1v(pid, expr, text=False, pre=_CA):
+    return _c1(pid, pre + f"SetFunctionValue ({expr})", text)
+
+
+def _c1id(pid, expr, pre=_CA):
+    return _c1(pid, pre + f"let rObj := {expr}\nSetFunctionValue (GetFormIDString rObj)", True)
+
+
+def _c1f(pid, key):
+    return _CA + _form("rObj", CMD[key])
+
+
+_C3 = 'SetFunctionValue (sv_Construct "%.1f %.1f %.1f" fA fB fC)'
+
+
+def _c1pos(pid, var, pre):
+    return _c1(pid, pre + f"let fA := {var}.GetCenterPos X - {var}.GetPos X\nlet fB := {var}.GetCenterPos Y - {var}.GetPos Y\n"
+               f"let fC := {var}.GetCenterPos Z - {var}.GetPos Z\n" + _C3, True)
+
+
+CMD1_PROBES = (
+    [_c1("place", _form("rObj", CMD["doc"]) + 'let rA := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfCA" rA\n'
+         + _form("rObj", CMD["footlocker"]) + 'let rC := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfCC" rC\nSetFunctionValue 1')]
+    + [_c1(f"settle{i}", "SetFunctionValue 1") for i in range(8)]
+    # GetCenterPos: the centre of the bounds against the position.
+    + [_c1pos("centerpos.doc", "rA", _CA), _c1pos("centerpos.box", "rC", _CC), _c1pos("centerpos.player", "rP", "")]
+    # CCCGetDistance: each mode against GetDistance and the axis distances.
+    + [_c1("dist.parts", _CA + "let fA := rP.GetPos X - rA.GetPos X\nlet fB := rP.GetPos Y - rA.GetPos Y\n"
+           "let fC := rP.GetPos Z - rA.GetPos Z\n" + _C3, True),
+       _c1v("dist.plain", "rP.GetDistance rA")]
+    + [_c1v(f"cccdist.{m}", f"rP.CCCGetDistance rA {m}") for m in range(6)]
+    + [_c1v("cccdist.box3", "rP.CCCGetDistance rC 3", pre=_CC)]
+    # CCCInFaction: not in, rank 0, rank 3, with the second argument 1.
+    + [_c1v("infac.out", "rA.CCCInFaction rObj", pre=_c1f("", "ncr")),
+       _c1v("infac.out.1", "rA.CCCInFaction rObj 1", pre=_c1f("", "ncr")),
+       _c1("infac.set0", _c1f("", "ncr") + "rA.SetFactionRank rObj 0\nSetFunctionValue (rA.GetFactionRank rObj)"),
+       _c1v("infac.rank0", "rA.CCCInFaction rObj", pre=_c1f("", "ncr")),
+       _c1v("infac.rank0.1", "rA.CCCInFaction rObj 1", pre=_c1f("", "ncr")),
+       _c1("infac.set3", _c1f("", "ncr") + "rA.SetFactionRank rObj 3\nSetFunctionValue (rA.GetFactionRank rObj)"),
+       _c1v("infac.rank3", "rA.CCCInFaction rObj", pre=_c1f("", "ncr")),
+       _c1v("infac.rank3.1", "rA.CCCInFaction rObj 1", pre=_c1f("", "ncr")),
+       _c1v("infac.player", "rP.CCCInFaction rObj", pre=_form("rObj", CMD["playerfac"])),
+       _c1v("infac.doc.goodsprings", "rA.CCCInFaction rObj", pre=_c1f("", "goodsprings"))]
+    # Strings: the location's name and the position string, and MoveToPosStr back.
+    + [_c1v("locname.doc", "rA.CCCLocationName", True),
+       _c1v("locname.player", "rP.CCCLocationName", True, pre=""),
+       _c1v("locname.unloaded", "rObj.CCCLocationName", True, pre=_form("rObj", CMD["docref"])),
+       _c1v("posstr.doc", "rA.RefToPosStr", True),
+       _c1v("posstr.player", "rP.RefToPosStr", True, pre=""),
+       _c1v("posstr.box", "rC.RefToPosStr", True, pre=_CC),
+       _c1("movetopos", _CA + _CC + "let sText := rA.RefToPosStr\nlet fA := rC.MoveToPosStr $sText\n"
+           "SetFunctionValue (sv_Construct \"%g %.1f\" fA (rC.GetDistance rA))", True),
+       _c1v("movetopos.bad", "rC.MoveToPosStr \"nothing here\"", pre=_CC)]
+    # Container sounds: from the reference and from the base form.
+    + [_c1id("opensound.ref", "rC.GetContainerOpenSound", pre=_CC),
+       _c1id("closesound.ref", "rC.GetContainerCloseSound", pre=_CC),
+       _c1id("opensound.base", "GetContainerOpenSound rObj", pre=_form("rObj", CMD["footlocker"])),
+       _c1id("opensound.npc", "rA.GetContainerOpenSound")]
+    # Numbers with no ref.
+    + [_c1v("condpenalty", "GetConditionDamagePenalty", pre=""),
+       _c1v("condpenalty.player", "rP.GetConditionDamagePenalty", pre="")]
+    # Teammate ammo, equipment lock, detection fix, locked doors, scripted activate.
+    + [_c1v("teamammo.doc", "rA.GetTeammateUsingAmmo"),
+       _c1v("teamammo.player", "rP.GetTeammateUsingAmmo", pre=""),
+       _c1v("teamammo.set1", "rA.SetTeammateUsingAmmo 1"),
+       _c1v("teamammo.after1", "rA.GetTeammateUsingAmmo"),
+       _c1v("teamammo.set0", "rA.SetTeammateUsingAmmo 0"),
+       _c1v("teamammo.after0", "rA.GetTeammateUsingAmmo"),
+       _c1("lockequip.give", _c1f("", "pistol10") + "rA.AddItem rObj 1\nSetFunctionValue (rA.GetItemCount rObj)"),
+       _c1v("lockequip.on", "rA.LockEquipment 1"),
+       _c1("lockequip.equip", _c1f("", "pistol10") + "rA.EquipItem rObj\nSetFunctionValue 1"),
+       _c1v("lockequip.equipped", "rA.GetEquipped rObj", pre=_c1f("", "pistol10")),
+       _c1v("lockequip.off", "rA.LockEquipment 0"),
+       _c1("lockequip.equip2", _c1f("", "pistol10") + "rA.EquipItem rObj\nSetFunctionValue 1"),
+       _c1v("lockequip.equipped2", "rA.GetEquipped rObj", pre=_c1f("", "pistol10")),
+       _c1v("detfix.on", "rA.ToggleDetectionFix 1"),
+       _c1v("detfix.on2", "rA.ToggleDetectionFix 1"),
+       _c1v("detfix.off", "rA.ToggleDetectionFix 0"),
+       _c1v("lockeddoors.on", "rA.ToggleIgnoreLockedDoors 1"),
+       _c1v("lockeddoors.off", "rA.ToggleIgnoreLockedDoors 0"),
+       _c1v("scriptedact.on", "rC.DisableScriptedActivate 1", pre=_CC),
+       _c1v("scriptedact.off", "rC.DisableScriptedActivate 0", pre=_CC)]
+    # Forms: the saved forms without the CCC plugin, a reputation, a hit node, a list.
+    + [_c1id(f"savedform.{i}", f"CCCSavedForm {i}", pre="") for i in (0, 1, 5, 9)]
+    + [_c1id("reputation.doc", "rA.CCCGetReputation"),
+       _c1v("hitnode.doc", "rA.GetHitNode", True),
+       _c1("listtoarray", _form("rObj", CMD["capslist"]) + "let aA := ListToArray rObj\n"
+           "SetFunctionValue (sv_Construct \"%g %g\" (ar_Size aA) (ListGetCount rObj))", True),
+       _c1("listtoarray.first", _form("rObj", CMD["capslist"]) + "let aA := ListToArray rObj\nlet rC := aA[0]\n"
+           "SetFunctionValue (sv_Construct \"%i %i\" rC (ListGetNthForm rObj 0))", True)]
+    # AttachLight / RemoveLight: answers and the node they add.
+    + [_c1v("light.attach", "rA.AttachLight \"Bip01 Head\" rObj 0 0 10", pre=_c1f("", "fire420")),
+       _c1v("light.attach2", "rA.AttachLight \"Bip01 Head\" rObj 0 0 10", pre=_c1f("", "fire420")),
+       _c1("light.children", _CA + 'let aA := rA.GetChildBlocks "Bip01 Head"\n' + _JOIN, True),
+       _c1v("light.attach.nonode", "rA.AttachLight \"NVFNone\" rObj 0 0 0", pre=_c1f("", "fire420")),
+       _c1v("light.attach.notlight", "rA.AttachLight \"Bip01 Head\" rObj 0 0 0", pre=_c1f("", "pistol10")),
+       _c1v("light.remove", "rA.RemoveLight \"Bip01 Head\""),
+       _c1("light.children.after", _CA + 'let aA := rA.GetChildBlocks "Bip01 Head"\n' + _JOIN, True),
+       _c1v("light.remove2", "rA.RemoveLight \"Bip01 Head\""),
+       _c1v("light.attach.box", "rC.AttachLight \"Scene Root\" rObj 0 0 20", pre=_CC + _form("rObj", CMD["fire420"])),
+       _c1v("light.remove.box", "rC.RemoveLight \"Scene Root\"", pre=_CC)]
+    # Animation data, follow state, then moving away and the kill.
+    + [_c1v("refreshanim.doc", "rA.RefreshAnimData"),
+       _c1v("refreshanim.player", "rP.RefreshAnimData", pre=""),
+       _c1v("followstate.doc", "rA.CCCSetFollowState 1"),
+       _c1("moveaway.before", _CA + "SetFunctionValue (rA.GetDistance rP)"),
+       _c1v("moveaway", "rA.MoveAwayFromPlayer")]
+    + [_c1(f"moveaway.settle{i}", "SetFunctionValue 1") for i in range(30)]
+    + [_c1("moveaway.after", _CA + "SetFunctionValue (rA.GetDistance rP)"),
+       _c1v("kill.alt", "rA.KillActorAlt rP"),
+       _c1(f"kill.settle", "SetFunctionValue 1"),
+       _c1v("kill.dead", "rA.GetDead"),
+       _c1v("kill.killer", "GetFormIDString (rA.GetKiller)", True)]
+)
+
+SETS.update({"cmd1": CMD1_PROBES})  # unlisted commands (#2275 follow-up)
+WRITING_SETS |= {"cmd1"}
+
+
+# cmd2 (writes: two crates and a Doc Mitchell placed beside the player, sounds set on the
+# crate's base for the session, CCC calls without the CCC plugin; #2275 follow-up): what
+# cmd1 left open. CCCGetDistance's modes between two still crates at a known offset, all
+# in one frame; CCCInFaction against the base's factions; container sounds on a crate
+# that has them; MoveToPosStr through a statement; the CCC setters' answers.
+CMD.update({"crate": "179B2C", "opensnd": "76E93", "closesnd": "76E94", "complist": "17BA3B", "pete": "104C80",
+            "boone": "92BD2"})
+_CMDH2 = ("ref rP\nref rA\nref rC\nref rD\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fRes\nstring_var sText\n"
+          "array_var aA\nBegin Function { }\n" + _form("rP", CMD["player"]))
+_CD = 'let rD := rP.AuxVarGetRef "*nvfCD"\n'
+
+
+def _c2(pid, body, text=False):
+    return (f"cmd2.{pid}", _CMDH2 + body, text, None, "")
+
+
+def _c2v(pid, expr, text=False, pre=_CA):
+    return _c2(pid, pre + f"SetFunctionValue ({expr})", text)
+
+
+def _c2id(pid, expr, pre=_CA):
+    return _c2(pid, pre + f"let rObj := {expr}\nSetFunctionValue (GetFormIDString rObj)", True)
+
+
+def _c2f(key, pre=_CA):
+    return pre + _form("rObj", CMD[key])
+
+
+_DISTS = "".join(f"let fA := rC.CCCGetDistance rD {m}\nlet sText += sv_Construct \" %.2f\" fA\n" for m in range(8))
+CMD2_PROBES = (
+    [_c2("place", _form("rObj", CMD["crate"]) + 'let rC := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfCC" rC\n'
+         'let rD := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfCD" rD\n' + _form("rObj", CMD["doc"])
+         + 'let rA := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfCA" rA\nSetFunctionValue 1')]
+    + [_c2(f"settle{i}", "SetFunctionValue 1") for i in range(8)]
+    + [_c2("crates.pos", _CC + _CD + "rC.SetPos X (rP.GetPos X)\nrC.SetPos Y (rP.GetPos Y)\nrC.SetPos Z (rP.GetPos Z)\n"
+           "rD.SetPos X (rP.GetPos X + 300)\nrD.SetPos Y (rP.GetPos Y + 400)\nrD.SetPos Z (rP.GetPos Z + 100)\n"
+           "rC.SetAngle Z 0\nrD.SetAngle Z 90\nSetFunctionValue 1")]
+    + [_c2(f"settle.pos{i}", "SetFunctionValue 1") for i in range(4)]
+    + [_c2("crates.parts", _CC + _CD + "let fA := rD.GetPos X - rC.GetPos X\nlet fB := rD.GetPos Y - rC.GetPos Y\n"
+           "let fC := rD.GetPos Z - rC.GetPos Z\n" + _C3, True),
+       _c2("crates.modes", _CC + _CD + "let fRes := rC.GetDistance rD\nlet sText := sv_Construct \"%.2f:\" fRes\n" + _DISTS
+           + "SetFunctionValue sText", True),
+       _c2("crates.modes.back", _CC + _CD + _DISTS.replace("rC.CCCGetDistance rD", "rD.CCCGetDistance rC")
+           + "SetFunctionValue sText", True),
+       _c2("crates.center", _CC + _CD + "let fA := rD.GetCenterPos X - rD.GetPos X\nlet fB := rD.GetCenterPos Y - rD.GetPos Y\n"
+           "let fC := rD.GetCenterPos Z - rD.GetPos Z\n" + _C3, True),
+       _c2("doc.modes", _CA + "let fA := rP.GetPos X - rA.GetPos X\nlet fB := rP.GetPos Y - rA.GetPos Y\n"
+           "let fC := rP.GetPos Z - rA.GetPos Z\nlet fRes := rP.GetDistance rA\n"
+           "let sText := sv_Construct \"%.2f %.2f %.2f %.2f:\" fA fB fC fRes\n"
+           + _DISTS.replace("rC.CCCGetDistance rD", "rP.CCCGetDistance rA") + "SetFunctionValue sText", True),
+       _c2("doc.modes.heading", _CA + "let fA := rP.GetHeadingAngle rA\nlet fB := rP.GetAngle Z\nlet fC := rA.GetAngle Z\n" + _C3, True)]
+    # CCCInFaction against the base's factions (Doc's NPC_ lists Goodsprings at rank 0).
+    + [_c2v("infac.base.getin", "rA.GetInFaction rObj", pre=_c2f("goodsprings")),
+       _c2v("infac.base.rank", "rA.GetFactionRank rObj", pre=_c2f("goodsprings")),
+       _c2v("infac.base", "rA.CCCInFaction rObj", pre=_c2f("goodsprings")),
+       _c2v("infac.base.1", "rA.CCCInFaction rObj 1", pre=_c2f("goodsprings")),
+       _c2("infac.base.set2", _c2f("goodsprings") + "rA.SetFactionRank rObj 2\nSetFunctionValue (rA.GetFactionRank rObj)"),
+       _c2v("infac.base.after2", "rA.CCCInFaction rObj", pre=_c2f("goodsprings")),
+       _c2("infac.base.remove", _c2f("goodsprings") + "rA.SetFactionRank rObj -1\nSetFunctionValue (rA.GetFactionRank rObj)"),
+       _c2v("infac.base.removed", "rA.CCCInFaction rObj", pre=_c2f("goodsprings")),
+       _c2v("infac.base.removed.1", "rA.CCCInFaction rObj 1", pre=_c2f("goodsprings")),
+       _c2("infac.ncr.add", _c2f("ncr") + "rA.AddToFaction rObj 0\nSetFunctionValue (rA.GetFactionRank rObj)"),
+       _c2v("infac.ncr.added", "rA.CCCInFaction rObj", pre=_c2f("ncr")),
+       _c2("infac.ncr.neg", _c2f("ncr") + "rA.SetFactionRank rObj -1\nSetFunctionValue (rA.GetFactionRank rObj)"),
+       _c2v("infac.ncr.negated", "rA.CCCInFaction rObj", pre=_c2f("ncr")),
+       _c2v("infac.ncr.negated.1", "rA.CCCInFaction rObj 1", pre=_c2f("ncr")),
+       _c2v("infac.player.teammate", "rP.CCCInFaction rObj", pre=_form("rObj", CMD["teammate"])),
+       _c2v("infac.boone.base", "rObj.CCCInFaction rC", pre=_form("rObj", CMD["boone"]) + "let rC := GetFormFromMod \"FalloutNV.esm\" \"B160C\"\n")]
+    # Reputations: of whom?
+    + [_c2id("rep.doc", "rA.CCCGetReputation"),
+       _c2id("rep.player", "rP.CCCGetReputation", pre=""),
+       _c2id("rep.pete", "rObj.CCCGetReputation", pre=_form("rObj", CMD["pete"])),
+       _c2id("rep.boone", "rObj.CCCGetReputation", pre=_form("rObj", CMD["boone"])),
+       _c2id("rep.crate", "rC.CCCGetReputation", pre=_CC)]
+    # Location names and position strings of exterior references (not loaded).
+    + [_c2v("locname.pete", "rObj.CCCLocationName", True, pre=_form("rObj", CMD["pete"])),
+       _c2v("locname.boone", "rObj.CCCLocationName", True, pre=_form("rObj", CMD["boone"])),
+       _c2v("posstr.pete", "rObj.RefToPosStr", True, pre=_form("rObj", CMD["pete"])),
+       _c2v("posstr.boone", "rObj.RefToPosStr", True, pre=_form("rObj", CMD["boone"])),
+       _c2v("posstr.crate.d", "rD.RefToPosStr", True, pre=_CD)]
+    # MoveToPosStr as a statement, then where the crate is.
+    + [_c2("movetopos.stmt", _CC + _CD + "let sText := rD.RefToPosStr\nrC.MoveToPosStr $sText\nSetFunctionValue 1"),
+       _c2("movetopos.settle", "SetFunctionValue 1"),
+       _c2("movetopos.where", _CC + _CD + "let fA := rC.GetPos X - rD.GetPos X\nlet fB := rC.GetPos Y - rD.GetPos Y\n"
+           "let fC := rC.GetPos Z - rD.GetPos Z\n" + _C3, True),
+       _c2("movetopos.value", _CC + _CD + "let sText := rD.RefToPosStr\nlet fA := rC.MoveToPosStr $sText\nSetFunctionValue fA"),
+       _c2("movetopos.literal", _CC + "let fA := rC.MoveToPosStr \"109038 100 200 300\"\nSetFunctionValue fA"),
+       _c2("movetopos.literal.where", _CC + "let fA := rC.GetPos X\nlet fB := rC.GetPos Y\nlet fC := rC.GetPos Z\n" + _C3, True),
+       _c2("movetopos.player", "let sText := rP.RefToPosStr\nlet fA := rP.MoveToPosStr $sText\nSetFunctionValue fA")]
+    # Container sounds on a crate that has both, and setting them.
+    + [_c2id("opensound.ref", "rC.GetContainerOpenSound", pre=_CC),
+       _c2id("closesound.ref", "rC.GetContainerCloseSound", pre=_CC),
+       _c2id("opensound.base", "GetContainerOpenSound rObj", pre=_form("rObj", CMD["crate"])),
+       _c2id("closesound.base", "GetContainerCloseSound rObj", pre=_form("rObj", CMD["crate"])),
+       _c2("opensound.set", _CC + _form("rObj", CMD["closesnd"]) + "rC.SetContainerOpenSound rObj\n"
+           "SetFunctionValue (GetFormIDString (rC.GetContainerOpenSound))", True),
+       _c2("opensound.set.base", _form("rObj", CMD["crate"]) + "let rC := GetFormFromMod \"FalloutNV.esm\" \"" + CMD["opensnd"]
+           + "\"\nSetContainerOpenSound rC rObj\nSetFunctionValue (GetFormIDString (GetContainerOpenSound rObj))", True),
+       _c2("closesound.set.none", _form("rObj", CMD["crate"]) + "SetContainerCloseSound 0 rObj\n"
+           "SetFunctionValue (GetFormIDString (GetContainerCloseSound rObj))", True),
+       _c2("closesound.restore", _form("rObj", CMD["crate"]) + "let rC := GetFormFromMod \"FalloutNV.esm\" \"" + CMD["closesnd"]
+           + "\"\nSetContainerCloseSound rC rObj\nSetFunctionValue (GetFormIDString (GetContainerCloseSound rObj))", True)]
+    # A real list into an array.
+    + [_c2("listtoarray", _form("rObj", CMD["complist"]) + "let aA := ListToArray rObj\n"
+           "SetFunctionValue (sv_Construct \"%g %g\" (ar_Size aA) (ListGetCount rObj))", True),
+       _c2("listtoarray.first", _form("rObj", CMD["complist"]) + "let aA := ListToArray rObj\nlet rC := aA[0]\nlet rD := ListGetNthForm rObj 0\n"
+           "SetFunctionValue (sv_Construct \"%z %z\" (GetFormIDString rC) (GetFormIDString rD))", True),
+       _c2("listtoarray.last", _form("rObj", CMD["complist"]) + "let aA := ListToArray rObj\nlet fA := (ar_Size aA) - 1\nlet rC := aA[fA]\n"
+           "let rD := ListGetNthForm rObj fA\nSetFunctionValue (sv_Construct \"%z %z\" (GetFormIDString rC) (GetFormIDString rD))", True),
+       _c2("listtoarray.notlist", _form("rObj", CMD["pistol10"]) + "let aA := ListToArray rObj\nSetFunctionValue (ar_Size aA)")]
+    # The light's node on Doc's head.
+    + [_c2v("light.attach", "rA.AttachLight \"Bip01 Head\" rObj 0 0 10", pre=_c2f("fire420")),
+       _c2("light.settle", "SetFunctionValue 1"),
+       _c2("light.children", _CA + 'let aA := rA.GetChildBlocks "Bip01 Head"\n' + _JOIN, True),
+       _c2v("light.attach.other", "rA.AttachLight \"Bip01 Head\" rObj 5 0 0", pre=_c2f("opensnd")),
+       _c2v("light.attach.spine", "rA.AttachLight \"Bip01 Spine\" rObj 0 0 0", pre=_c2f("fire420")),
+       _c2v("light.remove.spine", "rA.RemoveLight \"Bip01 Spine\""),
+       _c2v("light.remove.spine2", "rA.RemoveLight \"Bip01 Spine\""),
+       _c2v("light.remove.none", "rA.RemoveLight \"NVFNone\""),
+       _c2v("light.attach.crate", "rC.AttachLight \"\" rObj 0 0 20", pre=_CC + _form("rObj", CMD["fire420"])),
+       _c2v("light.remove", "rA.RemoveLight \"Bip01 Head\""),
+       _c2("light.children.after", _CA + 'let aA := rA.GetChildBlocks "Bip01 Head"\n' + _JOIN, True)]
+    # CCC setters and helpers without the CCC plugin: their answers.
+    + [_c2v("setfloat", "CCCSetFloat 9 1", pre=""),
+       _c2v("setstring", "CCCSetString 74 \"NVF\"", pre=""),
+       _c2v("settrait", "CCCSetTrait 40 1", pre=""),
+       _c2v("setequipped", "rA.CCCSetEquipped"),
+       _c2v("setequipped.noref", "CCCSetEquipped", pre=""),
+       _c2v("setnccs", "rA.CCCSetNCCS 1"),
+       _c2v("sms", "CCCSMS rA"),
+       _c2v("followstate.get", "rA.CCCSetFollowState"),
+       _c2v("followstate.1", "rA.CCCSetFollowState 1"),
+       _c2v("followstate.0", "rA.CCCSetFollowState 0"),
+       _c2v("taskflags", "rA.CCCTaskPackageFlags 0 0 0 0"),
+       _c2v("sayto", "rA.CCCSayTo rP rObj", pre=_c2f("letsgo")),
+       _c2v("runresult", "rA.CCCRunResultScripts rObj", pre=_c2f("letsgo"))]
+)
+
+SETS.update({"cmd2": CMD2_PROBES})  # unlisted commands, second round (#2275 follow-up)
+WRITING_SETS |= {"cmd2"}
+
+
+# cmd3 (writes: a crate moved out into the wasteland, a Doc Mitchell walking away, the
+# difficulty changed and put back; #2275 follow-up): the location name where no map
+# region names the cell; MoveAwayFromPlayer over 10 s; GetConditionDamagePenalty
+# against the difficulty.
+def _c3(pid, body, text=False):
+    return (f"cmd3.{pid}", _CMDH2 + body, text, None, "")
+
+
+def _c3v(pid, expr, text=False, pre=_CA):
+    return _c3(pid, pre + f"SetFunctionValue ({expr})", text)
+
+
+CMD3_PROBES = (
+    [_c3("place", _form("rObj", CMD["crate"]) + 'let rC := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfCC" rC\n'
+         + _form("rObj", CMD["doc"]) + 'let rA := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfCA" rA\nSetFunctionValue 1')]
+    + [_c3(f"settle{i}", "SetFunctionValue 1") for i in range(8)]
+    + [_c3v("moveaway.before", "rA.GetDistance rP"),
+       _c3v("moveaway", "rA.MoveAwayFromPlayer")]
+    + [_c3(f"moveaway.wait{i}", "SetFunctionValue 1") for i in range(4)]
+    + [_c3v("moveaway.after4", "rA.GetDistance rP")]
+    + [_c3(f"moveaway.wait{i}", "SetFunctionValue 1") for i in range(4, 60)]
+    + [_c3v("moveaway.after60", "rA.GetDistance rP"),
+       _c3v("moveaway.package", "GetFormIDString (rA.GetCurrentPackage)", True),
+       _c3v("moveaway.again", "rA.MoveAwayFromPlayer")]
+    + [_c3(f"moveaway.wait{i}", "SetFunctionValue 1") for i in range(60, 120)]
+    + [_c3v("moveaway.after120", "rA.GetDistance rP")]
+    # Location names out in the wasteland: a cell with the Goodsprings map region, one
+    # with no region at all.
+    + [_c3("crate.goodsprings", _CC + "SetFunctionValue (rC.MoveToPosStr \"DA726 -67970 3445 8423\")"),
+       _c3("crate.goodsprings.settle", "SetFunctionValue 1"),
+       _c3v("crate.goodsprings.name", "rC.CCCLocationName", True, pre=_CC),
+       _c3v("crate.goodsprings.pos", "rC.RefToPosStr", True, pre=_CC),
+       _c3v("crate.goodsprings.cell", "GetFormIDString (rC.GetParentCell)", True, pre=_CC),
+       _c3("crate.bare", _CC + "SetFunctionValue (rC.MoveToPosStr \"DA726 100352 6144 5000\")"),
+       _c3("crate.bare.settle", "SetFunctionValue 1"),
+       _c3v("crate.bare.name", "rC.CCCLocationName", True, pre=_CC),
+       _c3v("crate.bare.pos", "rC.RefToPosStr", True, pre=_CC),
+       _c3v("crate.bare.cell", "GetFormIDString (rC.GetParentCell)", True, pre=_CC),
+       _c3("crate.badform", _CC + "SetFunctionValue (rC.MoveToPosStr \"14 0 0 0\")"),
+       _c3("crate.short", _CC + "SetFunctionValue (rC.MoveToPosStr \"109038 1 2\")"),
+       _c3("crate.frac", _CC + "SetFunctionValue (rC.MoveToPosStr \"109038 10.7 -20.2 30.9\")"),
+       _c3v("crate.frac.pos", "rC.RefToPosStr", True, pre=_CC),
+       _c3("crate.frac.exact", _CC + "let fA := rC.GetPos X\nlet fB := rC.GetPos Y\nlet fC := rC.GetPos Z\n" + _C3, True)]
+    # GetConditionDamagePenalty at each difficulty, then the save's difficulty back.
+    + [_c3v("difficulty", "GetGameDifficulty", pre="")]
+    + [_c3(f"condpenalty.{d}", f"let fA := GetGameDifficulty\nSetGameDifficulty {d}\nlet fB := GetConditionDamagePenalty\n"
+           "SetGameDifficulty fA\nSetFunctionValue fB") for d in range(5)]
+    + [_c3v("difficulty.after", "GetGameDifficulty", pre="")]
+)
+
+SETS.update({"cmd3": CMD3_PROBES})  # unlisted commands, third round (#2275 follow-up)
+WRITING_SETS |= {"cmd3"}
+
+
+# cmd4 (writes: a Doc Mitchell placed beside the player with a 10mm pistol, a crate
+# moved; #2275 follow-up): what cmd1-cmd3 left contradictory. LockEquipment against
+# EquipItem and UnequipItem with frames between; RefToPosStr against GetPos in one frame;
+# whether MoveToPosStr reads whole numbers.
+def _c4(pid, body, text=False):
+    return (f"cmd4.{pid}", _CMDH2 + body, text, None, "")
+
+
+_P3 = "let fA := {v}.GetPos X\nlet fB := {v}.GetPos Y\nlet fC := {v}.GetPos Z\n"
+_EQ = _c2f("pistol10")
+CMD4_PROBES = (
+    [_c4("place", _form("rObj", CMD["crate"]) + 'let rC := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfCC" rC\n'
+         + _form("rObj", CMD["doc"]) + 'let rA := rP.PlaceAtMe rObj 1\nrP.AuxVarSetRef "*nvfCA" rA\nSetFunctionValue 1')]
+    + [_c4(f"settle{i}", "SetFunctionValue 1") for i in range(8)]
+    + [_c4("give", _EQ + "rA.AddItem rObj 1\nSetFunctionValue (rA.GetItemCount rObj)"),
+       _c4("lock", _CA + "rA.LockEquipment 1\nSetFunctionValue 1"),
+       _c4("equip.locked", _EQ + "rA.EquipItem rObj\nSetFunctionValue (rA.GetEquipped rObj)")]
+    + [_c4(f"equip.locked.wait{i}", "SetFunctionValue 1") for i in range(10)]
+    + [_c4("equip.locked.after", _EQ + "SetFunctionValue (rA.GetEquipped rObj)"),
+       _c4("unlock", _CA + "rA.LockEquipment 0\nSetFunctionValue 1"),
+       _c4("equip.free", _EQ + "rA.EquipItem rObj\nSetFunctionValue (rA.GetEquipped rObj)")]
+    + [_c4(f"equip.free.wait{i}", "SetFunctionValue 1") for i in range(10)]
+    + [_c4("equip.free.after", _EQ + "SetFunctionValue (rA.GetEquipped rObj)"),
+       _c4("lock2", _CA + "rA.LockEquipment 1\nSetFunctionValue 1"),
+       _c4("unequip.locked", _EQ + "rA.UnequipItem rObj\nSetFunctionValue (rA.GetEquipped rObj)")]
+    + [_c4(f"unequip.locked.wait{i}", "SetFunctionValue 1") for i in range(10)]
+    + [_c4("unequip.locked.after", _EQ + "SetFunctionValue (rA.GetEquipped rObj)"),
+       _c4("unlock2", _CA + "rA.LockEquipment 0\nSetFunctionValue 1")]
+    # RefToPosStr and GetPos in one frame, for the player (no physics moves it here).
+    + [_c4("posstr.player", _P3.format(v="rP") + "let sText := rP.RefToPosStr\n"
+           "SetFunctionValue (sv_Construct \"%z|%.3f %.3f %.3f\" sText fA fB fC)", True),
+       _c4("posstr.doc", _CA + _P3.format(v="rA") + "let sText := rA.RefToPosStr\n"
+           "SetFunctionValue (sv_Construct \"%z|%.3f %.3f %.3f\" sText fA fB fC)", True),
+       # MoveToPosStr with fractions, the position read in the same frame.
+       _c4("movetopos.frac", _CC + "let sText := rC.RefToPosStr\nlet fA := rC.MoveToPosStr \"109038 10.7 -20.2 30.9\"\n"
+           + _P3.format(v="rC") + "SetFunctionValue (sv_Construct \"%.3f %.3f %.3f\" fA fB fC)", True),
+       _c4("movetopos.neg", _CC + "let fA := rC.MoveToPosStr \"109038 -10.7 -20.9 -30.5\"\n"
+           + _P3.format(v="rC") + "SetFunctionValue (sv_Construct \"%.3f %.3f %.3f\" fA fB fC)", True),
+       _c4("movetopos.lower", _CC + "SetFunctionValue (rC.MoveToPosStr \"da726 1000 1000 9000\")"),
+       _c4("movetopos.zeros", _CC + "SetFunctionValue (rC.MoveToPosStr \"000DA726 1000 1000 9000\")"),
+       _c4("movetopos.extra", _CC + "SetFunctionValue (rC.MoveToPosStr \"DA726 1000 1000 9000 5\")")]
+)
+
+SETS.update({"cmd4": CMD4_PROBES})  # unlisted commands, fourth round (#2275 follow-up)
+WRITING_SETS |= {"cmd4"}
+
+
+# rest1 (writes: ShowOff string maps named nvfsm*, a form list's added entries; #2326):
+# the registered commands no wiki page lists, batch 1 (docs/spec-notes/ext-unlisted-rest.md).
+# ShowOff's AuxStringMap commands as a store; each `_OLD` command against its current one;
+# StringContainsOnlyASCII, GetFuncCodeByName / GetFuncNameByCode, IsNewGame and the
+# answers of IsJumping_BROKEN, NullArgs and SUPWRITETOLOG.
+_R1H = ("ref rP\nref rA\nref rB\nfloat fA\nfloat fB\nfloat fRes\nstring_var sText\nstring_var sK\narray_var aA\n"
+        "array_var aB\nBegin Function { }\n" + _form("rP", "14"))
+
+
+def _r1(pid, body, text=False):
+    return (f"rest1.{pid}", _R1H + body, text, None, "")
+
+
+def _r1v(pid, expr, text=False, pre=""):
+    return _r1(pid, pre + f"SetFunctionValue ({expr})", text)
+
+
+# A matrix and a vector as ShowOff's Matrix functions take them [documented: Matrix_IsMatrix].
+_M = "let aA := ar_List (ar_List 1 2) (ar_List 3 4)\n"
+_M3 = "let aA := ar_List (ar_List 1 0 0) (ar_List 0 0 -1) (ar_List 0 1 0)\n"
+_Q = "let aA := ar_List 0.7071 0 0 0.7071\n"
+_DUMP = ("let sText := \"\"\nforeach aB <- aA\n  let sText += sv_Construct \"%z;\" (sv_Join (aB[\"value\"]) \",\")\nloop\n"
+         "SetFunctionValue sText")
+_VDUMP = "SetFunctionValue (sv_Join aA \",\")"
+_SM = "*nvfsm"
+REST1_PROBES = (
+    # ---- AuxStringMap: on the player, then with no calling reference ----
+    [_r1v("sm.size.none", f"rP.AuxStringMapArrayGetSize \"{_SM}\""),
+     _r1v("sm.setfloat", f"rP.AuxStringMapArraySetFloat \"{_SM}\" \"k1\" 5"),
+     _r1v("sm.setfloat.again", f"rP.AuxStringMapArraySetFloat \"{_SM}\" \"k1\" 6"),
+     _r1v("sm.setstring", f"rP.AuxStringMapArraySetString \"{_SM}\" \"k2\" \"hello\""),
+     _r1v("sm.setref", f"rP.AuxStringMapArraySetRef \"{_SM}\" \"k3\" rP"),
+     _r1v("sm.size", f"rP.AuxStringMapArrayGetSize \"{_SM}\""),
+     _r1v("sm.getfloat", f"rP.AuxStringMapArrayGetFloat \"{_SM}\" \"k1\""),
+     _r1v("sm.getfloat.case", f"rP.AuxStringMapArrayGetFloat \"{_SM}\" \"K1\""),
+     _r1v("sm.getfloat.string", f"rP.AuxStringMapArrayGetFloat \"{_SM}\" \"k2\""),
+     _r1v("sm.getfloat.missing", f"rP.AuxStringMapArrayGetFloat \"{_SM}\" \"nokey\""),
+     _r1v("sm.getstring", f"rP.AuxStringMapArrayGetString \"{_SM}\" \"k2\"", True),
+     _r1v("sm.getstring.float", f"rP.AuxStringMapArrayGetString \"{_SM}\" \"k1\"", True),
+     _r1v("sm.getref", f"GetFormIDString (rP.AuxStringMapArrayGetRef \"{_SM}\" \"k3\")", True),
+     _r1v("sm.getref.float", f"GetFormIDString (rP.AuxStringMapArrayGetRef \"{_SM}\" \"k1\")", True)]
+    + [_r1v(f"sm.type.{k}", f"rP.AuxStringMapArrayGetValueType \"{_SM}\" \"{k}\"") for k in ("k1", "k2", "k3", "nokey")]
+    + [_r1v("sm.type.nomap", "rP.AuxStringMapArrayGetValueType \"*nvfnone\" \"k1\""),
+       _r1v("sm.first", f"rP.AuxStringMapArrayGetFirst \"{_SM}\"", True),
+       _r1v("sm.next1", f"rP.AuxStringMapArrayGetNext \"{_SM}\"", True),
+       _r1v("sm.next2", f"rP.AuxStringMapArrayGetNext \"{_SM}\"", True),
+       _r1v("sm.next3", f"rP.AuxStringMapArrayGetNext \"{_SM}\"", True),
+       _r1v("sm.first.again", f"rP.AuxStringMapArrayGetFirst \"{_SM}\"", True),
+       _r1("sm.keys", f"let aA := rP.AuxStringMapArrayGetKeys \"{_SM}\"\n" + _VDUMP, True),
+       _r1("sm.keys.size", f"let aA := rP.AuxStringMapArrayGetKeys \"{_SM}\"\nSetFunctionValue (ar_Size aA)"),
+       _r1("sm.asarray", f"let aA := rP.AuxStringMapArrayGetAsArray \"{_SM}\"\n"
+           "SetFunctionValue (sv_Construct \"%g %g %z %z\" (ar_Size aA) (TypeOf aA) (TypeOf aA[\"k1\"]) (TypeOf aA[\"k2\"]))", True),
+       _r1("sm.asarray.values", f"let aA := rP.AuxStringMapArrayGetAsArray \"{_SM}\"\nlet fA := aA[\"k1\"]\nlet sText := aA[\"k2\"]\n"
+           "SetFunctionValue (sv_Construct \"%g %z\" fA sText)", True),
+       _r1("sm.getall.0", "let aA := rP.AuxStringMapArrayGetAll 0\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))", True),
+       _r1("sm.getall.1", "let aA := rP.AuxStringMapArrayGetAll 1\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))", True),
+       _r1("sm.getall.keys", "let aA := rP.AuxStringMapArrayGetAll 0\nlet aB := ar_Keys aA\nSetFunctionValue (sv_Join aB \",\")", True),
+       _r1("sm.fromarray", "let aA := ar_Map \"x\"::1 \"y\"::\"two\"\n"
+           "let fA := rP.AuxStringMapArraySetFromArray \"*nvfsm2\" aA\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" fA (rP.AuxStringMapArrayGetSize \"*nvfsm2\") (rP.AuxStringMapArrayGetFloat \"*nvfsm2\" \"x\"))", True),
+       _r1("sm.fromarray.keep", "let aA := ar_Map \"z\"::3\nlet fA := rP.AuxStringMapArraySetFromArray \"*nvfsm2\" aA 1\n"
+           "SetFunctionValue (sv_Construct \"%g %g\" fA (rP.AuxStringMapArrayGetSize \"*nvfsm2\"))", True),
+       _r1("sm.fromarray.replace", "let aA := ar_Map \"w\"::4\nlet fA := rP.AuxStringMapArraySetFromArray \"*nvfsm2\" aA 0\n"
+           "SetFunctionValue (sv_Construct \"%g %g\" fA (rP.AuxStringMapArrayGetSize \"*nvfsm2\"))", True),
+       _r1v("sm.validate", f"rP.AuxStringMapArrayValidateValues \"{_SM}\""),
+       _r1v("sm.erase", f"rP.AuxStringMapArrayEraseKey \"{_SM}\" \"k1\""),
+       _r1v("sm.erase.missing", f"rP.AuxStringMapArrayEraseKey \"{_SM}\" \"k1\""),
+       _r1v("sm.size.erased", f"rP.AuxStringMapArrayGetSize \"{_SM}\""),
+       # Whose map: another reference's, and none (the script's own?).
+       _r1v("sm.other.ref", f"rA.AuxStringMapArrayGetSize \"{_SM}\"", pre=_form("rA", "104C0F")),
+       _r1v("sm.noref.size", f"AuxStringMapArrayGetSize \"{_SM}\""),
+       _r1v("sm.noref.set", "AuxStringMapArraySetFloat \"*nvfsm3\" \"a\" 1"),
+       _r1v("sm.noref.get", "AuxStringMapArrayGetFloat \"*nvfsm3\" \"a\""),
+       _r1v("sm.noref.player", "rP.AuxStringMapArrayGetFloat \"*nvfsm3\" \"a\""),
+       _r1v("sm.saved.set", "rP.AuxStringMapArraySetFloat \"nvfsm4\" \"a\" 9"),
+       _r1v("sm.saved.get", "rP.AuxStringMapArrayGetFloat \"nvfsm4\" \"a\""),
+       _r1v("sm.destroy", f"rP.AuxStringMapArrayDestroy \"{_SM}\""),
+       _r1v("sm.destroy.again", f"rP.AuxStringMapArrayDestroy \"{_SM}\""),
+       _r1v("sm.size.destroyed", f"rP.AuxStringMapArrayGetSize \"{_SM}\""),
+       _r1v("sm.destroy.saved", "rP.AuxStringMapArrayDestroy \"nvfsm4\""),
+       _r1v("sm.destroy.2", "rP.AuxStringMapArrayDestroy \"*nvfsm2\""),
+       _r1v("sm.destroy.3", "AuxStringMapArrayDestroy \"*nvfsm3\"")]
+    # ---- the `_OLD` commands against the current ones ----
+    + [_r1v("old.ismatrix", "Matrix_IsMatrix_OLD aA", pre=_M), _r1v("new.ismatrix", "Matrix_IsMatrix aA", pre=_M),
+       _r1v("old.ismatrix.vec", "Matrix_IsMatrix_OLD aA", pre=_Q), _r1v("new.ismatrix.vec", "Matrix_IsMatrix aA", pre=_Q),
+       _r1("old.transpose", _M + "let aA := Matrix_Transpose_OLD aA\n" + _DUMP, True),
+       _r1("new.transpose", _M + "let aA := Matrix_Transpose aA\n" + _DUMP, True),
+       _r1("old.scalar", _M + "let aA := Matrix_ApplyOperationWithScalar_OLD aA \"*\" 2\n" + _DUMP, True),
+       _r1("new.scalar", _M + "let aA := Matrix_ApplyOperationWithScalar aA \"*\" 2\n" + _DUMP, True),
+       _r1("old.matrix", _M + "let aA := Matrix_ApplyOperationWithMatrix_OLD aA \"+\" aA\n" + _DUMP, True),
+       _r1("new.matrix", _M + "let aA := Matrix_ApplyOperationWithMatrix aA \"+\" aA\n" + _DUMP, True),
+       _r1("old.quat", _M3 + "let aA := Matrix3x3_GetQuaternion_OLD aA\n" + _VDUMP, True),
+       _r1("new.quat", _M3 + "let aA := Matrix3x3_GetQuaternion aA\n" + _VDUMP, True),
+       _r1("old.quatmat", _Q + "let aA := Quaternion_GetMatrix_OLD aA\n" + _DUMP, True),
+       _r1("new.quatmat", _Q + "let aA := Quaternion_GetMatrix aA\n" + _DUMP, True),
+       _r1v("old.dump", "Matrix_Dump_OLD aA", pre=_M), _r1v("new.dump", "Matrix_Dump aA", pre=_M),
+       _r1("old.listadd", _form("rA", "17BA3B") + "let fA := ListGetCount rA\nlet aA := ar_List rP\n"
+           "let fB := ListAddArray_OLD rA aA 0\nlet fRes := ListGetCount rA\nListRemoveForm rA rP\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fRes (ListGetCount rA))", True),
+       _r1("new.listadd", _form("rA", "17BA3B") + "let fA := ListGetCount rA\nlet aA := ar_List rP\n"
+           "let fB := ListAddArray rA aA 0\nlet fRes := ListGetCount rA\nListRemoveForm rA rP\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fRes (ListGetCount rA))", True),
+       _r1v("old.isjumping", "rP.IsJumping_BROKEN"), _r1v("new.isjumping", "rP.IsJumping")]
+    # ---- pure getters and answers ----
+    + [_r1v("ascii.plain", "StringContainsOnlyASCII \"Hello 123 !?\""),
+       _r1v("ascii.empty", "StringContainsOnlyASCII \"\""),
+       _r1v("ascii.high", "StringContainsOnlyASCII \"café\""),
+       _r1v("funccode.getav", "GetFuncCodeByName \"GetAV\""),
+       _r1v("funccode.getactorvalue", "GetFuncCodeByName \"GetActorValue\""),
+       _r1v("funccode.case", "GetFuncCodeByName \"getactorvalue\""),
+       _r1v("funccode.jip", "GetFuncCodeByName \"AttachLight\""),
+       _r1v("funccode.none", "GetFuncCodeByName \"NoSuchCommand\""),
+       _r1v("funcname.100e", "GetFuncNameByCode 4110", True),
+       _r1v("funcname.2879", "GetFuncNameByCode 10361", True),
+       _r1v("funcname.none", "GetFuncNameByCode 1", True),
+       _r1v("funcname.big", "GetFuncNameByCode 65000", True),
+       _r1v("isnewgame", "IsNewGame"),
+       _r1v("nullargs", "NullArgs"),
+       _r1v("nullargs.1", "NullArgs 1"),
+       _r1v("writetolog", "SUPWRITETOLOG \"nvf probe line\"")]
+)
+
+SETS.update({"rest1": REST1_PROBES})  # unlisted commands, the rest, batch 1 (#2326)
+WRITING_SETS |= {"rest1"}
+
+# Batches 2-5 of #2326 (SUP's JSON commands, kNVSE, the small families, JIP) and the jobs
+# that ran their risky rows one per launch: tools/capture/unlisted_rest_probes.py.
+import unlisted_rest_probes as _urp  # noqa: E402
+
+SETS.update(_urp.SETS)
+WRITING_SETS |= _urp.WRITING
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"
@@ -8901,6 +9415,8 @@ def main(argv=None):
     k.add_argument("golden")
     st = sub.add_parser("steps")
     st.add_argument("--dir", default=STEPS_DIR)
+    sh = sub.add_parser("shapes", help="the compile-only argument-shape run of #2326 as jobs of 150 steps")
+    sh.add_argument("--dir", default=".")
     a = ap.parse_args(argv)
     if a.cmd == "steps":
         os.makedirs(a.dir, exist_ok=True)
@@ -8908,6 +9424,10 @@ def main(argv=None):
             with open(os.path.join(a.dir, f"{job_name(name)}.steps.json"), "w", encoding="utf-8", newline="\n") as f:
                 f.write(steps_text(name))
         print(json.dumps({"dir": a.dir, "sets": list(SETS)}))
+        return 0
+    if a.cmd == "shapes":
+        os.makedirs(a.dir, exist_ok=True)
+        print(json.dumps({"jobs": _urp.shape_jobs(a.dir, cs.STEPS_FORMAT)}))
         return 0
     if a.cmd == "job":
         a.out = a.out or f"{job_name(a.set)}.steps.json"

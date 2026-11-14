@@ -182,6 +182,7 @@ struct Stats {
     blows: usize,
     landed: usize,
     harmless_blows: usize,
+    harmless_blow_scripts: usize,
     missed: usize,
     chained: usize,
 }
@@ -550,7 +551,11 @@ fn swing(
         } else if w.no_damage {
             s.stats.landed += 1;
             s.stats.harmless_blows += 1;
-            info!("use weapon: {}'s harmless blow lands on {}", x.name, x.target_name);
+            // Its OnHit and OnHitWith blocks run, as for a harmless shot (#2433).
+            let info = fnv_game::combat::HitInfo { attacker: Some(me), weapon, location: -1, critical: false, limb: None };
+            let ran = g.harmless_hit(b.target, info);
+            s.stats.harmless_blow_scripts += usize::from(ran);
+            info!("use weapon: {}'s harmless blow lands on {}{}", x.name, x.target_name, if ran { ": its hit blocks ran" } else { "" });
         } else {
             s.stats.landed += 1;
             strike.write(ActorStrike { point: tchest, ..b });
@@ -631,7 +636,7 @@ fn report(mut exit: MessageReader<AppExit>, shooters: Res<Shooters>, stats: Opti
         return;
     }
     let s = &shooters.stats;
-    let harmless_hits = stats.map_or(0, |c| c.harmless_hits);
+    let (harmless_hits, harmless_scripts) = stats.map_or((0, 0), |c| (c.harmless_hits, c.harmless_scripts));
     info!(
         "use weapon summary: {} actors used a weapon ({}); {} uses ({} from scripts, {} from packages), {} over; {} shots ({} always hit, {} harmless; {harmless_hits} harmless hits), {} reloads ({} crouched); held fire: {} line of fire, {} target away, {} restrained; {} blows ({} landed, {} harmless, {} out of reach, {} went on a combo)",
         s.actors.len(),
@@ -654,6 +659,7 @@ fn report(mut exit: MessageReader<AppExit>, shooters: Res<Shooters>, stats: Opti
         s.missed,
         s.chained,
     );
+    info!("use weapon summary: harmless hits whose target's hit blocks ran: {harmless_scripts} shots, {} blows", s.harmless_blow_scripts);
 }
 
 #[cfg(test)]

@@ -220,11 +220,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             crate::delayed::call_in_frames(g, f, subject.or(ctx.self_ref), frames, keep);
             zero
         }
-        // The current objective's compass targets, one array of references [documented:
-        // GetCurrentQuestObjectiveTeleportLinksAlt, "the current compass marker
-        // objects"]: GetCurrentQuestObjectiveTeleportLinks's targets [hypothesis: the
-        // same objects].
-        "getcurrentquestobjectiveteleportlinksalt" => return crate::nvse::call(g, ctx, "getcurrentquestobjectiveteleportlinks", subject, &[]),
+        // SUP returns a flat list of the current compass-marker references, unlike
+        // xNVSE's nested complete paths.
+        "getcurrentquestobjectiveteleportlinksalt" => crate::nvse_other::objective_teleport_links(g, true),
         // `type`: 0 the save file's bytes; 1 the .nvse co-save's, 0 [decision: NVForever
         // writes the extender's state into its one save file]; -1 before any save or
         // load this session [documented].

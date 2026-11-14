@@ -84,6 +84,7 @@ impl Plugin for SneakGaugesPlugin {
                 group: crate::pause::GROUP_MENUS,
                 label: "Light and noise gauges while sneaking",
                 note: "On: two bars under the sneak word show how lit you are and how much noise you make, as detection counts them. Not in the original.",
+                switches: "",
                 get: |w| w.resource::<SneakGauges>().on,
                 set: |w, on| w.resource_mut::<SneakGauges>().on = on,
                 slider: None,

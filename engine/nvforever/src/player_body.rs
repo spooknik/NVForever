@@ -476,6 +476,9 @@ struct WeaponPart {
     shown: Option<bool>,
 }
 
+/// kNVSE replacement files by a clip file's name, in lower case (`Rig::overrides`).
+type Overrides = Arc<HashMap<String, Vec<String>>>;
+
 /// One skeleton with its parts, clips and weapon.
 struct Rig {
     view: View,
@@ -490,6 +493,9 @@ struct Rig {
     clips: HashMap<ClipKey, Option<Arc<ClipInfo>>>,
     /// The up and down forms of clips, by path (failures too).
     variants: HashMap<String, Option<Arc<ClipInfo>>>,
+    /// kNVSE's replacement files for this view ([`apply_anim_overrides`]): a clip's file
+    /// name, in lower case, to the replacement's path under meshes.
+    overrides: Overrides,
     /// Third person: the head bone and the eye in its space.
     head: Option<usize>,
     eye_local: Vec3,
@@ -667,7 +673,24 @@ impl Rig {
         if let Some(c) = self.clips.get(&key) {
             return c.clone();
         }
-        let mut path = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p));
+        // A kNVSE replacement of a candidate's file comes first [documented:
+        // SetActorAnimationPath, "the anim group that is overridden is specified in the
+        // KF file"; hypothesis: a replacement file is named as the clip it replaces, as
+        // in the mods' folders (`mtfastforward.kf`)].
+        // A replacement whose path ends as the candidate does (`locomotion\female\
+        // mtforward.kf`) beats one that only shares the file's name, so a folder with
+        // `male` and `female` files gives each body its own; among equals the later file
+        // (the stack's top) wins.
+        let replaced = key.candidates().into_iter().find_map(|c| {
+            let c = c.to_ascii_lowercase();
+            let name = c.rsplit('\\').next().unwrap_or(&c);
+            let found = self.overrides.get(name)?;
+            let tail = format!("\\{c}");
+            let other_sex = if c.contains("female\\") { "\\male\\" } else { "\\female\\" };
+            let pick = found.iter().rev().find(|p| p.to_ascii_lowercase().ends_with(&tail)).or_else(|| found.iter().rev().find(|p| !p.to_ascii_lowercase().contains(other_sex)));
+            pick.map(|p| format!("meshes\\{p}"))
+        });
+        let mut path = replaced.filter(|p| ctx.models.data.vfs.exists(p)).or_else(|| key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)));
         // A grip clip may carry the weapon's name after its number
         // (`2hrhandgrip3_combatshotgun.kf`): the folder's one for that prefix and number.
         if let (None, ClipKey::Grip(p, n)) = (&path, key) {
@@ -973,6 +996,9 @@ impl PlayerBody {
     }
 }
 
+#[path = "player_sequence_pose_aid.rs"]
+mod sequence_pose_aid;
+
 pub struct PlayerBodyPlugin {
     /// `--first-person-body`.
     pub first_person_body: bool,
@@ -994,8 +1020,10 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<crate::furniture::PlayerUse>()
             .init_resource::<crate::weapon_lower::Ahead>()
             .init_resource::<WarmPose>()
-            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
+            .init_resource::<crate::script_sequences::PlayerSequences>()
+            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
+            .add_systems(PostUpdate, sequence_pose_aid::observe.after(bevy::transform::TransformSystems::Propagate))
             .add_systems(Last, report);
     }
 }
@@ -1525,6 +1553,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         animator,
         clips: HashMap::new(),
         variants: HashMap::new(),
+        overrides: Arc::default(),
         head,
         eye_local,
         looking,
@@ -1615,6 +1644,7 @@ struct Posed<'a> {
     look_pitch: f32,
     /// The idles the rig plays (`idles.rs`).
     special: &'a IdleSlot<Arc<Clip>>,
+    sequences: &'a [crate::script_sequences::Sample],
     /// The Pip-Boy shows: seconds into its clip (first person).
     pipboy: Option<f32>,
     /// The sway of the arms (first person, `view_sway.rs`).
@@ -1641,7 +1671,7 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, pipboy, sway, sights } = posed;
+    let Posed { root, look_pitch, special, sequences, pipboy, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
@@ -1883,6 +1913,22 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             l.weight = w;
         }
         view_driven |= rig.camera.is_some() && p.clip.tracks.iter().any(|(n, _)| n == crate::idles::CAMERA_NODE);
+    }
+    for sequence in sequences {
+        let tag = 0x4000_0000 | sequence.request.serial;
+        if sequence.request.stopped.is_some() {
+            if let Some(layer) = a.layers.iter_mut().find(|l| l.tag == tag) {
+                layer.fade_out = sequence.request.ease_out;
+            }
+            continue;
+        }
+        let mode = if sequence.clip.cycle_type != 2 { Mode::Loop } else { Mode::Once };
+        let i = a.want(&sequence.clip, tag, sequence.weight, mode, sequence.fade_in);
+        let layer = &mut a.layers[i];
+        layer.rate = 0.0;
+        layer.time = sequence.time;
+        layer.sequence_priority = sequence.request.priority;
+        layer.fade_out = sequence.request.ease_out;
     }
     // The Pip-Boy: its clip at the time the Pip-Boy is at, over the rest (its tracks'
     // priority is above the others' [observed: 98]); it does not turn the view.
@@ -2287,6 +2333,40 @@ fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&m
 /// the clips hide (`NiVisController`) does not emit, nor does the rig the camera does not
 /// see: the third-person body stands behind the arms in first person, drawn for its
 /// shadow only.
+/// kNVSE's SetActorAnimationPath and AnimGroupOverride on the player
+/// (docs/design/knvse-anim.md): each frame the game says which replacement files apply
+/// now, conditions run (`Game::anim_overrides_now`); when that changes, each rig takes
+/// the new files and forgets the clips it chose, so the next pick finds them.
+fn apply_anim_overrides(mut script: Option<ResMut<nvf_play::script::ScriptState>>, sim: Option<ResMut<nvf_play::sim::SimState>>, mut state: ResMut<PlayerBody>, mut current: Local<[(Vec<String>, Overrides); 2]>) {
+    let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
+    let empty = rt.game.anim_paths.actor.is_empty() && rt.game.anim_paths.weapon.is_empty() && rt.game.anim_folders.active.is_empty() && current.iter().all(|c| c.0.is_empty());
+    if empty {
+        return;
+    }
+    let now = nvf_play::script::with_world(rt, &mut sim, |rt| [rt.game.anim_overrides_now(FormId::PLAYER_REF, false), rt.game.anim_overrides_now(FormId::PLAYER_REF, true)]);
+    for (i, paths) in now.into_iter().enumerate() {
+        if current[i].0 != paths {
+            // By file name, in stack order (a later file wins, `Rig::clip`).
+            let mut map: HashMap<String, Vec<String>> = HashMap::new();
+            for p in &paths {
+                map.entry(p.rsplit('\\').next().unwrap_or(p).to_ascii_lowercase()).or_default().push(p.clone());
+            }
+            info!("player {} rig: {} kNVSE replacement file(s){}", if i == 1 { "First" } else { "Third" }, paths.len(), if paths.is_empty() { String::new() } else { format!(": {}", paths.join(", ")) });
+            current[i] = (paths, Arc::new(map));
+        }
+    }
+    let Some(body) = state.body.as_mut() else { return };
+    let rigs = [Some(&mut body.third), body.first.as_mut()];
+    for (i, rig) in rigs.into_iter().enumerate() {
+        let Some(rig) = rig else { continue };
+        if !Arc::ptr_eq(&rig.overrides, &current[i].1) {
+            rig.overrides = current[i].1.clone();
+            rig.clips.clear();
+            rig.variants.clear();
+        }
+    }
+}
+
 fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate::particles::ModelEmitter>) {
     let Some(body) = state.body.as_ref() else { return };
     let first_seen = body.first.as_ref().is_some_and(|f| f.shown == Some(true));
@@ -2317,7 +2397,7 @@ fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate:
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
-    (time, turbo, sim, mut told_scale): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>),
+    (time, turbo, sim, mut told_scale, sequences): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Res<crate::script_sequences::PlayerSequences>),
     d: Res<PlayWorld>,
     intent: Res<MoveIntent>,
     control: Res<PlayerControl>,
@@ -2570,7 +2650,7 @@ fn drive_body(
     // ignored (`nvf_play::player::ViewDriven`) [design: the owner's wish, playtest of
     // 2026-10-11; the opening's scripts leave looking on, so the original may let the
     // view turn; hypothesis that the body does not swing round with the view].
-    if idles.first.is_empty() {
+    if !idles.holds_camera() {
         if let Some(h) = idles.held.take() {
             seat.hold = None;
             // The character stands where it stood before the idles held it, clear of what
@@ -2668,7 +2748,7 @@ fn drive_body(
         *told_scale = Some(script_scale);
     }
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE, sights: None };
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences:&sequences.third, pipboy: None, sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
@@ -2773,7 +2853,7 @@ fn drive_body(
         m.sights_told = !m.sights_told;
         info!("true iron sights: {}", if m.sights_told { "the sights are on the eye" } else { "off the eye" });
     }
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, sway, sights };
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, sequences:&sequences.first, pipboy, sway, sights };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than
@@ -3166,3 +3246,10 @@ mod tests {
         assert_eq!(loop_time(3.0, 2.5, 2.5), 3.0);
     }
 }
+
+#[cfg(test)]
+#[path = "movement_camera_tests.rs"]
+mod movement_camera_tests;
+
+#[cfg(test)]
+mod sequence_consumer_tests;

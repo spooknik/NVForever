@@ -157,7 +157,7 @@ fn node_bound(at: usize, tree: &[(Entity, Option<usize>)], globals: &Query<&Glob
 
 /// What the mirror reads beside the nodes: their places in the world and boxes (bounds),
 /// and the particle systems.
-type Extra<'w, 's> = (Query<'w, 's, &'static GlobalTransform>, Query<'w, 's, &'static Aabb>, Option<ResMut<'w, crate::particles::Particles>>);
+type Extra<'w, 's> = (Query<'w, 's, &'static GlobalTransform>, Query<'w, 's, &'static Aabb>, Option<ResMut<'w, crate::particles::Particles>>, Option<Res<'w, crate::world::WorldData>>);
 
 /// Each named shape's NiMaterialProperty values in a model file (under meshes), in
 /// GetMaterialPropertyValue's order: specular R G B, emissive R G B, glossiness, alpha,
@@ -313,7 +313,7 @@ fn mirror(
     mut mem: Local<Memory>,
     (data, drawn, mut assets): Materials,
     (shapes, meshes): Shapes,
-    (globals, boxes, mut particles): Extra,
+    (globals, boxes, mut particles, world): Extra,
     dropped: Dropped,
 ) {
     let Memory { logged, held, tables, materials, owned, props, files } = &mut *mem;
@@ -343,7 +343,7 @@ fn mirror(
     }
     for edit in edits_rest {
         let r = match &edit {
-            SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. } | SceneEdit::Flags { r, .. } | SceneEdit::ChildFlags { r, .. } | SceneEdit::Rename { r, .. } | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. } | SceneEdit::Material { r, .. } | SceneEdit::Particle { r, .. } => *r,
+            SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. } | SceneEdit::Flags { r, .. } | SceneEdit::ChildFlags { r, .. } | SceneEdit::Rename { r, .. } | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. } | SceneEdit::Light { r, .. } | SceneEdit::Material { r, .. } | SceneEdit::Particle { r, .. } => *r,
         };
         let Some(root) = root_of(r.0, &rigs, &visuals) else { continue };
         let rig = rig_names(r.0, &rigs);
@@ -398,6 +398,21 @@ fn mirror(
             // The model is not drawn yet [hypothesis: slice 2 spawns it through
             // nvf_assets::SpawnCtx]; the mirror holds the request only.
             SceneEdit::Attach { .. } => {}
+            // JIP's AttachLight: a node of that name under the target at the offset, lit
+            // by the LIGH's colour, brightness and radius as a muzzle flash's light is
+            // (`crate::shot_fx`; docs/spec-notes/ext-unlisted-commands.md §2.1).
+            SceneEdit::Light { target, name, light, offset, .. } => {
+                let Some(t) = find(root, &target, &nodes, &rig) else { continue };
+                let data = world.as_deref().and_then(|w| fnv_world::lighting::light_data(w.lo, w.schema, light.0));
+                let new = commands.spawn((Name::new(name), Transform::from_translation(Vec3::from(offset)), Visibility::Inherited)).id();
+                if let Some(l) = data.filter(|l| l.radius > 0.0) {
+                    let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
+                    let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
+                    commands.entity(new).insert(PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() });
+                    info!("nif mirror: light {:08X} on {:08X}'s {target}, radius {:.0}", light.0, r.0, l.radius);
+                }
+                commands.entity(t).add_child(new);
+            }
             // A placed model's particle system of that name (or emitting from a node of
             // that name), changed while it lives (JohnnyGuitar's SetNiPSysModifierValue).
             SceneEdit::Particle { node, id, v, .. } => {

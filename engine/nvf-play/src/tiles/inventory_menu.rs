@@ -906,7 +906,7 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
         let selected = m.selected_row(Side::Player);
         // No DPS on this page, as the hand-built one (`items::draw`).
         let card = selected.map(|r| Info { dps: None, ..items::info_of(r, combat, sim, forms.as_mut(), Some(&mut *script)) });
-        let hp = forms.as_mut().and_then(|f| crate::pipboy::stats::read::player_hp(f, sim, Some(&mut *script)));
+        let hp = crate::pipboy::stats::read::player_hp(sim, Some(&mut *script));
         let dt = combat.map(|c| crate::combat::target_armor(c, Some(&mut *script), sim, FormId::PLAYER_REF).0);
         let caps = sim.world.item_count(FormId::PLAYER_REF, crate::menu::model::CAPS).unwrap_or(0);
         // Whole units cut off, not rounded [observed: private job run07_repair_menu, 1280x720, one case; as the container's].

@@ -449,6 +449,7 @@ impl Plugin for ReportsPlugin {
                 group: "Reports",
                 label: "Send reports to help fix NVForever",
                 note: "After each session: build, hardware, settings, mod list, how it ran and the log; no personal details, no saves. From the next start",
+                switches: "",
                 get: |_| EngineHome::user().is_some_and(|h| Reports::load(&h).send == Some(true)),
                 set: |_, on| {
                     if let Some(h) = EngineHome::user() {

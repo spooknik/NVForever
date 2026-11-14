@@ -129,6 +129,11 @@ pub fn prepare_column(ui: &mut Ui, files: Option<&dyn fnv_ui::Source>) -> bool {
 pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
     if page.frames == 0 {
         *page = ModsPage::default();
+        // JIP's menu-open handlers for the start menu, as the original's pause menu opens
+        // (`Game::page_menu_event`); MCM Extender adds its menus to MCM's list there.
+        let ran = game.page_menu_event(menus::START, true);
+        let listed = game.data.by_edid("MCMMods").map(|l| fnv_game::functions::list_members(game, l).len());
+        info!("tiles: the start menu's opening sent to {ran} JIP handlers; MCM's list of mods (MCMMods) holds {listed:?}");
     }
     let files = game.ui_files.as_deref().map(|f| f as &dyn fnv_ui::Source);
     if prepare_column(&mut game.ui_tree, files) {

@@ -67,6 +67,9 @@ pub enum IdleSource {
     PickUp,
     /// An actor with a live explosive planted in its pocket panics ([`Game::panic_idle`]).
     Panic,
+    /// The player activated something and the idle tree's activation root had an idle
+    /// for it: drinking from placeable water ([`Game::activate_idle`], #2349).
+    Activate,
 }
 
 /// Which fidgets of the idle tree are played: the branch below a node whose conditions
@@ -218,6 +221,16 @@ impl IdlePicker {
 }
 
 impl<'a> Game<'a> {
+    /// The current model file of an IDLE, including SetIdleAnimPath's session
+    /// replacement. The renderer must use the same path as script getters.
+    pub fn idle_animation_path(&self, idle: FormId) -> Option<&str> {
+        let def = self.data.idles.get(&idle)?;
+        match self.field_overrides.get(&(idle,"MODL/".into())) {
+            Some(fnv_script::vm::XVal::Str(path)) => Some(path.as_str()),
+            _ => def.model.as_deref(),
+        }
+    }
+
     /// `actor` is to play `idle`: queued for the animating layer and traced. An IDLE
     /// that names no animation file (an inner node of the idle tree) is not played
     /// [hypothesis: only idles with a file can be listed or played by name; the editor
@@ -432,6 +445,66 @@ impl<'a> Game<'a> {
             }
             if let Some((leaf, _)) = self.first_leaf(actor, root, None, true, held_back) {
                 return Some(leaf);
+            }
+        }
+        None
+    }
+
+    /// The idle `actor` plays for activating something, from the idle tree, and the way
+    /// to it (the root first, the leaf last), or `None` (docs/spec-notes/idles.md §16,
+    /// #2349): the roots of the actor's own `folder` in chain order whose conditions name
+    /// `GetUsedItemActivate == 1`, gone into as for [`Game::pick_idle`] (the first leaf
+    /// with a file whose way down passes) [documented: fnvtool esm decode and actor anims,
+    /// FalloutNV.esm has one for people,
+    /// `ActivateIdles` 0x00003BDC, whose children are `ActStimpakSource` (GetIsUsedItem
+    /// Stimpak), `ActWaterSource` 0x000221B4 (IsWaterObject == 1: `1stPersonActWater`,
+    /// GetIsID Player and IsPC1stPerson, then `3rdPersonActWater` with no conditions) and
+    /// `NPCPickUpItem` (not the player); documented: GECK wiki IsWaterObject, "Used in
+    /// vanilla game for drinking animation"; hypothesis: the original asks this root when
+    /// the player activates something]. During this walk, and only here,
+    /// GetUsedItemActivate answers 1 while the actor activates something
+    /// ([`Game::activating`]; elsewhere its answer is unchanged, #2349); IsWaterObject
+    /// answers for what it activates; the tree's own conditions choose. `held_back` as for
+    /// [`Game::fidget`].
+    pub fn activate_idle(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, Vec<FormId>)> {
+        let before = self.activate_walk.replace(actor);
+        // Put back even when the walk panics (a caller's `held_back`), so a caller that
+        // catches it does not leave GetUsedItemActivate answering for the activation;
+        // the panic goes on.
+        let pick = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.activate_walk_tree(actor, folder, held_back)));
+        self.activate_walk = before;
+        pick.unwrap_or_else(|p| std::panic::resume_unwind(p))
+    }
+
+    /// [`Game::activate_idle`]'s walk, with the activation known to GetUsedItemActivate.
+    fn activate_walk_tree(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, Vec<FormId>)> {
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let roots: Vec<FormId> = data
+            .idle_children
+            .get(&None)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|r| data.idle_children.contains_key(&Some(*r)))
+            .filter(|r| {
+                data.idles.get(r).is_some_and(|d| d.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder)) && names(d.conditions.as_deref().unwrap_or_default(), GET_USED_ITEM_ACTIVATE, 1.0))
+            })
+            .collect();
+        for root in roots {
+            if !self.idle_allowed(actor, root) {
+                continue;
+            }
+            if let Some((leaf, _)) = self.first_leaf(actor, root, None, true, held_back) {
+                let mut way = vec![leaf];
+                let mut at = leaf;
+                while at != root {
+                    let Some(up) = data.idles.get(&at).and_then(|d| d.parent) else { break };
+                    way.push(up);
+                    at = up;
+                }
+                way.reverse();
+                return Some((leaf, way));
             }
         }
         None
@@ -775,6 +848,8 @@ const GET_SLEEPING: u16 = 0x1031;
 const GET_IS_ALERTED: u16 = 0x105B;
 /// Opcode of `GetPlantedExplosive` (`functions::mod`).
 const GET_PLANTED_EXPLOSIVE: u16 = 0x11AC;
+/// Opcode of `GetUsedItemActivate` (`functions::mod`; condition index 259).
+const GET_USED_ITEM_ACTIVATE: u16 = 0x1103;
 /// The procedure of a fleeing actor, 16 FLEE (`functions::ai_state`).
 const FLEE_PROCEDURE: f64 = 16.0;
 

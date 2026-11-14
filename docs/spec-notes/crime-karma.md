@@ -29,6 +29,12 @@ Code: `crates/fnv-game/src/crime.rs` (the rules, the script functions), the reco
   IsPCAMurderer, GetFactionFlags (an NVSE plugin's: the flag numbers), IsCrimeOrEnemy and
   HudBarSetSystemColor (NVSE plugins': the crime colour of the prompt). The page
   Category:Crime itself is not in the export.
+- **GECK wiki, offline snapshot** (`E:\Games\geck-wiki`, 2026-10-28): Category:Crime
+  (major and minor crimes, the faction's "Player is an Enemy" flag, crimes expiring after
+  `iCoolDownTimerSetting` days, 3 by default), Complete List of GameSettings
+  (`iCoolDownTimerSetting` 3), Category:Factions ("Hidden from PC … has no code
+  associated with it in Fallout"; Track Crime), Reputation ("no actual impact on the
+  combat reactions of actors").
 - **The game's own help** [documented: FalloutNV.esm MESG `HelpCrime` 0x0007234D and
   `HelpKarma` 0x0006B250, read with `fnvtool esm decode`; paraphrased here]. HelpCrime:
   crimes are minor or major. Minor crimes make only the victim hostile: *theft* (the
@@ -58,6 +64,7 @@ Code: `crates/fnv-game/src/crime.rs` (the rules, the script functions), the reco
 | Trespass warnings | GMST `iGuardWarnings` | 2 [observed] |
 | Seconds between warnings | GMST `fAITrespassWarningTimer` | not in the plugin; 5 by the wiki [documented: Guard Package] |
 | Karma limits | GMST `iKarmaMin`, `iKarmaMax` [documented: RewardKarma] | not in the plugin: no limit applied [observed] |
+| Days a crime lasts | GMST `iCoolDownTimerSetting` [documented: Category:Crime] | not in the plugin [observed: `fnvtool esm decode --edid` finds no record]; 3 by the wiki [documented: Category:Crime; Complete List of GameSettings] |
 | Messages | GMST `sKarmaMajorGained`, `sKarmaMinorGained` ("You've gained Karma!"), `sKarmaMajorLost`, `sKarmaMinorLost` ("You've lost Karma!") and their `…Image` icons (`glow_karma_saintly`, `_good`, `_evil`, `_bad`) | [observed] |
 | Sounds | SOUN `UIKarmaUp` 0x0005B53F (`fx\ui\ui_karma_up.wav`), `UIKarmaDown` 0x0005B540 | [observed] |
 | Crime dialogue | global `GenericCrimeKarmaDialogueChance` | 25 [observed]; not used |
@@ -175,8 +182,10 @@ a terminal that opens at its menu (unlocked, hacked before, password held) is no
 - A murder such a witness saw makes the player an enemy of the victim's crime-tracking
   factions [documented: SetPCEnemyOfFaction, "the enemy flag … when the player commits a
   major crime against a crime-tracking faction"; hypothesis: when a witness saw it]:
-  every member attacks on sight (GetActorFactionPlayerEnemy), until
-  ClearFactionPlayerEnemyFlag.
+  every member attacks on sight (GetActorFactionPlayerEnemy), whatever its aggression
+  and the faction reactions [documented: Category:Crime, either indicator "will override
+  any other faction reaction"], until the crime expires (§3.7) or a script clears the
+  flag (ClearFactionPlayerEnemyFlag, SetPCEnemyOfFaction 0).
 
 ### 3.5 Assault
 
@@ -196,13 +205,72 @@ faction given) on the player and makes it say Assault [documented].
 - An actor that turns becomes a **crime enemy** (GetActorCrimePlayerEnemy): it attacks the
   player whatever its aggression and whatever the faction reactions say [design, as an
   assaulted actor's grudge]. Unaggressive owners fight too; fleeing for help is combat
-  AI's (not built here). StopCombat ends it [design, as for grudges]; a crime is not
-  yieldable [design: the wiki's Yielding speaks of actors the player attacked].
+  AI's (not built here). StopCombat ends it [design, as for grudges], and so does the
+  crime expiring (§3.7); a crime is not yieldable [design: the wiki's Yielding speaks of
+  actors the player attacked].
 - IgnoreCrime 1: the actor neither turns nor attacks for crimes [documented].
 - GetAlarmed reads 1 for a crime enemy [hypothesis: the wiki says only "alarmed"].
   IsActorAVictim is the latest crime's victim [documented: "one NPC at a time"].
   GetMinorCrimeCount and GetMajorCrimeCount count per actor; a theft nobody saw counts
   against the owning base or faction [design].
+
+### 3.7 Crimes expire (#2467)
+
+- **The rule** [documented: Category:Crime]: the faction's "Player is an Enemy" flag "is
+  updated via the crime list, so it is cleared when all the crimes causing it to be set
+  expire"; a crime expires after `iCoolDownTimerSetting` days (3 by default; the wiki's
+  examples: a theft victim stops attacking three days after the theft, the BOS three days
+  after the last murder). The setting is read from the load order, 3 when no plugin sets
+  it (FalloutNV.esm does not) [documented: Complete List of GameSettings; observed].
+- **What NVForever keeps** [design: the wiki's crime list reduced to what it decides]:
+  for each faction a crime made the player an enemy of (a seen murder, §3.4, also one
+  seen only by witnesses already hostile; the Evil faction's area alert, combat-ai.md),
+  the game day (GameDaysPassed) of the last such crime; for each crime enemy (§3.6: theft, opened lock, trespass, murder witnessed,
+  SendTrespassAlarm, SendAssaultAlarm), the day of the last crime that made it one. A
+  later crime restarts the count. When the count reaches `iCoolDownTimerSetting` days the
+  crime enemy forgives the player and the faction flag is cleared (`Game::expire_crimes`).
+- **A script's flag stays** [design]: SetPCEnemyOfFaction 1 sets a flag no crime list
+  holds; it stays until a script clears it (SetPCEnemyOfFaction 0,
+  ClearFactionPlayerEnemyFlag, ClearActorsFactionsPlayerEnemyFlag), even when a crime set
+  the same flag too. Whether the original's crime-list update also clears a script's
+  flag is not known [hypothesis: scripts use it for lasting hostility].
+- **When it is read** [design]: against GameDaysPassed whenever hostility is asked afresh
+  (a detection round's start, a combat AI frame's, the crime tick, the Wait menu's hourly
+  check) and by the script functions that read the flags (GetPCEnemyOfFaction,
+  GetActorFactionPlayerEnemy, GetActorCrimePlayerEnemy, GetAlarmed). So time passing by
+  any route counts: play, waiting, sleeping, fast travel, a script setting the clock.
+  Moving the clock back ends nothing.
+- **Saves** [design]: the dates are saved with the player. A save from before #2467 has
+  none: at the load its crime enemies (actors) are dated at the load, so they end three
+  days after it; its faction flags are all kept as a script's and never end by the
+  cooldown, because such a save cannot tell a crime's flag from a quest's
+  SetPCEnemyOfFaction, and a quest's hostility must not end. A flag a crime set in such
+  a save stays until a script clears it, as before #2467.
+- **Log**: `crime: the player is no longer an enemy of <faction>: the last crime against
+  it is <d> game days old`, `crime: <actor> no longer counts the player's crimes: the last
+  is <d> game days old`.
+- **Why it mattered** (#2467) [observed: `fnvtool esm decode`, FalloutNV.esm; the cause a
+  hypothesis, the owner's run left no log]: Karl (`VRRCKarl`, the Legion's envoy at Red
+  Rock) is in `ArmorVCaesarsLegionFaction` (Track Crime, the faction the Legion armour's
+  disguise allies with the player), not in `VCaesarsLegionFaction`. Of the 242 NPC_
+  bases in either faction (factions taken through Use Factions templates), 241 are in the
+  armour faction; 52 of those are also in an Evil faction (VCaesarsLegionSnifferFaction
+  33, VHooverDamCaesarsLegionFaction 13, CaesarsLegionTechMineFaction 4, two others), 189
+  are in none [observed: a scan of FalloutNV.esm's NPC_ and FACT records, 2026-11-14].
+  Killing one of the 189 unprovoked while a fellow Legionary sees the player is a murder
+  (§3.4) that flags the victim's crime-tracking factions, the armour faction among them;
+  without expiry Karl attacked on sight for good. Killing one of the 52 takes the Evil
+  faction's area alert (`crate::provocation`), which flags that Evil faction only, and
+  the kill then counts as self-defence (the victim is a member of a faction the player
+  is now an enemy of), so it never flags the armour faction [observed: smoke run of
+  2026-11-14, NVLegionaryAlexusREF killed: only CaesarsLegionTechMineFaction flagged, no
+  murder].
+- **Open**: the minor crimes' timer. An AI observer check saw Chet calm one day after a
+  theft (npc-behaviour-compare.md §16.9, GetActorCrimePlayerEnemy 0 after 1 day and after
+  4), where the wiki has the victim attack for three; NVForever uses the three days for
+  every crime until a check times it [hypothesis]. Whether a murder of a member while the
+  faction's flag is up is a new crime (the wiki's BOS example) or self-defence (§3.4, as
+  NVForever has it) is open too.
 
 ## 4. Karma
 
@@ -303,7 +371,13 @@ GetOwnerOfCell, HasOwnership, SetIsPCAMurderer, ClearActorsFactionsPlayerEnemyFl
   counts of §2. Smoke scenario `karma-survey`.
 - Unit tests: `crates/fnv-game/tests/crime.rs` (records, ownership through the cell and
   ranks, unseen and seen theft, kills and murder with the faction flag, trespass
-  warnings, RewardKarma).
+  warnings, RewardKarma; crimes expiring, §3.7: after three days of waiting, a script's
+  clock jump, the Wait menu's check, a script's flag kept, a later crime restarting the
+  count, an older save dated at the load).
+- Smoke scenarios `crime-expiry-karl-hostile` and `crime-expiry-karl-calm` (§3.7, #2467):
+  a Cottonwood Cove Legionary in no Evil faction murdered while another, at its post,
+  detects the player, then the longhouse at Red Rock; Karl fights at once, and after a
+  clock jump of four days he does not.
 - In play, smoke scenarios `crime-steal` (a carton of cigarettes taken in front of Chet in
   his store: "crime: theft against GSChet … turned on the player: [GSChetRef …]", the
   karma line and his fight) and `karma-fiend` (Violet shot dead: "crime: karma +100 for

@@ -32,11 +32,6 @@ pub fn modified_mark(shown: f64, permanent: f64) -> Option<&'static str> {
     }
 }
 
-/// The amount a list of changes adds to one value, by the value's code.
-pub fn added(changes: &[(u16, f64, bool)], code: u16) -> f64 {
-    changes.iter().filter(|c| c.0 == code).map(|c| if c.2 { -c.1 } else { c.1 }).sum()
-}
-
 /// The body parts of [`LIMBS`], for the log and the test aid.
 pub const LIMB_NAMES: [&str; 6] = ["head", "torso", "left arm", "right arm", "left leg", "right leg"];
 
@@ -281,7 +276,6 @@ mod tests {
         assert_eq!(changes_text(&c), "Speech +2, Melee Weap. +2");
         let d = [Change { value: "AGL".into(), amount: 1.0, detrimental: true }];
         assert_eq!(changes_text(&d), "AGL -1");
-        assert_eq!(added(&[(38, 2.0, false), (43, 2.0, false), (38, 1.0, true)], 38), 1.0);
     }
 
     #[test]

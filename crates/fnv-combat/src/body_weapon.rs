@@ -25,7 +25,8 @@
 //!   melee arm if there is one, else the gun with the smallest Min Range (its blast
 //!   counted as one).
 //! - An arm that cannot be used (its limb crippled to 0, the caller's rule) is left out;
-//!   with none left there is no choice.
+//!   with none left there is no choice. A combat style's Ranged Only leaves the melee
+//!   arms out while a gun can be used ([`restrict_ranged`]).
 
 /// One arm as the choice sees it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -88,6 +89,18 @@ fn blast_floor(a: &Arm, slack: f32) -> f32 {
 /// The nearest a gun suits: its Min Range or its blast, the further.
 fn nearest(a: &Arm) -> f32 {
     a.min_range.max(blast_floor(a, 0.0))
+}
+
+/// A combat style's Ranged Only: "the combatant will always use ranged weapons as their
+/// primary weapon" [documented: GECK wiki Combat Style]. Its melee arms are left out
+/// (made unusable) while one of its guns can be used; with no gun left it still fights
+/// with them [design, #2351: ranged as the primary weapon, not the only one].
+pub fn restrict_ranged(arms: &mut [Arm]) {
+    if arms.iter().any(|a| a.usable && !a.melee) {
+        for a in arms.iter_mut().filter(|a| a.melee) {
+            a.usable = false;
+        }
+    }
 }
 
 /// The arm (index into `arms`) to fight a target `d` units away with, `current` the one
@@ -235,6 +248,28 @@ mod tests {
         let a = vec![blade(), gun(0.0, 512.0, 30.0)];
         assert_eq!(choose(&a, 100.0, None), Some(0));
         assert_eq!(choose(&a, 400.0, None), Some(1));
+    }
+
+    /// #2351: a combat style's Ranged Only keeps a creature to its guns while one can be
+    /// used; with none left its melee arm comes back.
+    #[test]
+    fn ranged_only_leaves_the_melee_arms_out_while_a_gun_can_be_used() {
+        let mut a = handy();
+        restrict_ranged(&mut a);
+        assert!(!a[0].usable && a[1].usable);
+        // At its feet it keeps the flamer (the smallest Min Range), not the saw.
+        assert_eq!(choose(&a, 80.0, None), Some(1));
+        assert_eq!(choose(&a, 80.0, Some(0)), Some(1));
+        // The flamer lost to a crippled limb: the saw again.
+        let mut a = handy();
+        a[1].usable = false;
+        restrict_ranged(&mut a);
+        assert!(a[0].usable);
+        assert_eq!(choose(&a, 80.0, None), Some(0));
+        // Guns alone: nothing changes.
+        let mut g = gutsy();
+        restrict_ranged(&mut g);
+        assert_eq!(g, gutsy());
     }
 
     #[test]

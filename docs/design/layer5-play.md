@@ -162,8 +162,12 @@ follows docs/spec-notes/level-design.md §11.2 T1–T3:
   OnTrigger every frame it does, **the entering frame included, after OnTriggerEnter**
   [documented: every frame inside, T3; hypothesis: the order on the entering frame,
   open in game, level-design.md §13 question 2]; OnTriggerLeave once on the first frame
-  it no longer does. A trigger that is disabled or whose cell unloads gives no Leave; an
-  actor that is disabled, dies or leaves the loaded cells gives one [hypothesis].
+  it no longer does. A trigger that is disabled gives no Leave; an actor that is
+  disabled, dies or leaves the loaded cells gives one [hypothesis]. A trigger whose cell
+  unloads gives none to the actors still in it, but gives one to the player, who went
+  away (fast travel, a door, MoveTo) [design, #2449: the Boomers' artillery field counts
+  the player in and out, and a player who travelled out stayed counted;
+  observer-checks.md check 137].
 
 ## 4. Effects
 

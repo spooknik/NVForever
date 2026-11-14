@@ -98,7 +98,7 @@ body:
     attributes:
       label: Run log
       description: |
-        Every run writes a log to `%LOCALAPPDATA%\NVForever\logs` (`nvforever-<date>-<time>-<pid>.log`;
+        Every run writes a log to `Documents\My Games\NVForever\logs` (on Linux, `logs` in NVForever's home folder) (`nvforever-<date>-<time>-<pid>.log`;
         the newest is the run that went wrong). Drag the file into this box, or paste the
         lines around the problem. The log records doors used, places loaded and positions,
         which often pinpoints the bug. Paths in it may contain your Windows user name;

@@ -114,7 +114,7 @@ pub(crate) fn nth_entry_of<'g>(g: &'g Game, perk: FormId, i: f64) -> Option<&'g 
 }
 
 /// The perk's Nth entry to change for the session (a copy made the first time).
-fn perk_entry_mut<'g>(g: &'g mut Game, perk: FormId, i: f64) -> Option<&'g mut crate::data::PerkEntry> {
+pub(crate) fn perk_entry_mut<'g>(g: &'g mut Game, perk: FormId, i: f64) -> Option<&'g mut crate::data::PerkEntry> {
     if !g.lu3.perk_edits.contains_key(&perk) {
         let def = g.data.perks.get(&perk)?.clone();
         g.lu3.perk_edits.insert(perk, def);

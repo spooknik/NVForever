@@ -1384,6 +1384,517 @@ fn runtime_refuses_an_untyped_result_for_a_form_parameter() {
     assert_eq!(runtime_errors("SetFunctionValue (GetFormIDString (rObj.GetNthPackage 0))"), Vec::<&str>::new());
 }
 
+/// The statements of a unit's first block, compiled as the engine compiles a mod's source
+/// (`Seed::unknown_calls`), with the compile's diagnostics.
+fn mod_source(src: &str) -> (Compiled, Program) {
+    let t = table();
+    let c = compile(src, &t, &World, Some(Seed { variables: &[], refs: &[], unknown_calls: true }));
+    let p = decode(&c.bytes, &t).program;
+    (c, p)
+}
+
+fn warnings<'a>(c: &'a Compiled, kind: &str) -> Vec<&'a str> {
+    c.diags.iter().filter(|d| !d.error && d.kind == kind).map(|d| d.detail.as_str()).collect()
+}
+
+#[test]
+fn an_eval_line_assigns_or_calls() {
+    // [observed: JustAssortedMods.esp 4.6, `eval iTemp = iTemp * (1 - …)` and `eval
+    // Quest.rRef.Activate PlayerRef 1`, shipped with compiled bytes.]
+    let (c, p) = build("short a\nref r\nbegin GameMode\nlet a := 3\neval a = a * (1 + 1)\neval r.Activate player 1\nend");
+    assert!(c.diags.iter().all(|d| d.kind != "assignment_to_a_value"), "{:?}", c.diags);
+    let b = body(&p);
+    assert!(matches!(&b[1], Stmt::Let { expr: fnv_script::ir::XExpr::Assign { .. } }), "{:?}", b[1]);
+    assert!(matches!(&b[2], Stmt::Eval { expr: fnv_script::ir::XExpr::Call { .. } }), "{:?}", b[2]);
+}
+
+#[test]
+fn the_let_macro_takes_a_division() {
+    // [observed: JustAssortedMods.esp 4.6, `fAP /= GetNumericGameSetting …`.]
+    let (_, p) = build("float f\nbegin GameMode\nf = 6\nf /= 3\nend");
+    assert!(matches!(&body(&p)[1], Stmt::Let { expr: fnv_script::ir::XExpr::Assign { op: fnv_script::ir::XAssign::Div, .. } }), "{:?}", body(&p)[1]);
+}
+
+#[test]
+fn a_lambdas_value_takes_an_assignment() {
+    // `r = ({} => a = b = 1)`: the lambda assigns when it runs; it is not `(r = lambda)
+    // = 1` [observed: JustAssortedMods.esp 4.6 JLMScript].
+    let (c, p) = build("short a\nshort b\nref r\nbegin GameMode\nr = ({} => a = b = 1)\nend");
+    assert!(c.diags.iter().all(|d| d.kind != "assignment_to_a_value"), "{:?}", c.diags);
+    let Stmt::Let { expr: fnv_script::ir::XExpr::Assign { target, value, .. } } = &body(&p)[0] else { panic!("{:?}", body(&p)[0]) };
+    assert!(matches!(**target, fnv_script::ir::XExpr::Var { .. }), "{target:?}");
+    let fnv_script::ir::XExpr::Lambda { value: Some(v), .. } = &**value else { panic!("{value:?}") };
+    assert!(matches!(**v, fnv_script::ir::XExpr::Assign { .. }), "{v:?}");
+}
+
+#[test]
+fn the_jump_groups_have_their_codes() {
+    // [observed: JustAssortedMods.esp 4.6 JVSAnimEffectScript's compiled bytes, 227 and 228.]
+    let c = compile("begin GameMode\nif IsAnimPlaying JumpStart == 0\nelseif IsAnimPlaying JumpLoop\nendif\nend", &table(), &World, None);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    let at = |code: u16| c.bytes.windows(8).any(|w| w[..2] == 0x1128u16.to_le_bytes() && w[6..8] == code.to_le_bytes());
+    assert!(at(227) && at(228), "{:02X?}", c.bytes);
+}
+
+#[test]
+fn a_mods_source_survives_functions_nothing_knows() {
+    // Every place a call can stand [observed: JustAssortedMods.esp 4.6 calls
+    // DisableScriptedActivate, GetContainerOpenSound and ySIGetTagTrait, none with a page,
+    // on a quest's ref variable, in parentheses, after an element and in a let].
+    let src = "short a\nref r\narray_var ar\nbegin GameMode\n\
+        NoSuchFn 1\n\
+        let a := NoSuchFn 2\n\
+        a = r.NoSuchFn 3\n\
+        eval TestQuest.fTimer.NoSuchFn 4\n\
+        a = ar[0].NoSuchFn \"x\"\n\
+        if NoSuchFn 5\nendif\n\
+        if r.NoSuchFn\nendif\n\
+        set a to r.NoSuchFn 6\n\
+        PlaySound (TestQuest.fTimer.NoSuchFn)\n\
+        end";
+    let (c, _) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert!(warnings(&c, "unknown_function").len() >= 9, "{:?}", c.diags);
+    // The editor-parity compile keeps the errors.
+    assert!(compile(src, &table(), &World, None).errors().count() > 0);
+    // A unit whose only extender use is one unknown function on a call line.
+    let (c, _) = mod_source("ref r\nbegin GameMode\nr.NoSuchFn 1\nNoSuchFn\nend");
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    // What does resolve is left as it was: a remote variable, a local, a form.
+    let (c, _) = mod_source("short a\nbegin GameMode\nset a to TestQuest.bDone\nif a == TestGlobal\nendif\nend");
+    assert_eq!(c.diags.iter().filter(|d| d.kind == "unknown_function").count(), 0, "{:?}", c.diags);
+}
+
+#[test]
+fn a_mods_source_survives_an_enum_name_the_table_lacks() {
+    let src = "begin GameMode\nif IsAnimPlaying NoSuchGroup\nendif\nend";
+    let (c, _) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert_eq!(warnings(&c, "unknown_enum_name"), ["anim_group: NoSuchGroup"]);
+    // The code nothing has, not group 0 (Idle).
+    assert!(c.bytes.windows(8).any(|w| w[..2] == 0x1128u16.to_le_bytes() && w[6..8] == u16::MAX.to_le_bytes()), "{:02X?}", c.bytes);
+    assert_eq!(compile(src, &table(), &World, None).errors().map(|d| d.kind).collect::<Vec<_>>(), ["unknown_enum_name"]);
+}
+
+/// How many arguments the call named `name` got, anywhere in the unit's first block.
+fn call_args(p: &Program, name: &str) -> Option<usize> {
+    let json = serde_json::to_string(&p.blocks[0].body).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&json).unwrap();
+    fn find(v: &serde_json::Value, name: &str) -> Option<usize> {
+        match v {
+            serde_json::Value::Object(m) => {
+                let named = m.get("func").is_some_and(|f| f.to_string().to_ascii_lowercase().contains(&name.to_ascii_lowercase()));
+                match (named, m.get("args").and_then(|a| a.as_array())) {
+                    (true, Some(a)) => Some(a.len()),
+                    _ => m.values().find_map(|x| find(x, name)),
+                }
+            }
+            serde_json::Value::Array(a) => a.iter().find_map(|x| find(x, name)),
+            _ => None,
+        }
+    }
+    find(&doc, name)
+}
+
+#[test]
+fn a_foreach_head_may_stand_in_parentheses() {
+    // [observed: Unofficial Patch NVSE Plus and JSawyer Ultimate ship `foreach (item <-
+    // source)` lines with compiled bytes, the source a variable, a call and an ar_List.]
+    let (_, p) = build("array_var a\narray_var e\nref r\nbegin GameMode\nforeach (e <- a)\nloop\nforeach (e <- ar_List 1, 2, 3)\nloop\nforeach (e <- GetListForms r)\nloop\nforeach e <- (a)\nloop\nend");
+    let b = body(&p);
+    assert_eq!(b.len(), 4, "{b:?}");
+    assert!(b.iter().all(|s| matches!(s, Stmt::ForEach { head, .. } if matches!(head.var, fnv_script::ir::XExpr::Var { .. }))), "{b:?}");
+    assert_eq!(call_args(&p, "ar_List"), Some(3));
+    // Only one pair around all of it is the head's.
+    use fnv_script::compile::lex::{unwrapped, xtokens};
+    assert_eq!(unwrapped(&xtokens("(e <- a)")).len(), 3);
+    assert_eq!(unwrapped(&xtokens("(e) <- (a)")).len(), 7);
+    assert_eq!(unwrapped(&xtokens("((e <- a))")).len(), 5);
+}
+
+#[test]
+fn a_comma_may_follow_a_functions_name() {
+    // [observed: Unofficial Patch NVSE Plus ships `rForm = ListGetNthForm, <list>, iPos`
+    // with compiled bytes.]
+    for line in ["r = ListGetNthForm, Caps001, i", "let r := ListGetNthForm, Caps001, i", "set r to ListGetNthForm, Caps001, i"] {
+        let (_, p) = build(&format!("ref r\nshort i\nbegin GameMode\n{line}\nend"));
+        assert_eq!(call_args(&p, "ListGetNthForm"), Some(2), "{line}");
+    }
+    // After a function that can go without its first argument, or takes none, the comma
+    // is the list's: two elements each.
+    for first in ["GetActiveFactions", "GetSelf"] {
+        let (_, p) = build(&format!("array_var a\nbegin GameMode\nlet a := ar_List {first}, 2\nend"));
+        assert_eq!(call_args(&p, "ar_List"), Some(2), "{first}");
+    }
+    let (_, p) = build("array_var a\nbegin GameMode\nlet a := ar_List GetActiveFactions, 2\nend");
+    assert_eq!(call_args(&p, "GetActiveFactions"), Some(0));
+}
+
+#[test]
+fn getfactionrank_takes_its_faction_in_an_extender_expression() {
+    // The catalogue's row has no parameter list; its condition takes a faction
+    // [documented: the xEdit definitions' `ptFaction`]. [observed: JIP Companions Command
+    // & Control 2.60, `elseif (… == 0) || (rRef.GetFactionRank <faction> > 9)`.]
+    assert_eq!(table().get(0x1049).map(|f| (f.name.as_str(), f.encodings.len())), Some(("GetFactionRank", 1)));
+    let (_, p) = build("ref r\nshort a\nbegin GameMode\nlet a := (a == 0) || (r.GetFactionRank TestQuest > 9)\nend");
+    assert_eq!(call_args(&p, "4169").or(call_args(&p, "GetFactionRank")), Some(1), "{:?}", body(&p));
+}
+
+#[test]
+fn an_unknown_name_before_an_operand_in_parentheses_is_a_call() {
+    // [observed: JIP Companions Command & Control 2.60, `SetFunctionValue (CCCInFaction
+    // <faction> == 0)`: a function with no page, as an argument in parentheses.]
+    let src = "begin Function { }\nSetFunctionValue (NoSuchFn TestQuest == 0)\nend";
+    let (c, p) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert_eq!(warnings(&c, "unknown_function"), ["NoSuchFn"]);
+    assert_eq!(call_args(&p, "NoSuchFn"), Some(1));
+    // Alone in parentheses it stays its own text, as in the original [observed:
+    // nvse-fourth, `SetFunctionValue (GetFOSEVersion)`].
+    let (c, _) = mod_source("begin Function { }\nSetFunctionValue (NoSuchFn)\nend");
+    assert_eq!(warnings(&c, "unknown_function"), Vec::<&str>::new());
+    assert_eq!(warnings(&c, "unquoted_argument"), ["NoSuchFn"]);
+    // The editor-parity compile keeps its error.
+    assert!(compile(src, &table(), &World, None).errors().count() > 0);
+}
+
+#[test]
+fn names_read_from_mods_compiled_bytes_have_their_codes() {
+    // [observed: the compiled scripts of Project Nevada 2.5 and Unofficial Patch NVSE Plus
+    // 1.7.3 beside their source: PlayGroup Attack4 44, Attack4IS 47, Attack5 50, Attack7
+    // 62, JamB 201, Stagger 223; GetIsObjectType Container 27, stored as an animation
+    // group is (a count, then the code).]
+    let t = table();
+    for (group, code) in [("Attack4", 44u16), ("Attack4IS", 47), ("Attack5", 50), ("Attack7", 62), ("JamB", 201), ("Stagger", 223)] {
+        let c = compile(&format!("begin GameMode\nPlayGroup {group} 1\nend"), &t, &World, None);
+        assert_eq!(c.errors().count(), 0, "{group}: {:?}", c.diags);
+        assert!(c.bytes.windows(8).any(|w| w[..2] == 0x1013u16.to_le_bytes() && w[6..8] == code.to_le_bytes()), "{group}: {:02X?}", c.bytes);
+    }
+    let c = compile("ref r\nshort a\nbegin GameMode\nif r.GetIsObjectType Container == 1 && a\nendif\nend", &t, &World, None);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    assert!(c.bytes.windows(8).any(|w| w == [0xB1, 0x11, 0x04, 0x00, 0x01, 0x00, 0x1B, 0x00]), "{:02X?}", c.bytes);
+    // A form type not read yet: an error in the editor's compile, a warning in a mod's.
+    let src = "ref r\nbegin GameMode\nif r.GetIsObjectType NoSuchType\nendif\nend";
+    assert_eq!(compile(src, &t, &World, None).errors().map(|d| d.kind).collect::<Vec<_>>(), ["unknown_enum_name"]);
+    let (c, _) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    assert_eq!(warnings(&c, "unknown_enum_name"), ["form_type: NoSuchType"]);
+}
+
+#[test]
+fn a_mods_variable_may_bear_an_extender_functions_name() {
+    // [observed: Project Nevada - Core.esm 2.5, a variable `break` in a stage's result
+    // script, shipped with compiled bytes.] The editor's compile refuses the name.
+    let src = "short break\nbegin GameMode\nset break to 1\nif break\nendif\nend";
+    let (c, _) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert_eq!(warnings(&c, "variable_named_like_a_function"), ["break"]);
+    assert!(compile(src, &table(), &World, None).errors().any(|d| d.kind == "variable_named_like_a_function"));
+}
+// ---------------------------------------------------------------- mods of the Blue Moon list
+// What units of the owner's 211-plugin list (#2275) failed to compile from their source,
+// though each ships compiled bytes the GECK with xNVSE wrote from it. Each case is the
+// line's shape, not the mod's text.
+
+fn mod_ok(src: &str) -> (Compiled, Program) {
+    let (c, p) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    (c, p)
+}
+
+#[test]
+fn a_bare_colon_equals_line_is_a_let() {
+    let (_, p) = mod_ok("short d\nbegin GameMode\nd := 1\nTestQuest.bDone := 1\nend");
+    assert!(body(&p).iter().all(|s| matches!(s, Stmt::Let { .. })), "{:?}", body(&p));
+    assert_eq!(body(&p).len(), 2);
+}
+
+#[test]
+fn a_vanilla_functions_argument_in_parentheses_is_an_inline_expression_in_mod_source() {
+    let src = "begin GameMode\nPlayer.RestoreAv Health (player.getav Health)\nPlayer.RestoreAv Health ((player.getav Health) * 2)\nend";
+    let (_, p) = mod_ok(src);
+    assert!(body(&p).iter().all(|s| matches!(s, Stmt::Eval { .. })), "{:?}", body(&p));
+    assert!(compile(src, &table(), &World, None).errors().count() > 0, "the editor-parity compile reads it as vanilla");
+}
+
+#[test]
+fn set_event_handler_alt_takes_its_filters_and_a_priority() {
+    let (_, p) = mod_ok("begin GameMode\nSetEventHandlerAlt \"ShowOff:OnPreActivate\" TestQuest 0::TestDoorREF 1::PlayerREF \"priority\"::3\nend");
+    assert_eq!(call_args(&p, "SetEventHandlerAlt"), Some(5));
+}
+
+#[test]
+fn spellings_the_original_compiles() {
+    // `begin function{} =>`, `Let r : = …`, `This`, a compound assignment declaring.
+    mod_ok("short b\nbegin GameMode\nCallAfter 2.1 (begin function{} =>\n  set b to 1\nend)\nend");
+    let (_, p) = mod_ok("ref r\nbegin GameMode\nLet r : = (GetSelf)\nlet r := This\nend");
+    assert!(body(&p).iter().all(|s| matches!(s, Stmt::Let { .. })));
+    let (c, _) = mod_ok("float fMin\nfloat fMax\nbegin GameMode\nfloat fChance += rand fMin, fMax\nend");
+    assert_eq!(c.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["fMin", "fMax", "fChance"]);
+}
+
+#[test]
+fn alignment_names_have_their_codes() {
+    // [observed: Karmic Balance.esp and Vegas Elysium.esp, GetIsAlignment (0x11DA).]
+    let t = table();
+    for (name, code) in [("Good", 0u16), ("Neutral", 1), ("Evil", 2), ("VeryGood", 3), ("VeryEvil", 4)] {
+        let c = compile(&format!("begin GameMode\nif player.GetIsAlignment {name}\nendif\nend"), &t, &World, None);
+        assert_eq!(c.errors().count(), 0, "{name}: {:?}", c.diags);
+        assert!(c.bytes.windows(8).any(|w| w[..2] == 0x11DAu16.to_le_bytes() && w[6..8] == code.to_le_bytes()), "{name}: {:02X?}", c.bytes);
+    }
+}
+
+#[test]
+fn what_the_original_drops_from_a_line() {
+    // `say Topic:Ugh! || …` says the topic; `DebugPrint "t= " + $f` prints the string.
+    let (c, _) = mod_ok("begin GameMode\nplayer.say TestQuest:Ugh! || player.say TestQuest:Oof!\nend");
+    assert_eq!(warnings(&c, "rest_of_line_dropped").len(), 1);
+    let (c, p) = mod_ok("float f\nbegin GameMode\nDebugPrint \"t= \" + $f\nend");
+    assert_eq!(warnings(&c, "rest_of_line_dropped").len(), 1);
+    assert_eq!(call_args(&p, "DebugPrint"), Some(1));
+    // In parentheses: after a call with all its arguments, or from a comma on.
+    let (c, p) = mod_ok("ref q\nshort r\nbegin GameMode\nr = (ar_size (GetActiveObjectives q)) < 0\nend");
+    assert_eq!(warnings(&c, "rest_of_parentheses_dropped"), ["q"]);
+    assert_eq!(call_args(&p, "GetActiveObjectives"), Some(0));
+    let (c, _) = mod_ok("short i\nbegin GameMode\nSetFormDescription TestQuest ((GetFormDescription TestQuest), i)\nend");
+    assert_eq!(warnings(&c, "rest_of_parentheses_dropped"), [", i"]);
+}
+
+#[test]
+fn a_short_form_id_names_its_form_in_mod_source() {
+    // [observed: ABM- Patched Perks.esp, `player.AddItem f iAmount` adds the caps.]
+    let src = "short i\nbegin GameMode\nplayer.AddItem f i\nend";
+    let (c, _) = mod_ok(src);
+    assert!(c.refs.contains(&RefSlot::Form(CAPS)), "{:?}", c.refs);
+    assert!(compile(src, &table(), &World, None).errors().count() > 0);
+}
+
+#[test]
+fn a_short_form_id_names_its_form_in_an_extender_functions_form_parameter() {
+    // [observed 2026-11-14, nvse-cmd-probes in the stock game, xNVSE's runtime compiler:
+    // `AuxVarSetFlt "*_q" 7 0 f` reads back under Caps001 (0xF); `g` and `FFFFFF` (no
+    // form) fail the compile; shipped in Armor Damage Fix's gr_CondDamFix.txt.]
+    let (c, _) = mod_ok("begin GameMode
+AuxVarSetFlt \"*_q\" 7 0 f
+end");
+    assert!(c.refs.contains(&RefSlot::Form(CAPS)), "{:?}", c.refs);
+    let (c, _) = mod_ok("begin GameMode
+AuxVarSetFlt \"*_q\" 7 0 14
+end");
+    assert!(c.refs.contains(&RefSlot::Form(fnv_script::compile::PLAYER)), "14 is the player's reference: {:?}", c.refs);
+    // The value and the index are no forms, whatever they look like.
+    let (c, _) = mod_ok("begin GameMode
+AuxVarSetFlt \"*_q\" 7 0
+end");
+    assert!(c.refs.is_empty(), "{:?}", c.refs);
+}
+
+#[test]
+fn pc1st_in_parentheses_is_the_call_not_text() {
+    // [observed: ln_B42Core.txt, `Goo1.AuxVarSetFlt "*_CrPOV" (PC1st)`; Enhanced FOV.esp's
+    // bytes call IsPC1stPerson for `if PC1st`.]
+    let (c, _) = mod_ok("begin GameMode
+AuxVarSetFlt \"*_q\" (PC1st)
+end");
+    assert!(warnings(&c, "unquoted_argument").is_empty(), "{:?}", c.diags);
+}
+
+#[test]
+fn set_string_setting_is_lus_function_not_the_console_command() {
+    let (_, p) = mod_ok("begin GameMode\nSetStringSetting \"sTargetTypeOpen\" \"Open\"\nend");
+    assert_eq!(call_args(&p, "SetStringSetting"), Some(2));
+}
+
+#[test]
+fn an_arrow_lambda_may_span_lines() {
+    // [observed: FreePostMojave.esm, `CallWhen ({} =>` … `) ({} => MenuMode == 0)`.]
+    let (_, p) = mod_ok("string_var s\nbegin GameMode\nCallWhen ({} =>\n  MessageBoxExAlt TestQuest (s)\n  player.RewardXP 250\n) ({} => MenuMode == 0)\nprint \"done\"\nend");
+    assert_eq!(body(&p).len(), 2, "{:?}", body(&p));
+    assert_eq!(call_args(&p, "CallWhen"), Some(2));
+}
+
+#[test]
+fn an_if_with_open_parentheses_takes_the_lines_that_continue_it() {
+    // [observed: NpcCombatChem.esp, `If (( … )` and `|| ( … )` lines below it.]
+    let (_, p) = mod_ok("short a\nshort b\nbegin GameMode\nIf (( a == 4 && b < 1 )\n || ( a == 3 && b < 2 ) )\n set a to 1\nendif\nend");
+    let Stmt::If { arms, .. } = &body(&p)[0] else { panic!("{:?}", body(&p)) };
+    assert_eq!(ops(&arms[0].cond), ["var", "4", "==", "var", "1", "<", "&&", "var", "3", "==", "var", "2", "<", "&&", "||"]);
+}
+
+#[test]
+fn a_mods_runtime_file_calls_a_function_nothing_knows() {
+    // A Script Runner file naming a plugin function with no page compiles; the console's
+    // line keeps the error.
+    // (EnableImprovedRecipeMenu and RefreshAnimData, the names first used here, have
+    // catalogue rows since #2318/#2326: names no plugin registers stand in.)
+    let src = probe("NvfUnregisteredCommandA 1\nplayer.NvfUnregisteredCommandB");
+    let c = fnv_script::compile::compile_mod_runtime(&src, &table(), &World);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert!(!runtime_errors("NvfUnregisteredCommandA 1").is_empty());
+}
+
+#[test]
+fn xnvses_own_int_parameter_keeps_a_fraction_at_run_time() {
+    assert_eq!(runtime_errors("SetWeaponFireRate 7.5"), Vec::<&str>::new());
+}
+
+#[test]
+fn spellings_the_extender_registers_are_names_too() {
+    // [observed: the Blue Moon install's nvse.log, `ReadFromJSONFile (ReadFromJSON)`.]
+    let t = table();
+    assert_eq!(t.unnumbered.get("readfromjsonfile").map(|u| u.name.as_str()), Some("ReadFromJSON"));
+    assert!(t.unnumbered.contains_key("getedid") || t.by_name("getedid").is_some());
+    // [observed: TTW No Hardcore Sacrifice.esp's bytes call MoveTo for `MoveToMarker`.]
+    assert_eq!(t.by_name("movetomarker"), t.by_name("moveto"));
+    assert_eq!(t.by_name("pc1st"), t.by_name("ispc1stperson"), "[observed: Enhanced FOV.esp's bytes]");
+    assert!(t.by_name("moveto").is_some());
+}
+
+#[test]
+fn a_quoted_form_id_before_a_dot_is_the_reference() {
+    // [observed: Veronica Outfit Replacer.esp ships `If "E32A9".GetItemCount X == 0` and
+    // `"E32A9".AddItemAlt X 1 100 1` with compiled bytes calling both on 0x000E32A9.]
+    let src = "short i
+begin GameMode
+If \"1003000\".GetItemCount Caps001 == 0
+\"1003000\".AddItem Caps001 1
+endif
+end";
+    let (c, _) = mod_ok(src);
+    assert!(c.refs.contains(&RefSlot::Form(DOOR)), "{:?}", c.refs);
+    // A quoted Editor ID before a dot names its form too.
+    let (c, _) = mod_ok("begin GameMode
+\"TestDoorREF\".Disable
+end");
+    assert_eq!(c.refs, [RefSlot::Form(DOOR)]);
+}
+
+#[test]
+fn set_after_a_reference_sets_the_scripts_own_variable() {
+    // [observed: Fallout3.esm and RAD.esp, `MS14ArmorVoiceRef.Set SayTimer to
+    // GameDaysPassed + 0.1` compiles to `1C 00 <ref> 15 00 …`, a set of the local SayTimer
+    // with the reference as its prefix.]
+    let src = "float SayTimer
+begin GameMode
+TestDoorREF.Set SayTimer to 2 + 0.1
+end";
+    let (c, p) = build(src);
+    assert_eq!(c.refs, [RefSlot::Form(DOOR)]);
+    let set = [0x1Cu8, 0x00, 0x01, 0x00, 0x15, 0x00];
+    assert!(c.bytes.windows(set.len()).any(|w| w == set), "{:02X?}", c.bytes);
+    let (_, q) = build("float SayTimer
+begin GameMode
+Set SayTimer to 2 + 0.1
+end");
+    assert_eq!(body(&p), body(&q), "decoded as the plain set");
+}
+
+// ---------------------------------------------------------------- mods of the High and Dry list
+// The same for the owner's 232-plugin High and Dry list (#2275).
+
+#[test]
+fn a_box_after_a_comma_is_an_argument() {
+    // [observed: Famine.esp, `Call Fn, &rRef, 0, 0, 0, 0`: five arguments, the first boxed.]
+    let (_, p) = mod_ok("ref r
+begin GameMode
+Call TestQuest, &r, 0, 0
+end");
+    assert_eq!(call_args(&p, "Call"), Some(4));
+    let json = serde_json::to_string(body(&p)).unwrap();
+    assert!(json.contains("\"box\""), "{json}");
+}
+
+#[test]
+fn braces_around_an_argument_are_the_argument() {
+    // [observed: Animated Ingestibles.esp, `call Fn {(BuildRef 0 n)}` and `call Fn {Q.v}`.]
+    let (_, p) = mod_ok("begin GameMode
+call TestQuest {(GetSelf)}
+call TestQuest {TestQuest.bDone}
+end");
+    assert_eq!(body(&p).len(), 2);
+    assert_eq!(call_args(&p, "Call"), Some(2));
+}
+
+#[test]
+fn an_operand_meeting_a_whole_expression_in_parentheses_is_dropped() {
+    // [observed: MrShersh Functional Backpack.esp, `("…" + $sv ".nif")` ends at the variable.]
+    let (c, _) = mod_ok("string_var s
+begin GameMode
+AttachModel Player 2 (\"a\" + $s \".nif\")
+end");
+    assert_eq!(warnings(&c, "rest_of_parentheses_dropped"), [".nif"]);
+}
+
+#[test]
+fn get_refs_in_cell_takes_six_arguments() {
+    // [observed: JAM Misc Tweaks.esp, `GetRefsInCell (Player.GPC) 28 2 0 2000 45`.]
+    let (_, p) = mod_ok("array_var a
+begin GameMode
+a = Player.GetRefsInCell (Player.GPC) 28 2 0 2000 45
+end");
+    assert_eq!(call_args(&p, "GetRefsInCell"), Some(6));
+}
+
+#[test]
+fn a_set_lines_parentheses_do_not_end_a_call() {
+    // [observed: Animated Ingestibles.esp, `set t to 1 + (getVariable ("b" + $i)) Quest`:
+    // GetVariable takes the quest after the `)`.]
+    let (_, p) = mod_ok("short i
+short t
+begin GameMode
+set t to 1 + (GetVariable (\"bDo\" + $i)) TestQuest
+end");
+    assert_eq!(call_args(&p, "GetVariable"), Some(2));
+}
+
+#[test]
+fn an_nvsescript_unit_compiles_through_the_first_grammar() {
+    // [observed: WeaponModCraftInfo.esp's four units, `name X;` and `fn (int i) { … }`,
+    // ship with bytes the extender's second compiler wrote; documented: NVSEScript.]
+    let src = "name Handler;
+
+fn (int iMenuId) {
+    TestQuest.bDone = iMenuId;
+    if (!TestQuest.bDone) {
+        return;
+    }
+    Print(\"menu ${iMenuId}\");
+}
+";
+    let (c, p) = mod_ok(src);
+    assert_eq!(c.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["iMenuId"]);
+    assert_eq!(p.blocks.len(), 1);
+    // A diagnostic names the source's line.
+    let (c, _) = mod_source("name Bad;
+
+fn () {
+    NoSuchVar.x = 1;
+}
+");
+    assert_eq!(c.errors().next().map(|d| d.line), Some(4), "{:?}", c.diags);
+}
+
+/// Inside an expression an NVSE-aware function's argument stops at a comparison, which
+/// applies to the call's result [observed: Party Banter 2.esm ships `if eval Ar_HasKey
+/// aConvo, "Conditions" == 1` with bytes that compare the call with 1, #2275]; a range or
+/// a pair still continues it.
+#[test]
+fn a_comparison_after_an_aware_calls_argument_compares_its_result() {
+    let h = run("array_var a\nint r\nint s\nbegin GameMode\nlet a := ar_Map \"x\"::1\nif eval ar_HasKey a \"minMCMVersion\" == 0\nlet r := 5\nendif\nif eval ar_HasKey a \"x\" == 1 && ar_Size a == 1\nlet s := 7\nendif\nend");
+    assert_eq!(h.0[&2], Value::Num(5.0));
+    assert_eq!(h.0[&3], Value::Num(7.0));
+}
+
+/// An assignment to a string variable in the place of the variable an Sv_ function edits:
+/// the assignment runs and the function edits that variable (AguaFria.esm's
+/// `sv_Replace " (GRA)|" (sText = $rForm) 0 99 0 1`, #2275).
+#[test]
+fn sv_replace_edits_the_variable_an_assignment_in_its_place_sets() {
+    let h = run("string_var s\nstring_var t\nfloat n\nbegin GameMode\nlet t := \"Rifle (GRA)\"\nlet n := Sv_Replace \" (GRA)|\" (s = t)\nend");
+    assert_eq!(h.text(1), "Rifle");
+    assert_eq!(h.0[&3], Value::Num(1.0));
+}
+
 #[test]
 fn typeof_absent_key_is_null_without_creating_it() {
     let h = run("array_var a\nstring_var missing\nstring_var present\nint count\nbegin GameMode\nlet a := ar_Map \"present\"::7\nlet missing := TypeOf a[\"absent\"]\nlet present := TypeOf a[\"present\"]\nlet count := ar_Size a\nend");
@@ -1399,5 +1910,38 @@ fn typeof_does_not_hide_invalid_indexing_or_direct_missing_access() {
         let mut host = host_for(&c);
         let error = Vm::new(&table(), &mut host, RunOpts { strict: true, ..Default::default() }).run(&p.blocks[0].body);
         assert!(error.is_err(), "{expression}: {error:?}");
+    }
+}
+
+/// `*` with a space before and a name right after unboxes the argument
+/// (`Ar_Size *aKeybinds`, keybinder's ConstructModAddedJson.gek); `a * 2` still multiplies.
+#[test]
+fn a_spaced_star_before_a_name_is_the_unbox_prefix() {
+    let h = run("array_var a\narray_var b\nint n\nint m\nbegin GameMode\nlet a := ar_List 1, 2, 3\nlet b := &a\nif eval (1 + (Ar_Size *b) * 2) == 7\nlet n := 5\nendif\nlet m := (Ar_Size a) * 2\nend");
+    assert_eq!(h.0[&3], Value::Num(5.0));
+    assert_eq!(h.0[&4], Value::Num(6.0));
+}
+
+/// A quoted hex FormID as the calling reference is that form [observed: AguaFria.esm
+/// ships `"171B39".AddItemAlt …` with bytes that call on 0x00171B39, #2275].
+#[test]
+fn a_quoted_hex_formid_calls_on_that_form() {
+    let (c, _) = build("begin GameMode\neval \"1003000\".Activate player\nend");
+    assert!(c.refs.contains(&RefSlot::Form(DOOR)), "{:?}", c.refs);
+}
+
+/// A declaration whose value declares inline (`int n = Ar_Size (array_var b = …)`)
+/// declares both, in a lambda's body too, so that later lines there assign the inline one
+/// [observed: B42 Interact's ln_B42Interact.txt, `xkR = ar_null` in an event handler's
+/// lambda, runs in the original].
+#[test]
+fn a_declarations_value_declares_inline_in_a_lambda() {
+    for body in [
+        "int n = ar_size (array_var b = ar_list 1 2)\nb = ar_null",
+        "SetEventHandlerAlt \"x\" (begin Function {int k}\nint n = ar_size (array_var b = ar_list 1 2)\nb = ar_null\nend)",
+    ] {
+        let src = format!("Begin Function {{ }}\n{body}\nEnd\n");
+        let c = fnv_script::compile::compile_mod_runtime(&src, &table(), &World);
+        assert_eq!(c.errors().count(), 0, "{body}: {:?}", c.errors().collect::<Vec<_>>());
     }
 }

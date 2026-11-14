@@ -236,7 +236,7 @@ fn actor_of(code: i64) -> Option<ShotActor> {
 }
 
 /// The CELL DATA interior flag (bit 0).
-fn interior(g: &Game, cell: FormId) -> bool {
+pub(crate) fn interior(g: &Game, cell: FormId) -> bool {
     matches!(crate::nvse::record_value(g, cell, "DATA", ""), Some(XVal::Num(x)) if (x as u64) & 1 != 0)
 }
 
@@ -247,7 +247,7 @@ fn interior(g: &Game, cell: FormId) -> bool {
 /// cell is in, in CELL XCLR order [observed: a name SetRegionMapName gave Goodsprings'
 /// first region won over VMapGoodspringsRegion's at priority 50; hypothesis: the list's
 /// order decides, not the priority], else the worldspace's name.
-fn location_name(g: &Game, r: FormId) -> String {
+pub(crate) fn location_name(g: &Game, r: FormId) -> String {
     let Some(cell) = g.cell_of(r) else { return String::new() };
     let name = |f: FormId| match crate::nvse::record_value(g, f, "FULL", "") {
         Some(XVal::Str(s)) => s,
@@ -256,11 +256,17 @@ fn location_name(g: &Game, r: FormId) -> String {
     if interior(g, cell) {
         return name(cell);
     }
-    let regions: Vec<FormId> = g.data.record_fields.get(&cell).into_iter().flatten().filter(|(s, _)| s == b"XCLR").flat_map(|(_, v)| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()])).filter_map(|v| hex_form(Some(&v))).collect();
-    match regions.into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.is_empty())) {
+    match region_map_name(g, cell) {
         Some(n) => n,
         None => g.world.placed.world_of(cell).map(name).unwrap_or_default(),
     }
+}
+
+/// The first map name among the regions an exterior cell is in, in CELL XCLR order
+/// ([`location_name`]).
+pub(crate) fn region_map_name(g: &Game, cell: FormId) -> Option<String> {
+    let regions: Vec<FormId> = g.data.record_fields.get(&cell).into_iter().flatten().filter(|(s, _)| s == b"XCLR").flat_map(|(_, v)| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()])).filter_map(|v| hex_form(Some(&v))).collect();
+    regions.into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.is_empty()))
 }
 
 /// The functions of this file; `None` for any other name.

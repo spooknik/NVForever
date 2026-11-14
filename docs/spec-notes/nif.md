@@ -239,14 +239,56 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
 - **Helper geometry without a shader** [observed, `crates/fnv-nif/examples/shape_survey.rs`
   over `Fallout - Meshes.bsa`]: of 48,996 visible shapes (not hidden, no hidden
   ancestor, not under an editor marker), 982 carry no BSShaderProperty-derived property
-  on themselves or an ancestor. 532 carry no property at all (524 of them landscape LOD
-  meshes, which the engine textures itself), 16 have a NiTexturingProperty (debris,
-  doors) and 434 only a NiMaterialProperty. The last group is helper geometry by its
-  names: bone display boxes (`TTail1:0`, `Bone01:0`), collision proxies (`c_Minigun`,
-  `DummyCol:3`) and invisible markers (`##PLRInvis:0`). The renderers skip shapes with
-  properties but neither a shader property nor a texture [hypothesis: the game does
-  not draw them; consistent with the Goodsprings flag in game, whose bone boxes are not
-  visible].
+  on themselves or an ancestor. 532 carry no property at all (next item), 16 have a
+  NiTexturingProperty (debris, doors) and 434 only a NiMaterialProperty. The last group
+  is helper geometry by its names: bone display boxes (`TTail1:0`, `Bone01:0`),
+  collision proxies (`c_Minigun`, `DummyCol:3`) and invisible markers (`##PLRInvis:0`).
+  The renderers skip shapes with properties but neither a shader property nor a
+  texture [hypothesis: the game does not draw them; consistent with the Goodsprings flag
+  in game, whose bone boxes are not visible].
+- **Shapes with no property at all** (issue #2469) [observed,
+  `crates/fnv-nif/examples/marker_shape_survey.rs`; visible shapes as above]:
+
+  | Archives | Files / visible shapes | No property: landscape LOD | No property: elsewhere |
+  |---|---|---|---|
+  | `Fallout - Meshes.bsa` | 14,881 / 48,996 | 524 shapes in 305 files | 8 shapes in 1 file |
+  | `Update.bsa`, the five DLC and four pack `Main.bsa` | 5,865 / 18,113 | 40 shapes in 40 files | none |
+
+  The landscape LOD ones are the one or two extra shapes of a terrain chunk
+  (`BSSegmentedTriShape` 428, `NiTriShape` 136), none with texture coordinates, beside
+  the chunk's terrain shape and its own BSShaderPPLightingProperty; `lod.rs` never drew
+  them (it skips shapes without texture coordinates; its notes take them for a water
+  LOD surface). The one other file is the Tops lounge chair,
+  `furniture\loungechair_tops.nif` (FURN `TopsPoolLoungeChair`, two of them at the
+  Great Khans' camp at Red Rock Canyon, 0013F0E9 and 0013F0EA): beside its three shaded
+  shapes `Shape01:0/1/2` it holds eight bare NiTriStrips, each the only child of a node
+  named `MarkerSource` (656 triangles), `MarkerTarget` (696), `Capsule01` (176) or
+  `ChairBoundary` (32; its UPB says `Simulation_Geometry = 2`), two of each, none
+  flagged hidden. Its BSXFlags is 2 (bit 5 clear), and its entry points come from its
+  BSFurnitureMarker `FRN`, not from these shapes. `MarkerSource`/`MarkerTarget` are
+  also the figures of the editor's furniture marker models `markers\furnituremarker*.nif`
+  (22 and 20 shaded shapes in 23 files), which the game does not show: a furniture
+  marker's "white markers and blue characters will not show up in-game, they just help
+  line things up" [documented: GECK wiki "Bethsoft Tutorial NPC population"]. The
+  BSXFlags "Editor Marker" bit only "hides Nodes named EditorMarker and their children"
+  [documented: GECK wiki "NIF Block Types"]; it is set on 336 + 71 files, none with a
+  bare shape, so neither the bit nor that name covers this chair.
+
+  Rule: **a shape with no property on itself or an ancestor, in a model that holds any
+  BSShaderProperty-derived block, is editor geometry: it is not drawn** (`Props::is_helper`
+  in `engine/nvf-assets/src/nif_spawn.rs`) **and is no drawn floor**
+  (`engine/nvf-play/src/phys/drawn.rs`). A model with no shader property anywhere
+  keeps its bare shapes [hypothesis that the game draws none of them; design for the
+  model-wide condition: no model in the archives has bare shapes and no shader property,
+  and the rule should never blank a whole model]. On the archives above it leaves out
+  exactly the chair's 8 shapes and the 564 LOD shapes that were not drawn before; the
+  model loader logs `<model>: N editor shape(s) without any property left out: …`.
+  Rules weighed and not taken: by node name, `MarkerSource`/`MarkerTarget`/`Capsule*`/
+  `ChairBoundary` reach only this chair outside `markers\`, but would miss the next
+  such copy under other names, and a looser "marker" match also takes the shaded anvil
+  of `clutter\junk\anvil01.nif` (under a node `FurnitureMarker`); by BSXFlags bit 5, it
+  misses the chair. The chair's collision (bhk blocks) and furniture entry points are
+  not touched.
 - **Animated statics** [observed, same survey]: 164 meshes embed a controller sequence
   named `Idle` (others: `Forward` 226, `Open`/`Close` ~149, `SpecialIdle` 159, ...).
   Flags (`clutter\flags\*.nif`) are skinned cloth: e.g. `nv_nevadaflag.nif` has two

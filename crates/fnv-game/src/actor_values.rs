@@ -198,7 +198,11 @@ impl<'a> Game<'a> {
     /// source, the actor its leveled list gave it included [observed: tmpl3 (#1057)]; an
     /// actor base's along its Traits templates through NPC records, the record's own
     /// when the chain reaches a list [hypothesis, as GetRace].
+    /// A class SetClass gave the actor's base wins over the records'.
     pub(crate) fn traits_class(&self, f: FormId) -> Option<FormId> {
+        if let Some(c) = self.forms.classes.get(&base_of(self, f).unwrap_or(f)) {
+            return Some(*c);
+        }
         match base_of(self, f) {
             Some(_) => self.traits_def(f).and_then(|d| d.class),
             None => self.data.actors.get(&self.data.base_template_source(f, |d| d.template_traits)).and_then(|d| d.class),

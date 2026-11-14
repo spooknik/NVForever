@@ -267,6 +267,12 @@ pub struct Listener {
     /// The position in `world`: outdoors the listener's own, inside an interior the last
     /// one outdoors.
     pub position: [f32; 3],
+    /// The worldspace `world` is a child of, while its stations are received there too
+    /// (Tale of Two Wastelands' `TTW_EnableRadioFix 1`, "toggle radios working in child
+    /// worldspaces" [documented: the TTW NVSE mod page]); `position` is then taken as a
+    /// position in it [hypothesis: TTW's child worldspaces share their parent's
+    /// coordinates].
+    pub parent: Option<u32>,
 }
 
 /// Whether a station is received where `l` is, and how much static there is then (0
@@ -286,10 +292,11 @@ pub struct Listener {
 ///   own cell only (Radius and Worldspace).
 pub fn reception(b: &Broadcast, l: &Listener) -> Option<f32> {
     let own_cell = l.interior == Some(b.cell);
+    let in_world = |w: u32| l.world == w || l.parent == Some(w);
     let received = match b.range {
         BroadcastRange::Everywhere => true,
         BroadcastRange::WorldspaceAndLinkedInteriors => match b.world.or(b.exterior.map(|e| e.0)) {
-            Some(w) => l.world == w || own_cell,
+            Some(w) => in_world(w) || own_cell,
             None => own_cell,
         },
         BroadcastRange::LinkedInteriors => own_cell,
@@ -297,12 +304,12 @@ pub fn reception(b: &Broadcast, l: &Listener) -> Option<f32> {
             None => own_cell,
             Some(w) => {
                 let grid = |p: [f32; 3]| crate::cell_of(p[0], p[1]);
-                l.interior.is_none() && l.world == w && b.exterior.is_some_and(|(_, p)| grid(p) == grid(l.position))
+                l.interior.is_none() && in_world(w) && b.exterior.is_some_and(|(_, p)| grid(p) == grid(l.position))
             }
         },
         BroadcastRange::Radius => {
             let Some((w, p)) = b.exterior else { return own_cell.then_some(0.0) };
-            if l.world != w {
+            if !in_world(w) {
                 return None;
             }
             let d = ((p[0] - l.position[0]).powi(2) + (p[1] - l.position[1]).powi(2) + (p[2] - l.position[2]).powi(2)).sqrt();
@@ -355,8 +362,8 @@ mod tests {
 
     #[test]
     fn reception_by_range() {
-        let out = |world, x: f32| Listener { world, interior: None, position: [x, 0.0, 0.0] };
-        let inside = |world, cell| Listener { world, interior: Some(cell), position: [0.0; 3] };
+        let out = |world, x: f32| Listener { world, interior: None, position: [x, 0.0, 0.0], parent: None };
+        let inside = |world, cell| Listener { world, interior: Some(cell), position: [0.0; 3], parent: None };
         let b = |range, radius, static_percent, cell, world: Option<u32>, exterior| Broadcast { range, radius, static_percent, cell, world, exterior };
         // Everywhere: anywhere at all.
         let e = b(BroadcastRange::Everywhere, 0.0, 0.0, 7, None, None);
@@ -369,7 +376,10 @@ mod tests {
         assert_eq!(reception(&r, &out(1, 50_000.5)), None);
         assert_eq!(reception(&r, &out(2, 0.0)), None);
         // Inside, from the last position outdoors.
-        assert_eq!(reception(&r, &Listener { world: 1, interior: Some(5), position: [1000.0, 0.0, 0.0] }), Some(0.0));
+        assert_eq!(reception(&r, &Listener { world: 1, interior: Some(5), position: [1000.0, 0.0, 0.0], parent: None }), Some(0.0));
+        // A child worldspace of 1 hears it only while the parent counts (TTW_EnableRadioFix).
+        assert_eq!(reception(&r, &out(3, 0.0)), None);
+        assert_eq!(reception(&r, &Listener { world: 3, interior: None, position: [0.0; 3], parent: Some(1) }), Some(0.0));
         // An interior station with an exterior position reference (Camp Guardian's shape).
         let g = b(BroadcastRange::Radius, 5000.0, 50.0, 20, None, Some((1, [10_000.0, 0.0, 0.0])));
         assert_eq!(reception(&g, &out(1, 0.0)), None);

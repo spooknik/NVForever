@@ -150,7 +150,9 @@ fn show_knockouts(
             let mut ec = commands.entity(e);
             ec.insert((Dying { clip, t: 0.0 }, KnockedOut { stood, face_up: None, phase: Phase::Down }));
             ec.remove::<Flinch>();
-            if let Some(c) = body {
+            if let Some(mut c) = body {
+                // Not falling, it lies without its ragdoll already (`ragdoll::unbuilt`).
+                c.laid_out = !falls;
                 ec.insert(c);
             }
             continue;
@@ -172,7 +174,8 @@ fn show_knockouts(
                 }
                 info!("knockout: {:08X} killed while getting up: falls ({})", r.0, if falls { "ragdoll" } else if clip.is_some() { "death pose" } else { "laid down" });
                 ec.insert(Dying { clip, t: 0.0 });
-                if let Some(c) = body {
+                if let Some(mut c) = body {
+                    c.laid_out = !falls;
                     ec.insert(c);
                 }
             }

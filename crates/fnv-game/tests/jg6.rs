@@ -329,3 +329,18 @@ fn getters_with_nothing_found() {
     // No temporary effects: no array, which ar_Size reads -1.
     assert_eq!(n(&mut g, "ar_Size (PlayerREF.GetTempEffects)"), -1.0);
 }
+
+#[test]
+fn get_refs_in_cell_leaves_out_the_references_beyond_max_distance() {
+    // [documented: GetRefsInCell, maxDistance; from the calling reference (hypothesis, as
+    // CallPerRef's distance).] A sixth argument compiles and changes nothing
+    // (script-compiler.md §8.1).
+    let f = fixture();
+    let mut g = game(&f);
+    g.set_loaded([FormId(ROOM)].into_iter().collect());
+    assert_eq!(n(&mut g, "ar_Size (TestPromptRef.GetRefsInCell TestRoom 0 0 0)"), 5.0);
+    q(&mut g, "TestPlainRef.SetPos X 5000");
+    assert_eq!(n(&mut g, "ar_Size (TestPromptRef.GetRefsInCell TestRoom 0 0 0 100)"), 4.0);
+    assert_eq!(n(&mut g, "ar_Size (TestPromptRef.GetRefsInCell TestRoom 0 0 0 100 45)"), 4.0);
+    assert_eq!(n(&mut g, "ar_Size (TestPromptRef.GetRefsInCell TestRoom 0 0 0 0)"), 5.0);
+}

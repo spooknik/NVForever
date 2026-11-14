@@ -111,6 +111,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             if name.starts_with("getnumrefs") {
                 XVal::Num(list.len() as f64)
             } else if name.starts_with("getrefs") {
+                // `maxDistance` leaves out the references farther than it [documented:
+                // GetRefs, GetRefsInCell], measured from the calling reference, else the
+                // player [hypothesis: as CallPerRef's distance, documented]. A sixth
+                // argument compiles (script-compiler.md §8.1) and is not read: what it
+                // does is not known.
+                let max = match args.get(k + 3) {
+                    Some(XVal::Num(x)) => *x,
+                    _ => 0.0,
+                };
+                let me = subject.unwrap_or(FormId::PLAYER_REF);
+                let list: Vec<FormId> = if max > 0.0 { list.into_iter().filter(|&r| crate::nvse_showoff5::distance_between(g, me, r).is_some_and(|d| d <= max)).collect() } else { list };
                 let entries = list.iter().enumerate().map(|(i, r)| (XKey::Num(i as f64), XVal::Ref(r.0))).collect();
                 XVal::Array(g.ext.new_array(ArrayKind::List, entries))
             } else {

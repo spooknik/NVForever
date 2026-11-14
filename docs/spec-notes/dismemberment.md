@@ -316,7 +316,14 @@ The hit must land on a body part: a projectile's or the player's blow's; since 2
 blast's, the part the line from the blast's centre to the actor first meets, and an NPC's
 blow's, the part a short line along the blow meets at its landing point [design: as a
 shot's part is the one its ray meets; `nvf_play::combat::facing_part`]. A blast is judged
-by its weapon's On Hit (most grenades and every mine are No Dismember/Explode, §2.1). Then
+by its weapon's On Hit (most grenades and every mine are No Dismember/Explode, §2.1). Until
+#2346 a blast never reached a corpse whose ragdoll had been built (its hit volume was gone, and
+blasts looked only at volumes); it now reaches it by its ragdoll's bodies and judges the part
+facing it, and logs for each corpse it catches whether the part was checked or why not (no
+source weapon, no part facing it) [design]. A blast with no source weapon rolls nothing: a
+placed explosion, and a mine with no actor owner (`nvf_play::mines`). Both that gate and the
+mines' No Dismember/Explode are open until observer check 136 (a frag mine and a frag grenade
+beside a settled corpse in the original) says what the original does. Then
 one roll decides, with these odds [observed, §4.1, unless tagged]:
 
 1. **A severable part** (head, arm, leg): 75 % on a kill, 100 % with the attacker's Bloody
@@ -447,6 +454,9 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 ## 7. Not built
 
 - A blast takes several parts at once in the original (§4.1); NVForever judges one part per blast.
+- Blasts on corpses (§4.2, #2346): whether a mine or grenade beside a settled corpse takes its
+  parts in the original, how often and how many, is not known (observer check 136); the mine
+  source-weapon gate and the weapon's On Hit for blasts stay as they are until then.
 - Melee odds (blades, hammers) are not measured (§4.1; the owner set them aside, 2026-10-25).
   How to drive them: `player.PlayGroup AttackRight 1` / `AttackPower 1` play the swing but never
   hit, and FireWeapon with a machete does nothing; with the game window held in front (both game

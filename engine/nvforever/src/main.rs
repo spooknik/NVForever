@@ -43,7 +43,6 @@ mod actors;
 mod attack_anims;
 mod authored_pose;
 mod cell_buffer;
-mod clutter_pose;
 mod cell_resets;
 mod alert;
 mod anim_sounds;
@@ -140,6 +139,7 @@ mod residents;
 mod resurrect;
 mod appearance;
 mod script_look;
+mod script_sequences;
 mod ripples;
 mod settings;
 mod iron_sights;
@@ -1807,6 +1807,7 @@ fn main() -> AppExit {
         app.init_resource::<anim_objects::AnimObjects>()
             .add_systems(Startup, anim_objects::read)
             .add_systems(Update, anim_objects::hold.after(idles::drive))
+            .add_systems(Update, idles::play_npc_sequences.after(idles::drive))
             .add_systems(Last, anim_objects::report);
     }
     app.init_resource::<idles::PlayerIdles>();
@@ -1832,7 +1833,7 @@ fn main() -> AppExit {
                 .add_systems(Startup, residents::log_startup)
                 .add_systems(Update, residents::drive.after(world::stream).after(readahead::read_ahead).after(nvf_play::PlaySet::Scripts).before(nav::drive))
                 .add_systems(Update, residents::melee_knockback::arrange.after(residents::drive).run_if(resource_exists::<nvf_play::MeleeKnockbackAid>))
-                .add_systems(Last, residents::report);
+                .add_systems(Last, residents::report.after(bevy::window::ExitSystems));
             // Patrols and sandboxes go on after a load where the save had them.
             if play.is_some() {
                 nvf_play::save::add_save_hook(&mut app, residents::SAVE_HOOK);

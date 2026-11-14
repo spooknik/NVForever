@@ -245,14 +245,14 @@ struct OverlayAddedDiagnostics(bool);
 /// once the INI is applied, by the settings' own precedence
 /// (`nvf_play::settings::switch_after_ini`, as `apply_stored` decides): a stored state
 /// wins over the command line, except where a test run keeps a switch it was given
-/// (`--fps`, named in the Frame rate counter's note). `fps`: `--fps`; `counter`, `split`:
+/// (`--fps`, named in the Frame rate counter's switches). `fps`: `--fps`; `counter`, `split`:
 /// the INI's states, `None` where it has none; `settings`: the switches this run was
 /// given, `None` when the run has no settings page (not `--play`: the INI is not applied
 /// and the split row stays off).
 pub fn timestamps_wanted(fps: bool, counter: Option<bool>, split: Option<bool>, settings: Option<&GivenSwitches>) -> bool {
     let Some(given) = settings else { return false };
-    let show = switch_after_ini(fps, counter, given, crate::settings::FPS_COUNTER_NOTE);
-    let split = switch_after_ini(Rows::default().split, split, given, crate::settings::FPS_SPLIT_NOTE);
+    let show = switch_after_ini(fps, counter, given, crate::settings::FPS_COUNTER_SWITCHES);
+    let split = switch_after_ini(Rows::default().split, split, given, crate::settings::FPS_SPLIT_SWITCHES);
     show && split
 }
 
@@ -605,14 +605,14 @@ mod tests {
     /// The same precedence as `apply_stored`'s, which the start's decision shares.
     #[test]
     fn the_start_decision_is_the_settings_precedence() {
-        let note = crate::settings::FPS_COUNTER_NOTE;
+        let switches = crate::settings::FPS_COUNTER_SWITCHES;
         for win in [false, true] {
             for flags in [&["--fps"][..], &[][..]] {
                 let g = given(win, flags);
                 for (cmd, stored) in [(true, Some(false)), (false, Some(true)), (true, None), (false, None)] {
                     let kept = win && !flags.is_empty();
                     let want = if kept { cmd } else { stored.unwrap_or(cmd) };
-                    assert_eq!(switch_after_ini(cmd, stored, &g, note), want, "win {win}, {flags:?}, {cmd} against {stored:?}");
+                    assert_eq!(switch_after_ini(cmd, stored, &g, switches), want, "win {win}, {flags:?}, {cmd} against {stored:?}");
                 }
             }
         }

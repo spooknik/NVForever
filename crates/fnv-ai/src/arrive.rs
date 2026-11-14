@@ -163,6 +163,23 @@ impl Ai {
         Some(Arrival { package: a.package?, from, to, walks, skipped, furniture: a.using })
     }
 
+    /// A script moved the clock by more than an hour (`fnv_game::game::Game::take_hour_jump`,
+    /// issue #2353: VCG01's `set GameHour to 8` after the player had already left Doc
+    /// Mitchell's house, Goodsprings placed for the chargen clock's early morning): handled
+    /// like the end of a wait. Every actor the periodic choice covers chooses its package
+    /// now (`Game::choose_packages_now`), and every actor here that the player cannot see
+    /// is put where its new package's walk ends, as on arrival ([`Ai::arrive`] with
+    /// `unseen` for its `near`: only a walk starting out of sight is skipped, so one that
+    /// lands in view walks on from there in sight). Actors in view are not moved: they
+    /// set off on their new packages in the next updates. [design, #2353; what the
+    /// original does after a script's GameHour write is not described by any source read,
+    /// docs/spec-notes/packages.md §9.] Returns those put somewhere, in FormID order.
+    pub fn hour_jumped(&mut self, game: &mut Game, nav: &NavGraph, unseen: &dyn Fn(Place) -> bool) -> Vec<(FormId, Arrival)> {
+        game.choose_packages_now();
+        let actors: Vec<FormId> = self.agents.keys().copied().collect();
+        actors.into_iter().filter_map(|actor| self.arrive(game, nav, actor, unseen).map(|a| (actor, a))).collect()
+    }
+
     /// Where `actor`'s walk ends, when it is one [`Ai::arrive`] skips: a walk of its
     /// package to its place (or a patrol's point), or of its sandbox to what it chose.
     fn skippable(&self, actor: FormId) -> Option<Place> {

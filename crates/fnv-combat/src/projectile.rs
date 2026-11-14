@@ -54,6 +54,12 @@ pub trait CombatWorld {
     fn ray(&self, from: V3, to: V3, ignore: &[ActorId]) -> Option<WorldHit>;
     /// Actors whose centre lies within `radius` of `point`, with that centre.
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)>;
+    /// The bodies a blast at `point` may catch: [`CombatWorld::actors_near`]'s, and corpses
+    /// that have no hit volume of their own (a ragdoll's), each once (#2346) [design]. Only
+    /// blasts ask: proximity fuses and swings still go by `actors_near`. By default the same.
+    fn blast_targets_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
+        self.actors_near(point, radius)
+    }
     /// Points on an actor's body to aim a blow at, the likeliest first (the centres of
     /// its body part capsules, widest first). None by default: the centre is aimed at.
     fn aim_points(&self, _actor: ActorId) -> Vec<V3> {
@@ -593,7 +599,7 @@ pub fn blast(world: &dyn CombatWorld, t: &CombatTuning, e: &ExplosionStats, cent
         !world.cover_ray(from, to).is_some_and(|h| h.distance + NUDGE < d)
     };
     let mut out = Vec::new();
-    for (a, at) in world.actors_near(center, e.radius) {
+    for (a, at) in world.blast_targets_near(center, e.radius) {
         let points: Vec<V3> = std::iter::once(at).chain(world.aim_points(a)).collect();
         if los && !points.iter().any(|&p| origins.iter().any(|&o| seen(o, p))) {
             continue;

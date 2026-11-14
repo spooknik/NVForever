@@ -38,12 +38,34 @@ pub fn note_created(g: &mut Game, r: FormId) {
 }
 
 impl Game<'_> {
+    /// Explicit preview admission for a direct non-actor scene clone. Preserve its
+    /// alias identity and pre-placement model for both drawing and collision.
+    fn place_scene_base(&mut self, base: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3], count: i32) -> Result<FormId, String> {
+        let Some(original) = self.clones.get(&base).copied() else {
+            return self.world.place(base, cell, pos, rot, count).map_err(|e| e.to_string());
+        };
+        if self.clones.contains_key(&original) {
+            return Err("placing a clone of a temporary clone is not supported yet".into());
+        }
+        if self.base_script(base).is_some() || self.base_script(original).is_some() {
+            return Err("placing a temporary scene base with an attached script is not supported yet".into());
+        }
+        // Match the existing getter's clone-local then inherited session override.
+        // Preserve explicit empty as distinct from absent authored metadata.
+        let model_override = match self.field_overrides.get(&(base, "MODL/".into())).or_else(|| self.field_overrides.get(&(original, "MODL/".into()))) {
+            Some(fnv_script::vm::XVal::Str(path)) => Some(path.clone()),
+            _ => None,
+        };
+        let descriptor = fnv_sim::world::TemporarySceneBase { original, model_override };
+        self.world.place_temporary_scene_base(base, descriptor, cell, pos, rot, count).map_err(|e| e.to_string())
+    }
+
     /// A new reference of `base` at `pos` in `cell` (with angles `rot`), made and announced
     /// as PlaceAtMe makes its references ([`place_at_me`]), at a place the caller chooses:
     /// the stress tests' battles (nvf-play `stress.rs`) put fighters where no reference
     /// stands. A created actor (or leveled actor list) becomes a resident as PlaceAtMe's do.
     pub fn create_at(&mut self, base: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> Result<FormId, String> {
-        let r = self.world.place(base, cell, pos, rot, 1).map_err(|e| e.to_string())?;
+        let r = self.place_scene_base(base, cell, pos, rot, 1)?;
         note_created(self, r);
         Ok(r)
     }
@@ -75,7 +97,7 @@ pub fn place_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let explodes = g.data.sig(base) == Some(*b"EXPL");
     let mut last = None;
     for _ in 0..refs {
-        let r = g.world.place(base, cell, pos, rot, each).map_err(|e| e.to_string())?;
+        let r = g.place_scene_base(base, cell, pos, rot, each)?;
         note_created(g, r);
         if explodes {
             g.combat_requests.push(crate::combat::CombatRequest::Explode { explosion: base, at: pos });
@@ -107,7 +129,7 @@ pub fn place_at_reticle(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
     let (refs, each) = if is_item(g, base) { (1, count) } else { (count, 1) };
     let mut last = None;
     for _ in 0..refs {
-        let r = g.world.place(base, cell, pos, rot, each).map_err(|e| e.to_string())?;
+        let r = g.place_scene_base(base, cell, pos, rot, each)?;
         note_created(g, r);
         last = Some(r);
     }

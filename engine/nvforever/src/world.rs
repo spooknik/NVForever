@@ -263,7 +263,7 @@ pub struct StreamStats {
     pub refs_doors: usize,
     /// Drawn references whose model has named sequences scripts can play (object_anims.rs).
     pub refs_group_rigs: usize,
-    /// References drawn in the pose their `XRGD` stores (clutter skeletons, clutter_pose.rs).
+    /// References drawn in the pose their `XRGD` stores (clutter skeletons, `nvf_play::clutter_pose`).
     pub refs_posed: usize,
     /// Imposters met in loaded cells, left to `crate::imposters`.
     pub refs_imposters: usize,
@@ -1309,27 +1309,18 @@ pub fn spawn_model(
         stats.refs_animated += 1;
         return;
     }
-    // A jointed object left posed by its designer (`XRGD`, clutter_pose.rs). Whether it
-    // poses is decided by `clutter_pose::pose` (the matching rule and every body on a
-    // named node below the model's root), the same condition the collision uses.
-    let posed = crate::clutter_pose::posable(&base.sig)
-        .then(|| crate::clutter_pose::stored(world.lo, r))
-        .flatten()
-        .and_then(|bones| {
-            let bodies = crate::clutter_pose::body_nodes(&models.data, &path)?;
-            let posed = crate::clutter_pose::pose(&model.nodes, &bodies, &bones);
-            match &posed {
-                Ok(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
-                Err(why) => crate::clutter_pose::log_refused(&path, why, &bones, &bodies),
-            }
-            posed.ok()
-        });
+    // A jointed object left posed by its designer (`XRGD`, `nvf_play::clutter_pose`).
+    // Whether it poses is decided by `clutter_pose::drawn` (the matching rule and every
+    // body on a named node below the model's root), the same condition the collision
+    // uses and the same function `nvf_play::script_draw` draws references enabled later
+    // with (issue #2339).
+    let posed = nvf_play::clutter_pose::drawn(world.lo, &base.sig, r, &path, &model.nodes, || nvf_play::clutter_pose::body_nodes(&models.data, &path));
+    if let Some(p) = &posed {
+        info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", p.bodies);
+    }
     stats.refs_posed += usize::from(posed.is_some());
     for s in &model.shapes {
-        let shape = match (&posed, s.node) {
-            (Some(p), Some(n)) => p[n] * s.own,
-            _ => s.transform,
-        };
+        let shape = nvf_play::clutter_pose::shape_transform(posed.as_ref(), s);
         let m = Mat4::from(rt * shape);
         // External emittance: the reference's XEMI source drives the colour.
         let material = p

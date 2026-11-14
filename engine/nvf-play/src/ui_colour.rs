@@ -169,7 +169,7 @@ fn slider<const W: usize, const C: usize>() -> Slider {
 fn rows<const W: usize>(app: &mut App, key: &'static str, label: &'static str, note: &'static str, channels: [(&'static str, &'static str); 3]) {
     add_choice_list(
         app,
-        Setting { key, group: GROUP, label, note, get: |_| false, set: |_, _| {}, slider: None },
+        Setting { key, group: GROUP, label, note, switches: "", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: names::<W>, chosen: chosen::<W>, pick: pick::<W>, save: save::<W>, load: pick::<W>, ask_keep: false },
     );
     let sliders = [slider::<W, 0>(), slider::<W, 1>(), slider::<W, 2>()];

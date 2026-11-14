@@ -192,7 +192,7 @@ impl Game<'_> {
 }
 
 /// The 3-D distance between two references in the same space.
-fn distance_between(g: &Game, a: FormId, b: FormId) -> Option<f64> {
+pub(crate) fn distance_between(g: &Game, a: FormId, b: FormId) -> Option<f64> {
     let at = |r: FormId| g.world.peek(r).map(|s| (s.cell, s.pos)).or_else(|| g.world.placed.get(r).map(|p| (p.cell, p.pos)));
     let ((c1, p1), (c2, p2)) = (at(a)?, at(b)?);
     let space = |c: Option<FormId>| c.map(|c| g.world.placed.world_of(c).unwrap_or(c));

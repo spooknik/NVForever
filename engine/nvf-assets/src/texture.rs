@@ -13,7 +13,7 @@ use bevy::asset::AssetHandleProvider;
 use fnv_dds::{to_rgba8, Dds, Format};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 /// Loaded textures by (VFS path, sRGB); `None` remembers a failure.
 #[derive(Resource, Default)]
@@ -36,6 +36,8 @@ pub struct TextureCache {
 /// Seconds a texture read ahead waits to be loaded before it is dropped.
 const AHEAD_KEEP_SECS: f64 = 30.0;
 
+type TextureLoadGates = HashMap<(String, bool), Weak<Mutex<()>>>;
+
 /// The textures worker threads decoded, by (resolved path, sRGB): the handle reserved for
 /// each, its format, and the image until the main thread puts it in the image store
 /// ([`TextureCache::take_workers`]). A worker that needs a texture another one decoded
@@ -44,8 +46,12 @@ const AHEAD_KEEP_SECS: f64 = 30.0;
 #[derive(Default)]
 pub struct WorkerTextures {
     entries: Mutex<HashMap<(String, bool), WorkerTexture>>,
-    /// Textures a worker could not load, with why, until the cache remembers them.
-    failed: Mutex<HashMap<(String, bool), String>>,
+    /// Failed keys remain remembered after their one diagnostic is collected. Worker
+    /// snapshots contain successes only, so removing failures would retry them forever.
+    failed: Mutex<HashMap<(String, bool), Option<String>>>,
+    /// Only workers loading the same resolved texture wait for each other. Weak entries
+    /// do not keep a lock alive after its producer and waiters finish.
+    loading: Mutex<TextureLoadGates>,
     /// Whether a texture's alpha is a cut-out mask, by resolved path
     /// ([`Self::alpha_is_mask`]).
     masks: Mutex<HashMap<String, bool>>,
@@ -81,32 +87,65 @@ pub(crate) fn worker_texture(
     if let Some(found) = cached.get(&key) {
         return Some(found.clone());
     }
-    let shared = |w: &WorkerTexture| (w.handle.clone(), w.format);
-    if let Some(w) = workers.entries.lock().expect("worker textures").get(&key) {
-        return Some(shared(w));
-    }
-    if workers.failed.lock().expect("worker textures").contains_key(&key) {
-        return None;
-    }
-    let image = match data.read(&key.0).ok_or_else(|| "not in any archive".to_string()).and_then(|bytes| dds_image(&bytes, srgb, bc_supported)) {
-        Ok(mut image) => {
-            image.texture_descriptor.label = Some(folder_label(&key.0));
-            image
+    workers.load_once(key, images, |path| {
+        let bytes = data.read(path).ok_or_else(|| "not in any archive".to_string())?;
+        let mut image = dds_image(&bytes, srgb, bc_supported)?;
+        image.texture_descriptor.label = Some(folder_label(path));
+        Ok(image)
+    })
+}
+
+impl WorkerTextures {
+    fn load_gate(&self, key: &(String, bool)) -> Arc<Mutex<()>> {
+        let mut loading = self.loading.lock().expect("worker texture gates");
+        if let Some(gate) = loading.get(key).and_then(Weak::upgrade) {
+            return gate;
         }
-        Err(e) => {
-            workers.failed.lock().expect("worker textures").insert(key, e);
+        // Engineering budget: bound idle key metadata without scanning the map for
+        // every texture. Active gates must stay discoverable until all waiters leave.
+        if loading.len() >= 256 {
+            loading.retain(|_, gate| gate.strong_count() != 0);
+        }
+        let gate = Arc::new(Mutex::new(()));
+        loading.insert(key.clone(), Arc::downgrade(&gate));
+        gate
+    }
+
+    /// Reserve one handle and decode once for concurrent requests for this key. The
+    /// directory mutex is never held during I/O/decoding or while waiting on a key.
+    fn load_once(
+        &self,
+        key: (String, bool),
+        images: &AssetHandleProvider,
+        load: impl FnOnce(&str) -> Result<Image, String>,
+    ) -> Option<(Handle<Image>, TextureFormat)> {
+        let gate = self.load_gate(&key);
+        // The gate carries no data. A panicking producer has published no partial
+        // image, so a later request may safely retry under the recovered gate.
+        let _loading = gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let shared = |w: &WorkerTexture| (w.handle.clone(), w.format);
+        if let Some(w) = self.entries.lock().expect("worker textures").get(&key) {
+            return Some(shared(w));
+        }
+        if self.failed.lock().expect("worker textures").contains_key(&key) {
             return None;
         }
-    };
-    let mut entries = workers.entries.lock().expect("worker textures");
-    // Another worker may have decoded it meanwhile: its handle is the one to use.
-    let w = entries.entry(key).or_insert_with(|| WorkerTexture {
-        handle: images.reserve_handle().typed::<Image>(),
-        format: image.texture_descriptor.format,
-        image: Some(image),
-        stored_at: None,
-    });
-    Some(shared(w))
+        let image = match load(&key.0) {
+            Ok(image) => image,
+            Err(error) => {
+                self.failed.lock().expect("worker textures").insert(key, Some(error));
+                return None;
+            }
+        };
+        let mut entries = self.entries.lock().expect("worker textures");
+        let w = entries.entry(key).or_insert_with(|| WorkerTexture {
+            handle: images.reserve_handle().typed::<Image>(),
+            format: image.texture_descriptor.format,
+            image: Some(image),
+            stored_at: None,
+        });
+        Some(shared(w))
+    }
 }
 
 /// The archive path a NIF texture path loads from: normalised, the PC's own form of it if
@@ -337,9 +376,10 @@ impl TextureCache {
             w.stored_at = Some(now);
         }
         drop(entries);
-        for (key, e) in self.workers.failed.lock().expect("worker textures").drain() {
+        for (key, error) in self.workers.failed.lock().expect("worker textures").iter_mut() {
+            let Some(e) = error.take() else { continue };
             crate::guard::failed(&mut self.failures, "texture", format!("{}: {e}", key.0));
-            self.map.entry(key).or_insert(None);
+            self.map.entry(key.clone()).or_insert(None);
         }
         self.generation += u64::from(n > 0);
         n
@@ -674,6 +714,121 @@ mod tests {
     use super::{alpha_shares, dds_image, remembered, AlphaShares, TextureFormat};
     use std::collections::HashMap;
     use std::sync::Mutex;
+
+    fn owned_worker_image(srgb: bool) -> bevy::prelude::Image {
+        super::dds_image(&dds(b"DXT1", 4, 4, &[0; 8]), srgb, true).unwrap()
+    }
+
+    #[test]
+    fn worker_texture_contenders_decode_once_and_share_the_uploaded_handle() {
+        use std::sync::{atomic::{AtomicUsize, Ordering}, mpsc};
+        use std::time::{Duration, Instant};
+        let mut cache = super::TextureCache::default();
+        let mut images = bevy::prelude::Assets::<bevy::prelude::Image>::default();
+        let provider = images.get_handle_provider();
+        let key = ("textures\\owned.dds".to_string(), true);
+        let attempts = AtomicUsize::new(0);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let handles = std::thread::scope(|scope| {
+            let workers = &*cache.workers;
+            let (key_ref, provider_ref, attempts_ref) = (&key, &provider, &attempts);
+            let producer = scope.spawn(move || workers.load_once(key_ref.clone(), provider_ref, |_| {
+                attempts_ref.fetch_add(1, Ordering::Relaxed);
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(owned_worker_image(true))
+            }));
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            let gate = workers.load_gate(&key);
+            let consumers: Vec<_> = (0..7).map(|_| scope.spawn(|| workers.load_once(key.clone(), &provider, |_| {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                Ok(owned_worker_image(true))
+            }))).collect();
+            // The producer and all seven consumers must have reached the same key's
+            // gate before it is released, rather than testing eight sequential hits.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while std::sync::Arc::strong_count(&gate) != 9 && Instant::now() < deadline {
+                std::thread::yield_now();
+            }
+            let reached = std::sync::Arc::strong_count(&gate);
+            release_tx.send(()).unwrap();
+            let mut handles = vec![producer.join().unwrap().unwrap()];
+            handles.extend(consumers.into_iter().map(|t| t.join().unwrap().unwrap()));
+            assert_eq!(reached, 9, "all requests must contend with the held producer");
+            handles
+        });
+        assert_eq!(attempts.load(Ordering::Relaxed), 1);
+        assert!(handles.iter().all(|h| *h == handles[0]));
+        assert_eq!(cache.take_workers(&mut images, 1.0), 1);
+        assert!(images.get(&handles[0].0).is_some());
+        assert_eq!(cache.snapshot(&images)[&key], handles[0]);
+        assert_eq!(cache.take_workers(&mut images, 2.0), 0);
+    }
+
+    #[test]
+    fn worker_texture_different_keys_make_progress_while_one_is_loading() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let workers = super::WorkerTextures::default();
+        let images = bevy::prelude::Assets::<bevy::prelude::Image>::default().get_handle_provider();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let (workers_ref, images_ref) = (&workers, &images);
+            let first = scope.spawn(move || workers_ref.load_once(("first.dds".into(), true), images_ref, |_| {
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(owned_worker_image(true))
+            }));
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            // Its producer releases the first: a single global decode lock deadlocks
+            // until the bounded channel timeout and fails this regression.
+            let other = workers.load_once(("other.dds".into(), true), &images, |_| {
+                release_tx.send(()).unwrap();
+                Ok(owned_worker_image(true))
+            }).unwrap();
+            assert_ne!(first.join().unwrap().unwrap().0, other.0);
+        });
+    }
+
+    #[test]
+    fn worker_texture_failure_stays_cached_after_its_diagnostic_is_collected() {
+        let mut cache = super::TextureCache::default();
+        let mut images = bevy::prelude::Assets::<bevy::prelude::Image>::default();
+        let provider = images.get_handle_provider();
+        let key = ("textures\\missing-owned.dds".to_string(), true);
+        assert!(cache.workers.load_once(key.clone(), &provider, |_| Err("owned missing texture".into())).is_none());
+        assert_eq!(cache.take_workers(&mut images, 1.0), 0);
+        assert_eq!(cache.failures.len(), 1);
+        assert!(cache.workers.load_once(key, &provider, |_| panic!("stale success-only snapshots must not retry failed textures")).is_none());
+        cache.take_workers(&mut images, 2.0);
+        assert_eq!(cache.failures.len(), 1, "each failure is reported only once");
+    }
+
+    #[test]
+    fn worker_texture_color_spaces_keep_distinct_handles_and_formats() {
+        let workers = super::WorkerTextures::default();
+        let images = bevy::prelude::Assets::<bevy::prelude::Image>::default().get_handle_provider();
+        let color = workers.load_once(("owned.dds".into(), true), &images, |_| Ok(owned_worker_image(true))).unwrap();
+        let linear = workers.load_once(("owned.dds".into(), false), &images, |_| Ok(owned_worker_image(false))).unwrap();
+        assert_ne!(color.0, linear.0);
+        assert_ne!(color.1, linear.1);
+    }
+
+    #[test]
+    fn worker_texture_gate_pruning_keeps_active_keys_and_releases_idle_keys() {
+        let workers = super::WorkerTextures::default();
+        let key = ("active.dds".to_string(), true);
+        let held = workers.load_gate(&key);
+        for n in 0..1024 {
+            drop(workers.load_gate(&(format!("idle{n}.dds"), true)));
+        }
+        let found = workers.load_gate(&key);
+        assert!(std::sync::Arc::ptr_eq(&held, &found));
+        assert!(workers.loading.lock().unwrap().len() <= 256);
+    }
+
 
     #[test]
     fn the_kept_part_of_a_cell_holds_its_visible_texels_and_the_pad() {

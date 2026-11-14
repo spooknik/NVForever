@@ -787,7 +787,8 @@ pub fn set_statement(g: &mut Game, ctx: &ConsoleCtx, words: &[String]) -> Result
     };
     if owner.is_none() {
         if let Some((id, _)) = g.world.forms.global_by_edid(var) {
-            g.world.set_global(id, v.num() as f32).map_err(|e| e.to_string())?;
+            // As a script's write: a jump of GameHour is noted for the engine (#2353).
+            g.set_global_by_script(id, v.num() as f32).map_err(|e| e.to_string())?;
             return Ok(vec![format!("{var} = {}", shown(Value::Num(g.world.global(id).map_err(|e| e.to_string())? as f64), g))]);
         }
     }
@@ -932,6 +933,39 @@ pub fn split_call(line: &str) -> Option<(Option<String>, String, Vec<String>)> {
     Some((on, func, w[1..].to_vec()))
 }
 
+/// An expression operator or parenthesis outside quoted command arguments. A word
+/// reader can reject these lines even though the statement compiler accepts them.
+pub fn has_expression_operator(line: &str) -> bool {
+    let mut quoted = false;
+    line.chars().any(|c| {
+        if c == '"' { quoted = !quoted; }
+        !quoted && "+-*/%()<>=&|".contains(c)
+    })
+}
+
+/// Decide before calling a host function. Numeric words are literals, and a
+/// string parameter retains the word reader's path/name syntax even when unquoted.
+pub fn call_has_expression(g: &Game, line: &str, func: &str, args: &[String]) -> bool {
+    let opcode = g.data.table.by_name(func);
+    // Compact assignments can contain dots in both the variable and numeric RHS;
+    // split_call's reference/function split is not their expression grammar.
+    if has_expression_operator(func) || (opcode.is_none() && words(line).first().is_some_and(|word| has_expression_operator(word))) {
+        return true;
+    }
+    args.iter().enumerate().any(|(i, word)| {
+        if word.starts_with('"') || word.parse::<f64>().is_ok() {
+            return false;
+        }
+        if opcode.is_some_and(|op| matches!(g.data.table.param_enc(op, i), fnv_script::ParamEnc::String)) {
+            return false;
+        }
+        if crate::runner::resolve(g, word).is_ok() {
+            return false;
+        }
+        has_expression_operator(word)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -944,6 +978,15 @@ mod tests {
         assert_eq!(hex_form_id("0x00104C0C"), Some(FormId(0x0010_4C0C)));
         assert_eq!(hex_form_id("0000000F"), Some(FormId(0xF)));
         assert_eq!(hex_form_id("player"), None);
+    }
+
+    #[test]
+    fn expression_fallback_ignores_operators_in_quoted_command_arguments() {
+        assert!(has_expression_operator("OwnQuest.value = 2"));
+        assert!(has_expression_operator("player.SetAV Luck (5)"));
+        assert!(!has_expression_operator("Print \"x+=1\""));
+        assert!(!has_expression_operator("ShowMessage \"a-b\""));
+        assert!(!has_expression_operator("player.additem f 100"));
     }
 
     /// Every registered name is a console-only command of the catalogue (one numbered

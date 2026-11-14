@@ -30,14 +30,25 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let line = text(args, 0).unwrap_or_default();
             match con::split_call(&line) {
                 Some((on_name, func, words)) => {
-                    let on = match on_name {
-                        Some(n) => crate::runner::resolve(g, &n).ok(),
+                    let on = match &on_name {
+                        Some(n) => crate::runner::resolve(g, n).ok(),
                         None => subject,
                     };
                     let ctx = ConsoleCtx { on, active_quest: g.ui.active_quest };
-                    match con::lookup(&func) {
-                        Some(f) => f(g, &ctx, &words),
-                        None => con::call_words(g, on, &func, &words, "Console").map(|_| Vec::new()),
+                    let compile_ctx = crate::game::RunCtx { self_ref: on, ..Default::default() };
+                    if on_name.is_none() && func.eq_ignore_ascii_case("set") {
+                        // A parenthesized or compact expression is still one word.
+                        // Keep literal assignments on the selected-reference path.
+                        let literal = words.len() == 3 && (words[2].parse::<f64>().is_ok() || !con::has_expression_operator(&words[2]));
+                        if literal { con::set_statement(g, &ctx, &words) } else { g.run_script_console_source(&line, compile_ctx) }
+                    } else {
+                        match con::lookup(&func) {
+                            Some(f) => f(g, &ctx, &words),
+                            // Choose the parser before executing any host function.
+                            // A runtime failure must never retry a side effect.
+                            None if con::call_has_expression(g, &line, &func, &words) || g.data.table.unnumbered.contains_key(&func.to_ascii_lowercase()) => g.run_script_console_source(&line, compile_ctx),
+                            None => con::call_words(g, on, &func, &words, "Console").map(|_| Vec::new()),
+                        }
                     }
                 }
                 None => Ok(Vec::new()),

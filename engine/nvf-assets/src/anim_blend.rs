@@ -35,6 +35,8 @@ use std::sync::Arc;
 /// [engineering choice].
 pub const DEFAULT_FADE: f32 = 0.2;
 
+type EmitterSelection = ((i32, i32), (bool, Option<f32>));
+
 /// How a layer's time runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -50,6 +52,11 @@ pub enum Mode {
 #[derive(Debug, Clone)]
 pub struct Layer {
     pub clip: Arc<Clip>,
+    /// Script sequence priority, above the KF's per-bone priority. Normal body
+    /// layers use zero; a higher sequence tier wins before comparing bone tracks.
+    pub sequence_priority: i32,
+    /// Explicit deactivation easing; ordinary body clips keep DEFAULT_FADE.
+    pub fade_out: f32,
     /// The caller's name for the role the clip plays (two roles may play one clip).
     pub tag: u32,
     pub mode: Mode,
@@ -64,7 +71,7 @@ pub struct Layer {
     pub target: f32,
     /// The fade, 0 to 1: how much of a bone the layer's priority takes from those below.
     pub ease: f32,
-    /// Seconds to fade in (ease 0 to 1); fading out takes [`DEFAULT_FADE`].
+    /// Seconds to fade in (ease 0 to 1); fading out takes [`Self::fade_out`].
     pub fade_in: f32,
     /// Playback speed multiplier (Loop and Once).
     pub rate: f32,
@@ -110,7 +117,7 @@ impl Layer {
 #[derive(Debug, Clone, Copy)]
 struct Contribution {
     bone: u16,
-    priority: i32,
+    priority: (i32, i32),
     /// The layer's weight × ease: its share within its priority group.
     weight: f32,
     ease: f32,
@@ -328,6 +335,8 @@ impl Animator {
         let ease = if fade_in <= 0.0 { 1.0 } else { 0.0 };
         self.layers.push(Layer {
             clip: clip.clone(),
+            sequence_priority: 0,
+            fade_out: DEFAULT_FADE,
             tag,
             mode,
             bound,
@@ -360,15 +369,16 @@ impl Animator {
     /// model, animation.md §9.7): the visibility track of the highest priority among
     /// them, the latest started of equals; `None` when no playing clip has one for it.
     pub fn visible(&self, name: &str) -> Option<bool> {
-        let mut best: Option<(i32, bool)> = None;
+        let mut best: Option<((i32, i32), bool)> = None;
         for l in self.layers.iter().filter(|l| l.ease > 0.0) {
             for (n, priority, track) in &l.clip.visibility {
                 if n != name {
                     continue;
                 }
                 if let Some(v) = track.at(l.sample_time(self.phase)) {
-                    if best.is_none_or(|(p, _)| *priority >= p) {
-                        best = Some((*priority, v));
+                    let priority = (l.sequence_priority, *priority);
+                    if best.is_none_or(|(p, _)| priority >= p) {
+                        best = Some((priority, v));
                     }
                 }
             }
@@ -381,11 +391,12 @@ impl Animator {
     /// where keyed, from the emitter track of the highest priority among them, the latest
     /// started of equals; `None` when no playing clip has one for it.
     pub fn emitter(&self, system: &str) -> Option<(bool, Option<f32>)> {
-        let mut best: Option<(i32, (bool, Option<f32>))> = None;
+        let mut best: Option<EmitterSelection> = None;
         for l in self.layers.iter().filter(|l| l.ease > 0.0) {
             for e in l.clip.emitters.iter().filter(|e| e.system == system) {
-                if best.is_none_or(|(p, _)| e.priority >= p) {
-                    best = Some((e.priority, e.at(l.sample_time(self.phase))));
+                let priority = (l.sequence_priority, e.priority);
+                if best.is_none_or(|(p, _)| priority >= p) {
+                    best = Some((priority, e.at(l.sample_time(self.phase))));
                 }
             }
         }
@@ -414,7 +425,8 @@ impl Animator {
         let (mut len_sum, mut w_sum) = (0.0, 0.0);
         for l in &mut self.layers {
             if l.leaving {
-                l.ease = (l.ease - dt / DEFAULT_FADE).max(0.0);
+                let down = if l.fade_out <= 0.0 { 1.0 } else { dt / l.fade_out };
+                l.ease = (l.ease - down).max(0.0);
             } else {
                 let up = if l.fade_in <= 0.0 { f32::INFINITY } else { dt / l.fade_in };
                 l.ease = (l.ease + up).min(1.0);
@@ -444,7 +456,7 @@ impl Animator {
                 continue;
             }
             for &(bone, track, priority) in &l.bound {
-                self.scratch.push(Contribution { bone, priority, weight: l.weight * l.ease, ease: l.ease, layer: li as u16, track });
+                self.scratch.push(Contribution { bone, priority: (l.sequence_priority, priority), weight: l.weight * l.ease, ease: l.ease, layer: li as u16, track });
             }
         }
         self.scratch.sort_unstable_by_key(|c| (c.bone, Reverse(c.priority)));
@@ -645,6 +657,30 @@ mod tests {
         a.layers.clear();
         a.pose();
         assert_eq!(a.locals[2].translation, Vec3::new(1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn script_sequence_priority_is_independent_of_bone_priority_and_fades_out() {
+        let mut a = animator();
+        let base = clip(&[("A", [10.0,0.0,0.0], 200)],1.0);
+        let overlay = clip(&[("A", [30.0,0.0,0.0], 1)],1.0);
+        a.begin();
+        a.want(&base,0,1.0,Mode::Loop,0.0);
+        let slot = a.want(&overlay,1,1.0,Mode::Once,0.0);
+        a.layers[slot].sequence_priority = 1;
+        a.layers[slot].fade_out = 0.4;
+        a.end();
+        a.pose();
+        assert_eq!(a.locals[2].translation.x,30.0,"sequence priority wins over the KF bone priority");
+        a.begin();
+        a.want(&base,0,1.0,Mode::Loop,0.0);
+        a.end();
+        a.advance(0.2,1.0);
+        a.pose();
+        assert!((a.locals[2].translation.x-20.0).abs()<1e-4,"the explicit 0.4-second fade is halfway out");
+        a.advance(0.21,1.0);
+        a.pose();
+        assert_eq!(a.locals[2].translation.x,10.0);
     }
 
     #[test]

@@ -29,7 +29,9 @@
 //!   was chosen for [`FIRST_DISTANCE`]), so a Mister Handy that fights at its target's
 //!   feet takes up its saw rather than stepping back with its flamer; and a creature with
 //!   a melee arm ([`BodyMelee`]) does not step back from a target too near
-//!   (`npc_combat`, `combat_tactics::BACK_OFF_WITHIN`) [design]: it strikes. An arm whose limb (WEAP "Embedded Weapon Actor Value": Mister Handy's
+//!   (`npc_combat`, `combat_tactics::BACK_OFF_WITHIN`) [design]: it strikes. A creature
+//!   whose combat style is Ranged Only takes up no melee arm while a gun can be used
+//!   (`body_weapon::restrict_ranged`, #2351), and so steps back. An arm whose limb (WEAP "Embedded Weapon Actor Value": Mister Handy's
 //!   flamer Left Attack, buzzsaw Right Attack) is crippled to 0 is left out
 //!   [hypothesis: the wiki's "the condition value affected when the weapon is targeted"];
 //!   with none left it fights with the creature's own damage and no clip.
@@ -360,14 +362,16 @@ fn switch(
             continue;
         }
         // Arms on a crippled limb are left out; a blast counts unless its combat style
-        // ignores damaging itself.
+        // ignores damaging itself; a Ranged Only style leaves the melee arms out while a
+        // gun can be used (#2351).
         let limbs: Vec<Option<u16>> = body.arms.iter().map(|a| a.limb).collect();
-        let (usable, ignores_self): (Vec<bool>, bool) = match script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        let (usable, ignores_self, ranged_only): (Vec<bool>, bool, bool) = match script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
             Some(rt) => with_world(rt, &mut sim, |rt| {
                 let usable = limbs.iter().map(|l| l.is_none_or(|code| !rt.game.is_crippled(FormId(id), code))).collect();
-                (usable, rt.game.combat_style(FormId(id)).is_some_and(|s| s.ignore_damaging_self))
+                let style = rt.game.combat_style(FormId(id));
+                (usable, style.is_some_and(|s| s.ignore_damaging_self), style.is_some_and(|s| s.weapon_restrictions == 2))
             }),
-            None => (vec![true; limbs.len()], false),
+            None => (vec![true; limbs.len()], false, false),
         };
         for (a, u) in body.arms.iter_mut().zip(usable) {
             if a.rule.usable && !u {
@@ -377,7 +381,10 @@ fn switch(
             a.rule.usable = u;
             a.rule.blast = if ignores_self { 0.0 } else { a.blast };
         }
-        let rules: Vec<Arm> = body.arms.iter().map(|a| a.rule).collect();
+        let mut rules: Vec<Arm> = body.arms.iter().map(|a| a.rule).collect();
+        if ranged_only {
+            body_weapon::restrict_ranged(&mut rules);
+        }
         let to = body_weapon::choose(&rules, d, body.current);
         if to == body.current {
             body.since.get_or_insert(now);

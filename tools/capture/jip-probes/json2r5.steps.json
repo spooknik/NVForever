@@ -1,0 +1,29 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "json2r5",
+ "title": "json2r5, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "float fA\nfloat fB\nstring_var s\narray_var aA\narray_var aB\nBegin Function { }\nSetFunctionValue (JSONCacheFile \"nvfprobe.json\" 0)\nEnd\n",
+   "label": "json2.json2r5.cache",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nfloat fB\nstring_var s\narray_var aA\narray_var aB\nBegin Function { }\nSetFunctionValue (JSONCloseFile \"nvfprobe.json\" 1)\nEnd\n",
+   "label": "json2.close.1",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nfloat fB\nstring_var s\narray_var aA\narray_var aB\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json2.json2r5.after",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nstring_var s\narray_var aA\narray_var aB\nBegin Function { }\nSetFunctionValue (JSONIsFileCached \"nvfprobe.json\")\nEnd\n",
+   "label": "json2.json2r5.cached",
+   "field": "value"
+  }
+ ]
+}

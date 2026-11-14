@@ -66,7 +66,8 @@ fn files() {
              set SRRegistered to SRRegistered * 10 + RegisterSRScript \"optional\\gr_late.txt\"\r\n",
         );
         w("optional/gl_extra.txt", "set SRLoads to SRLoads + 100\r\n");
-        w("optional/gl_broken.txt", "set SRLoads to SRNoSuchForm\r\n");
+        // Does not compile: Set without To (an unknown name alone is a call in a mod's file, #2275).
+        w("optional/gl_broken.txt", "set SRLoads 1\r\n");
         // A registered gr_ file runs after the folder's gr_ files.
         w("optional/gr_late.txt", "set SRLate to SROrder\r\n");
         w("gl_top.txt", "set SRLoads to SRLoads + 1\r\n");
@@ -75,9 +76,15 @@ fn files() {
         // Outside the game restart RegisterSRScript does nothing.
         w("gn_register.txt", "set SRNew to SRNew + 1000 * RegisterSRScript \"optional\\gl_extra.txt\"\r\n");
         // Skipped: does not compile; no known prefix; not a text file.
-        w("gr_broken.txt", "set SROrder to SRNoSuchForm\r\n");
+        w("gr_broken.txt", "set SROrder 99\r\n");
         w("readme.txt", "set SROrder to 99\r\n");
         w("gr_notes.ini", "set SROrder to 99\r\n");
+        // A private auxiliary variable (no `_`) the file writes, which a CompileScript'd
+        // function reads back (MCM Extender's pattern).
+        w("gr_e.txt", "SRSize.AuxVarSetFlt \"*Shared\" 7 -1\r\n");
+        let udfs = dir.join("NVSE/user_defined_functions");
+        std::fs::create_dir_all(&udfs).unwrap();
+        std::fs::write(udfs.join("srprobe.txt"), "Begin Function { }\r\nSetFunctionValue (SRSize.AuxVarGetFlt \"*Shared\" 0)\r\nEnd\r\n").unwrap();
     });
     set_roots(Roots { read: vec![dir], ..Roots::default() });
 }
@@ -101,7 +108,7 @@ fn each_prefix_runs_at_its_moment() {
     let mut g = game(&f);
     let runs = g.run_script_runner(Moment::Restart);
     let names: Vec<&str> = runs.iter().map(|r| r.path.as_str()).collect();
-    assert_eq!(names, ["GR_a.txt", "gr_b.txt", "gr_broken.txt", "gr_c.txt", "gr_d.txt", "optional\\gr_late.txt"]);
+    assert_eq!(names, ["GR_a.txt", "gr_b.txt", "gr_broken.txt", "gr_c.txt", "gr_d.txt", "gr_e.txt", "optional\\gr_late.txt"]);
     assert_eq!(value(&mut g, "SROrder"), 12.0, "the folder's gr_ files in the order of their names");
     assert_eq!(value(&mut g, "SRLate"), 12.0, "a registered gr_ file runs after them");
     assert_eq!(value(&mut g, "SRSize"), 3.0);
@@ -142,4 +149,17 @@ fn registered_files_last_for_the_session() {
     g2.put_session(session);
     g2.run_script_runner(Moment::Load);
     assert_eq!(value(&mut g2, "SRLoads"), 111.0, "gl_top, ln_both and the registered gl_extra");
+}
+
+#[test]
+fn script_runner_files_and_compiled_scripts_share_private_aux_vars() {
+    // [hypothesis: scripts compiled at run time have no plugin of their own; observed: MCM
+    // Extender's gr_ file writes `*MCMExt_ModName`, its CompileScript'd handler reads it,
+    // Begin Again list 2026-11-13]
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    g.run_script_runner(Moment::Restart);
+    assert_eq!(value(&mut g, "SRSize.AuxVarGetFlt \"*Shared\" 0"), 7.0, "a query reads it");
+    assert_eq!(value(&mut g, "Call (CompileScript \"srprobe.txt\")"), 7.0, "so does a CompileScript'd function");
 }

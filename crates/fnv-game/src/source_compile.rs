@@ -119,8 +119,53 @@ pub fn declares_extender_vars(src: &str) -> bool {
 /// A unit's new bytes, program, undecodable pieces, references and variables.
 type Done = (Vec<u8>, Program, usize, Vec<fnv_script::unit::RefSlot>, Vec<fnv_script::VarDecl>);
 
-/// What [`compile_picked`] made, by the unit's place in the list, in list order.
-pub(crate) struct Recompiled(Vec<(usize, Result<Done, String>)>);
+/// The first error of a unit whose source did not compile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceError {
+    pub line: usize,
+    pub kind: &'static str,
+    /// What the compiler said. It may quote the line, which is a mod's script text: keep
+    /// it out of output meant to be shared.
+    pub detail: String,
+}
+
+/// What the source compile made of one unit it picked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceUnit {
+    /// The unit's key (`<plugin>|<owner label>`).
+    pub key: String,
+    pub plugin: String,
+    /// `None`: the unit runs from its source. Else it kept its bytes.
+    pub error: Option<SourceError>,
+    /// The functions it calls that nothing knows, each once, as spelled: they compile as
+    /// calls that report "not built" when they run (`Seed::unknown_calls`).
+    pub unknown_functions: Vec<String>,
+    /// The enumeration names the table lacks (`kind: name`), each once.
+    pub unknown_enums: Vec<String>,
+}
+
+/// The names a compile's warnings of `kind` carry, each once, in order.
+fn warned(c: &fnv_script::compile::Compiled, kind: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for d in c.diags.iter().filter(|d| d.kind == kind) {
+        if !out.iter().any(|n| n.eq_ignore_ascii_case(&d.detail)) {
+            out.push(d.detail.clone());
+        }
+    }
+    out
+}
+
+/// One unit's compile: its place in the list, what it made, and the function and
+/// enumeration names it warned of as unknown.
+struct Made {
+    at: usize,
+    result: Result<Done, SourceError>,
+    unknown_functions: Vec<String>,
+    unknown_enums: Vec<String>,
+}
+
+/// What [`compile_picked`] made, in list order.
+pub(crate) struct Recompiled(Vec<Made>);
 
 impl Recompiled {
     /// Nothing to put in.
@@ -162,15 +207,16 @@ pub(crate) fn compile_picked(lo: &LoadOrder<'_>, table: &FunctionTable, units: &
             let u = &units[i].unit;
             let env = ix.env(ix.plugin_index(&u.plugin).unwrap_or(0));
             let c = compile(u.source.as_deref().unwrap_or(""), table, &env, Some(Seed { variables: &u.variables, refs: &u.refs, unknown_calls: true }));
-            let first = c.errors().next().map(|e| format!("{}: line {}: {} {}", u.key(), e.line, e.kind, e.detail));
-            let r = match first {
+            let first = c.errors().next().map(|e| SourceError { line: e.line, kind: e.kind, detail: e.detail.clone() });
+            let (unknown_functions, unknown_enums) = (warned(&c, "unknown_function"), warned(&c, "unknown_enum_name"));
+            let result = match first {
                 Some(e) => Err(e),
                 None => {
                     let d = decode(&c.bytes, table);
                     Ok((c.bytes, d.program, d.report.raw_total(), c.refs, c.variables))
                 }
             };
-            (i, r)
+            Made { at: i, result, unknown_functions, unknown_enums }
         })
         .collect();
     tracing::info!("script build: source compile: done: {:.0} ms", clock.elapsed().as_secs_f64() * 1e3);
@@ -178,21 +224,62 @@ pub(crate) fn compile_picked(lo: &LoadOrder<'_>, table: &FunctionTable, units: &
 }
 
 /// Put [`compile_picked`]'s results in, in place. Units whose source does not compile keep
-/// their bytes (noted in `issues`).
-pub(crate) fn apply(units: &mut [Compiled], recompiled: Recompiled, issues: &mut Issues) {
-    for (i, r) in recompiled.0 {
-        match r {
+/// their bytes (noted in `issues`). Returns what became of each unit, in list order.
+pub(crate) fn apply(units: &mut [Compiled], recompiled: Recompiled, issues: &mut Issues) -> Vec<SourceUnit> {
+    let mut out = Vec::with_capacity(recompiled.0.len());
+    for Made { at, result: r, unknown_functions, unknown_enums } in recompiled.0 {
+        let c = &mut units[at];
+        let (key, plugin) = (c.unit.key(), c.unit.plugin.clone());
+        for name in &unknown_functions {
+            issues.note("script_calls_unknown_function", || format!("{key}: {name}"));
+        }
+        let error = match r {
             // The seed keeps every existing index; names the lists lacked come after them.
             Ok((bytes, program, raw, refs, variables)) => {
-                let c = &mut units[i];
-                issues.note("script_compiled_from_source", || c.unit.key());
+                issues.note("script_compiled_from_source", || key.clone());
                 c.unit.bytes = bytes;
                 c.unit.refs = refs;
                 c.unit.variables = variables;
                 c.program = program;
                 c.raw = raw;
+                None
             }
-            Err(e) => issues.note("script_source_does_not_compile", || e),
+            Err(e) => {
+                issues.note("script_source_does_not_compile", || format!("{key}: line {}: {} {}", e.line, e.kind, e.detail));
+                Some(e)
+            }
+        };
+        out.push(SourceUnit { key, plugin, error, unknown_functions, unknown_enums });
+    }
+    out
+}
+
+/// The functions the load order's recompiled units call that nothing knows, most used
+/// first: the name as first spelled and how many units call it.
+pub fn unknown_functions(units: &[SourceUnit]) -> Vec<(String, usize)> {
+    let mut by: std::collections::BTreeMap<String, (String, usize)> = Default::default();
+    for u in units {
+        for n in &u.unknown_functions {
+            by.entry(n.to_ascii_lowercase()).or_insert_with(|| (n.clone(), 0)).1 += 1;
         }
+    }
+    let mut out: Vec<(String, usize)> = by.into_values().collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase())));
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unit(key: &str, names: &[&str]) -> SourceUnit {
+        SourceUnit { key: key.into(), plugin: "Mod.esp".into(), error: None, unknown_functions: names.iter().map(|n| n.to_string()).collect(), unknown_enums: Vec::new() }
+    }
+
+    #[test]
+    fn unknown_functions_are_counted_by_unit_most_used_first() {
+        let units = [unit("a", &["SetThing", "GetOther"]), unit("b", &["setthing"]), unit("c", &[])];
+        assert_eq!(unknown_functions(&units), [("SetThing".to_string(), 2), ("GetOther".to_string(), 1)]);
+        assert!(unknown_functions(&[]).is_empty());
     }
 }

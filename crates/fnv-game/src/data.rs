@@ -57,6 +57,29 @@ impl Compiled {
         self.program.blocks.iter().any(|b| b.event == event)
     }
 
+    /// Whether a GameMode block of the script tests that a reference is not in the
+    /// player's cell: an If condition with `GetInSameCell … 0 ==` or `GetInSameCell … 1 !=`
+    /// (`Game::run_far_frame`'s rule). Such a branch can only do anything while the
+    /// actor is somewhere the player is not, so the script was written to run then.
+    pub fn tests_away_from_player(&self) -> bool {
+        use fnv_script::ir::{Op, Stmt, Token};
+        const GET_IN_SAME_CELL: u16 = 0x1020;
+        fn away(tokens: &[Token]) -> bool {
+            tokens.windows(3).any(|w| match w {
+                [Token::Call { call }, Token::Num { value, .. }, Token::Op { op }] if call.opcode == GET_IN_SAME_CELL => (*value == 0.0 && *op == Op::Eq) || (*value == 1.0 && *op == Op::Ne),
+                _ => false,
+            })
+        }
+        fn rec(body: &[Stmt]) -> bool {
+            body.iter().any(|st| match st {
+                Stmt::If { arms, otherwise } => arms.iter().any(|a| away(&a.cond.0) || rec(&a.body)) || otherwise.as_deref().is_some_and(rec),
+                Stmt::While { body, .. } | Stmt::ForEach { body, .. } => rec(body),
+                _ => false,
+            })
+        }
+        self.program.blocks.iter().filter(|b| b.event == crate::game::event::GAME_MODE).any(|b| rec(&b.body))
+    }
+
     /// Declared type of a local variable.
     pub fn var_type(&self, index: u16) -> Option<&VarType> {
         self.unit.var(index as u32).map(|v| &v.ty)
@@ -1110,6 +1133,10 @@ pub struct GameData {
     pub class_services: HashMap<FormId, u32>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
+    /// What the compile of mods' source text made of each unit it picked
+    /// (`crate::source_compile`): whether it compiled, and the names it calls that
+    /// nothing knows. For the engine's log and `fnvtool ext report`.
+    pub source_units: Vec<crate::source_compile::SourceUnit>,
 }
 
 /// An idle animation (IDLE) as far as playing it goes: the file it names and how often
@@ -1959,6 +1986,7 @@ impl GameData {
             class_services: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
+            source_units: Vec::new(),
         };
         // Decode every unit once.
         let mut all_units: Vec<ScriptUnit> = Vec::new();
@@ -2000,7 +2028,7 @@ impl GameData {
         let table = std::mem::take(&mut d.table);
         if long_way {
             let recompiled = crate::source_compile::compile_picked(lo, &table, &units);
-            crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+            d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         }
         let recompiled = std::thread::scope(|scope| {
             let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, &table, &units) });
@@ -2297,7 +2325,7 @@ impl GameData {
             recompiled
         });
         d.table = table;
-        crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+        d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         d.units = units;
         clock.lap("source compile results put in");
         for stages in d.need_stages.values_mut() {

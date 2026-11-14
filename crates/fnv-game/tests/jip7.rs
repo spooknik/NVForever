@@ -228,6 +228,49 @@ fn ammunition_and_its_effects() {
 }
 
 #[test]
+fn cloned_projectile_numeric_traits_keep_the_clone_and_original_independent() {
+    let f = fixture();
+    let mut g = game(&f);
+    let XVal::Ref(clone) = q(&mut g, "ref ownClone\nlet ownClone := TempCloneForm TestProjectile 1\nSetFunctionValue ownClone") else { panic!("clone reference") };
+    assert_eq!(g.num_field(FormId(clone), "DATA", "speed"), 1000.0);
+    assert_eq!(n(&mut g, &format!("GetProjectileTraitNumeric {clone:#010X} 2")), 1000.0);
+    q(&mut g, &format!("SetProjectileTraitNumeric {clone:#010X} 2 0"));
+    assert_eq!(g.num_field(FormId(clone), "DATA", "speed"), 0.0);
+    assert_eq!(n(&mut g, &format!("GetProjectileTraitNumeric {clone:#010X} 2")), 0.0);
+    assert_eq!(g.num_field(FormId(PROJ), "DATA", "speed"), 1000.0);
+    // Wrong signature and out-of-range trait IDs still change nothing.
+    q(&mut g, "SetProjectileTraitNumeric TestAmmo 2 17");
+    q(&mut g, &format!("SetProjectileTraitNumeric {clone:#010X} 99 17"));
+    assert_eq!(g.num_field(FormId(clone), "DATA", "speed"), 0.0);
+    let next = game(&f);
+    assert_eq!(next.num_field(FormId(PROJ), "DATA", "speed"), 1000.0);
+}
+
+#[test]
+fn cloned_projectile_light_edits_keep_the_original_independent() {
+    let f = fixture();
+    let mut g = game(&f);
+    let XVal::Ref(clone) = q(&mut g, "ref ownClone\nlet ownClone := TempCloneForm TestProjectile 1\nSetFunctionValue ownClone") else { panic!("clone reference") };
+    q(&mut g, &format!("SetProjectileLight {clone:#010X} TestLight"));
+    assert_eq!(g.num_field(FormId(clone), "DATA", "light"), f64::from(LIGH));
+    assert_eq!(n(&mut g, &format!("GetProjectileLight {clone:#010X}")), f64::from(LIGH));
+    assert_eq!(g.num_field(FormId(PROJ), "DATA", "light"), 0.0);
+    q(&mut g, &format!("SetProjectileLight {clone:#010X}"));
+    assert_eq!(g.num_field(FormId(clone), "DATA", "light"), 0.0);
+}
+
+#[test]
+fn cloned_projectile_muzzle_flash_edits_keep_the_original_independent() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(s(&mut g, "GetProjectileMuzzleFlash TestProjectile"), "flash.nif");
+    let XVal::Ref(clone) = q(&mut g, "ref ownClone\nlet ownClone := TempCloneForm TestProjectile 1\nSetFunctionValue ownClone") else { panic!("clone reference") };
+    q(&mut g, &format!(r#"SetProjectileMuzzleFlash {clone:#010X} "owned\clone-flash.nif""#));
+    assert_eq!(s(&mut g, &format!("GetProjectileMuzzleFlash {clone:#010X}")), "owned\\clone-flash.nif");
+    assert_eq!(s(&mut g, "GetProjectileMuzzleFlash TestProjectile"), "flash.nif");
+}
+
+#[test]
 fn projectiles_explosions_and_impact_data() {
     let f = fixture();
     let mut g = game(&f);

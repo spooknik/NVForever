@@ -1,0 +1,27 @@
+# The totals `fnvtool ext report {data} --mo2-profile <Blue Moon profile> --schema
+# schemas/fnv` must print for the owner's Blue Moon list (211 plugins, profile
+# "1 - A Blue Moon 2.0"): the smoke scenario modlist-blue-moon (tools/smoke/scenarios.toml)
+# expects each value below, by its JSON path, to equal the run's (issue #2275). Counts
+# only; nothing of the mods is kept here.
+#
+# units_picked: the units the game runs from their source text (they use the extender);
+# units_kept_bytes: those whose source does not compile, which keep compiled bytes whose
+# extender calls all give 0 (the 8 left: docs/spec-notes/script-compiler.md §8.1). A branch that fixes a cause lowers units_kept_bytes and
+# raises units_from_source by as much; a rise fails the run (find the plugin and cause in
+# the report's per_plugin list before raising anything). A change to the mod list itself changes these too: write the new summary here.
+
+[summary]
+units_picked = 2014
+units_from_source = 2006
+units_kept_bytes = 8
+# Functions the scripts call that NVForever has no entry for (their calls do nothing).
+# 46 -> 44 with GetContainerOpenSound and GetContainerCloseSound (#2300), -> 12 with the
+# unlisted JIP commands (#2318, docs/spec-notes/ext-unlisted-commands.md);
+# the 12 left: 7 names no installed plugin registers (RemoveFac, GetRespawn, dATan2,
+# ClearModNVSEVars, ySIGetTagTrait, GetVATSLeftAreaFree, GetVATSRightAreaFree; ClearModNVSEVars
+# is no command of xNVSE 6.4.9 either: it compiled in no form in the original, read as a bare
+# string [observed: #2430 probe 2026-11-14]), 4 that are
+# no command (an inline `short x = ...` declaration, the form Fists, the quest variables
+# fLuckSaveMult and GrabbedtheMoney). -> 11: movetomarker is MoveTo (the compiler alias
+# from the Begin Again list, #2335).
+"unknown_functions.#" = 11

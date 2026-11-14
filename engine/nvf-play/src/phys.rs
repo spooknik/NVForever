@@ -1341,7 +1341,7 @@ impl PhysState {
     pub fn add_created(&mut self, ctx: &LoadCtx, id: u32) -> bool {
         let Some(s) = ctx.sim.world.peek(FormId(id)).filter(|s| dropped::present(s)) else { return false };
         let counts = &mut self.stats.counts;
-        let Some(path) = dropped::model_path(ctx.d, s.base, s.extra.mods) else {
+        let Some(path) = dropped::created_model_path(ctx.d, &ctx.sim.world, s.base, s.extra.mods) else {
             *counts.entry("created_no_model").or_default() += 1;
             return false;
         };

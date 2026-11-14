@@ -26,9 +26,9 @@
 //! **Kept in `NVForever.ini`** like the other lists, as the name the row reads
 //! (`quality=Custom`, `enhanced=On`). The rows are kept on their own and are the truth:
 //! neither row's stored name sets anything at the start, so a test run's command line
-//! still wins over the INI row by row (#1382): an effect whose note names a switch given
+//! still wins over the INI row by row (#1382): an effect whose switches name one given
 //! (`fine-shadows` names `--shadow-distance`) keeps the command line's state even when
-//! `enhanced=On` is stored [design: #1966 review]. Neither note names a command-line
+//! `enhanced=On` is stored [design: #1966 review]. Neither row names a command-line
 //! switch, so the INI read never says one was overridden.
 //!
 //! **Defaults unchanged**: nothing here changes a row until the player takes a choice; the
@@ -480,7 +480,8 @@ pub fn register(app: &mut App, group: &'static str) {
             key: ENHANCED_KEY,
             group,
             label: "Enhanced effects",
-            note: "On: every effect of the enhanced look (ambient occlusion, longer sun shadows, bloom, sharpening, anisotropic filtering 16x, sun shafts, screen-space water reflections). Off: none of them, the original's picture. Custom: some on, some off. Each effect keeps its own row and its own saved state; this row only sets them all at once.",
+            note: "Sets every effect of the enhanced look at once. On: all of them. Off: none, the original's picture. Custom: some on, some off. Each keeps its own row.",
+            switches: "",
             get: |_| false,
             set: |_, _| {},
             slider: None,
@@ -512,7 +513,8 @@ pub fn register(app: &mut App, group: &'static str) {
             key: QUALITY_KEY,
             group,
             label: "Quality preset",
-            note: "Sets the rows the original's quality presets cover to the values of the game folder's low.ini, medium.ini, high.ini or VeryHigh.ini: Sun shadows, Shadow filtering, Light glow, Mirrored water reflections and the object, actor, item, shadow and grass distances. Custom: those rows match none of them. A preset whose file is missing is not offered. The enhanced effects, anti-aliasing and FSR keep their own rows.",
+            note: "Sets the rows the original's quality presets cover to the game folder's low.ini to VeryHigh.ini. Custom: those rows match none of them.",
+            switches: "",
             get: |_| false,
             set: |_, _| {},
             slider: None,
@@ -642,7 +644,7 @@ mod tests {
     }
 
     fn switch(key: &'static str, get: fn(&World) -> bool, set: fn(&mut World, bool)) -> Setting {
-        Setting { key, group: "Graphics", label: key, note: "", get, set, slider: None }
+        Setting { key, group: "Graphics", label: key, note: "", switches: "", get, set, slider: None }
     }
 
     fn part(key: &'static str, n: usize) -> Setting {
@@ -679,7 +681,7 @@ mod tests {
         app.insert_resource(QualityPresets { dir: PathBuf::from("made-up"), presets });
         add_choice_list(
             &mut app,
-            Setting { key: QUALITY_KEY, group: "Graphics", label: "q", note: "", get: |_| false, set: |_, _| {}, slider: None },
+            Setting { key: QUALITY_KEY, group: "Graphics", label: "q", note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None },
             ChoiceList { names: quality_names, chosen: quality_chosen, pick: pick_quality, save: quality_chosen, load: load_quality, ask_keep: false },
         );
         app
@@ -760,7 +762,7 @@ mod tests {
     }
 
     /// #1966 review: a stored `enhanced=On` must not set the effects before their own rows
-    /// are read, or an effect whose note names a switch a test run was given
+    /// are read, or an effect whose switches name one a test run was given
     /// (`fine-shadows` names `--shadow-distance`) loses the command line's state (#1382).
     #[test]
     fn a_stored_enhanced_on_leaves_each_effect_its_own_command_line_precedence() {
@@ -781,7 +783,7 @@ mod tests {
         };
         let g = start(true);
         assert!(!g.fine_shadows, "a test run keeps --shadow-distance's state for fine-shadows, enhanced=On notwithstanding");
-        assert!(g.bloom, "a row whose note names no switch given takes its stored state");
+        assert!(g.bloom, "a row whose switches name none given takes its stored state");
         assert!(!g.ambient_occlusion, "enhanced=On sets no effect the INI does not list itself");
         let g = start(false);
         assert!(g.fine_shadows && g.bloom, "otherwise the stored rows win as before");
@@ -791,17 +793,17 @@ mod tests {
     /// The effect switches and the light glow as the renderer registers them, over
     /// `Graphics`, and the Enhanced effects row.
     fn register_effects(app: &mut App) {
-        // The notes name the switches the renderer's do (engine/nvforever/src/settings.rs).
+        // The switches are the renderer's rows' (engine/nvforever/src/settings.rs).
         macro_rules! row {
             ($key:literal, $field:ident) => {
-                row!($key, $field, "(--graphics)")
+                row!($key, $field, "--graphics")
             };
-            ($key:literal, $field:ident, $note:literal) => {
-                add_setting(app, Setting { note: $note, ..switch($key, |w| w.resource::<Graphics>().$field, |w, on| w.resource_mut::<Graphics>().$field = on) })
+            ($key:literal, $field:ident, $switches:literal) => {
+                add_setting(app, Setting { switches: $switches, ..switch($key, |w| w.resource::<Graphics>().$field, |w, on| w.resource_mut::<Graphics>().$field = on) })
             };
         }
         row!("ambient-occlusion", ambient_occlusion);
-        row!("fine-shadows", fine_shadows, "On: the sun's shadows reach half as far again as --shadow-distance. (--graphics)");
+        row!("fine-shadows", fine_shadows, "--shadow-distance, --graphics");
         row!("bloom", bloom);
         row!("glow", glow);
         row!("sharpen", sharpen);
@@ -811,7 +813,7 @@ mod tests {
         row!("water-mirror", water_mirror);
         add_choice_list(
             app,
-            Setting { key: ENHANCED_KEY, group: "Graphics", label: "e", note: "", get: |_| false, set: |_, _| {}, slider: None },
+            Setting { key: ENHANCED_KEY, group: "Graphics", label: "e", note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None },
             ChoiceList { names: enhanced_names, chosen: enhanced_chosen, pick: pick_enhanced, save: enhanced_chosen, load: load_enhanced, ask_keep: false },
         );
     }

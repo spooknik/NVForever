@@ -36,6 +36,12 @@
 //! are where their packages have them; one that was on furniture and is to be elsewhere
 //! is off it at once. [engineering choice: what the original does is not sourced.]
 //!
+//! **A script moving the clock** (`set GameHour to 8`, more than an hour on the clock
+//! face; issue #2353, docs/spec-notes/packages.md §9) is handled like the end of a wait:
+//! everybody chooses its package at once, and the residents out of sight are put where
+//! their new packages have them, as on arrival; those in view walk there
+//! ([`Core::after_hour_jump`]) [design, #2353].
+//!
 //! **Movement.** With `--play`, an actor walking where the collision world is loaded
 //! (around the player) is moved by the character controller ([`PhysMover`]): it steers
 //! along its path and physics decides where it ends up, so it goes round furniture and
@@ -828,6 +834,25 @@ fn next_seat(seat: Seat, drawn: bool, on: bool, frame: &retry::Now, restart: boo
     }
 }
 
+/// The seat of a resident put at its package's place after a script moved the clock
+/// ([`Core::after_hour_jump`]): the furniture it is to use now (`None` at a standing
+/// place) and its seat. On new furniture it is sat on at once (no walk up, no sitting-down
+/// clip); otherwise the old seat stays for [`stale_seat`] to drop in the same frame
+/// (`Resident::jumped`), which also has a body still on the old furniture let go of it.
+fn seat_after_jump(seat: Seat, furniture: Option<u32>) -> (Option<u32>, Seat) {
+    match furniture {
+        Some(f) => (Some(f), Seat::Wanted(f, true)),
+        None => (None, seat),
+    }
+}
+
+/// After hours passed in the Wait menu, a script's MoveTo or a jump of the clock
+/// (`changed`): the furniture of `seat` the resident is to be off at once, when its AI
+/// no longer has it use that one (`wants`).
+fn stale_seat(seat: Seat, wants: Option<u32>, changed: bool) -> Option<u32> {
+    seat.furniture().filter(|f| changed && wants != Some(*f))
+}
+
 struct Resident {
     actor: FormId,
     base: u32,
@@ -870,6 +895,9 @@ struct Resident {
     last_drawn: Option<(f32, [f32; 3])>,
     /// A script put it somewhere (MoveTo) this frame: off its furniture at once.
     moved: bool,
+    /// Put at its package's place this frame after a script moved the clock
+    /// ([`Core::after_hour_jump`]): off its furniture at once, as `moved`.
+    jumped: bool,
     /// Whether it cannot walk ([`cannot_walk`]), once looked up.
     rooted: Option<bool>,
     /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
@@ -1194,6 +1222,26 @@ fn interiors_behind_doors(world: &WorldData, streamer: &Streamer, refs: &RefTabl
     out
 }
 
+/// The cells of `now` (the loaded cells of worldspace `world`, or its interior) not
+/// handed over yet: `seen` becomes `now`. A grid square of another worldspace is another
+/// cell, so a change of worldspace forgets the exterior squares seen (`seen_world` is
+/// the worldspace they were seen in). Sibling worldspaces lie on the same squares: TTW's
+/// MegatonWorld on the Wasteland cells around its gate (issue #2233), Freeside's
+/// FreesideWorld, FreesideNorthWorld and FreesideFortWorld on one another (#2432: Orris
+/// and the King's bodyguard at the north gate; #2434: the Old Mormon Fort's people)
+/// [observed: their cells share grid squares, `fnvtool world list`]. Kept by grid square
+/// alone, the squares of the worldspace left counted as handed over, and the people of
+/// the one entered never joined, so were never drawn.
+fn newly_loaded(seen: &mut HashSet<CellKey>, seen_world: &mut u32, world: u32, now: HashSet<CellKey>) -> Vec<CellKey> {
+    if *seen_world != world {
+        seen.retain(|k| !matches!(k, CellKey::Exterior(_)));
+        *seen_world = world;
+    }
+    let new: Vec<CellKey> = now.difference(seen).copied().collect();
+    *seen = now;
+    new
+}
+
 /// A trip ends this many frames after the loaded cells settled and the loading screen
 /// let the game go [our choice: the frame the last cells' actors join, and the one
 /// they are put in].
@@ -1223,7 +1271,11 @@ fn set_global(g: &mut Game, edid: &str, v: f32) -> Result<(), String> {
 }
 
 fn clock_text(g: &Game) -> String {
-    let h = g.world.calendar().map(|c| c.hour).unwrap_or(0.0);
+    hour_text(g.world.calendar().map(|c| c.hour).unwrap_or(0.0))
+}
+
+/// `h` (GameHour) as HH:MM.
+fn hour_text(h: f32) -> String {
     format!("{:02}:{:02}", h.floor() as u32, ((h.fract() * 60.0).floor() as u32).min(59))
 }
 
@@ -1446,6 +1498,9 @@ impl Residents {
         let Some(r) = self.core.list.iter_mut().find(|r| r.actor.0 == actor) else { return false };
         if let Some(e) = r.root.take() {
             commands.entity(e).despawn();
+        } else if r.spawned {
+            // Diagnostic for #2461: a body spawned and not yet found is not taken away.
+            warn!("ai: {} drawn anew before its body spawned earlier was found: that body is not taken away", r.label);
         }
         r.spawned = false;
         r.last_drawn = None;
@@ -1570,6 +1625,7 @@ impl Core {
             perched: false,
             immobile: false,
             moved: false,
+            jumped: false,
             last_space: None,
             aim_heading: None,
             lock_held: None,
@@ -1586,16 +1642,7 @@ impl Core {
             Some(c) => [CellKey::Interior(c)].into(),
             None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
         };
-        // A grid square of another worldspace is another cell: TTW's MegatonWorld lies on
-        // the grid squares of the Wasteland cells around its gate, so after the gate every
-        // square counted as handed over and Megaton's people never joined until an
-        // interior cleared the set (issue #2233).
-        if self.cells_seen_world != world.world {
-            self.cells_seen.retain(|k| !matches!(k, CellKey::Exterior(_)));
-            self.cells_seen_world = world.world;
-        }
-        let new: Vec<CellKey> = now.difference(&self.cells_seen).copied().collect();
-        self.cells_seen = now;
+        let new = newly_loaded(&mut self.cells_seen, &mut self.cells_seen_world, world.world, now);
         let before = self.list.len();
         for key in new {
             let (cell, persistent) = match key {
@@ -1930,6 +1977,66 @@ impl Core {
         if trip.settled >= TRIP_SETTLE_FRAMES {
             info!("ai [{}] trip over: {} residents put at their package's place, {} seated at once", self.clock_text, trip.put[0], trip.put[1]);
             self.trip = None;
+        }
+    }
+
+    /// A script moved the clock by more than [`fnv_game::ai::SCRIPT_HOUR_JUMP`] since the
+    /// last frame (`Game::take_hour_jump`; issue #2353: VCG01 stage 200's `set GameHour to
+    /// 8` after the player rushed out of Doc Mitchell's house, Goodsprings already placed
+    /// for the early morning, Easy Pete in bed): as at the end of a wait, everybody
+    /// chooses its package now, and the residents the player cannot see (in the cell
+    /// buffer or an interior behind a door of the loaded cells, not in a drawn cell) are
+    /// put where their new package's walk ends, on its furniture, as on arrival
+    /// (`fnv_ai::Ai::hour_jumped`). Residents in view are not moved: they walk to their
+    /// new packages in sight [design, #2353]. Runs while a menu holds the game too (the
+    /// console's `set GameHour to`).
+    fn after_hour_jump(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer, mut phys: Option<&mut PhysState>) {
+        let Some(jump) = game.take_hour_jump() else { return };
+        self.join(game);
+        let doors = interiors_behind_doors(world, streamer, game.world.placed);
+        let unseen = |p: fnv_nav::Place| !drawn(world, streamer, p.space, p.pos) && (streamer.buffer.holds(p.space, p.pos) || matches!(p.space, Space::Interior(c) if doors.contains(&c)));
+        let arrivals = self.ai.hour_jumped(game, &nav.graph, &unseen);
+        self.clock_text = clock_text(game);
+        info!(
+            "ai [{}] the clock was set from {} to {} by a script: packages chosen again; {} of {} residents out of sight put at their package's place",
+            self.clock_text,
+            hour_text(jump.from),
+            hour_text(jump.to),
+            arrivals.len(),
+            self.ai.agents.len()
+        );
+        for (actor, arr) in arrivals {
+            let Some(r) = self.list.iter_mut().find(|r| r.actor == actor) else { continue };
+            r.present = game.present(actor);
+            r.jumped = true;
+            // Its character, if it had one, is made again where it is now (as on arrival).
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(actor.0);
+            }
+            self.unstuck.remove(&actor.0);
+            self.skip_until.remove(&actor.0);
+            self.skip_refusals.forget(actor.0);
+            // The furniture it is to use now, none at a standing place: set for every one,
+            // as `note` does not run while a menu holds the game (the console's jump), and
+            // an old wish would sit it back on its old furniture once drawn.
+            (r.wants, r.seat) = seat_after_jump(r.seat, arr.furniture.map(|f| f.0));
+            // Every one: a jump puts few, and the smoke tests read where they came from.
+            info!(
+                "ai [{}] {}: put at its package's place after the clock was set ({}): ({:.0}, {:.0}, {:.0}) in {}, from ({:.0}, {:.0}, {:.0}) in {}, {} walk(s) skipped{}",
+                self.clock_text,
+                r.label,
+                game.data.name(arr.package),
+                arr.to.pos[0],
+                arr.to.pos[1],
+                arr.to.pos[2],
+                nav::space_name(world, arr.to.space),
+                arr.from.pos[0],
+                arr.from.pos[1],
+                arr.from.pos[2],
+                nav::space_name(world, arr.from.space),
+                arr.walks,
+                arr.furniture.map_or_else(String::new, |f| format!(", seated on {}", game.data.name(f)))
+            );
         }
     }
 
@@ -3016,6 +3123,7 @@ pub fn drive(
                 res.core.take_created(game);
             }
             res.core.process_levels(game, &world, &streamer);
+            res.core.after_hour_jump(game, &nav, &world, &streamer, None);
             res.core.arrive(game, &nav, &world, &streamer, None);
             res.core.switch_navmeshes(game, &mut nav);
             let _span = info_span!("ai::think").entered();
@@ -3053,6 +3161,7 @@ pub fn drive(
                 core.process_levels(&rt.game, world_ref, streamer_ref);
                 drop(span);
                 let span = info_span!("ai::arrive").entered();
+                core.after_hour_jump(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 core.arrive(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 drop(span);
                 let span = info_span!("ai::switch_navmeshes").entered();
@@ -3084,6 +3193,9 @@ pub fn drive(
         if let Some(e) = r.root.take().filter(|_| r.spawned) {
             commands.entity(e).remove::<(RefVisual, crate::limbs::ActorRig)>().insert(crate::door_fade::DoorFade { since: now, out: true });
             door_fades.outs += 1;
+        } else if r.spawned {
+            // Diagnostic for #2461: a body spawned and not yet found is not taken away.
+            warn!("ai: {} went through a door before its body spawned earlier was found: that body is not taken away", r.label);
         }
         r.spawned = false;
         r.last_drawn = None;
@@ -3108,22 +3220,22 @@ pub fn drive(
         if moved {
             r.first_steps = Some(FirstSteps::new("its move by a script"));
         }
-        if let (true, Some(f)) = (waited > 0 || moved, r.seat.furniture()) {
-            if wants != Some(f) {
-                r.seat = Seat::None;
-                match entity {
-                    Some(e) if on => {
-                        commands.entity(e).insert(LeaveNow);
-                        core.seats[1] += 1;
-                        // Its visual stays for the furniture to let go of it; from the
-                        // next frame it is drawn where it is now, or not at all.
-                        continue;
-                    }
-                    Some(e) => {
-                        commands.entity(e).remove::<(SitOn, GetUp)>();
-                    }
-                    None => {}
+        // Or it was put at its package's place after a script moved the clock.
+        let moved = moved || std::mem::take(&mut r.jumped);
+        if stale_seat(r.seat, wants, waited > 0 || moved).is_some() {
+            r.seat = Seat::None;
+            match entity {
+                Some(e) if on => {
+                    commands.entity(e).insert(LeaveNow);
+                    core.seats[1] += 1;
+                    // Its visual stays for the furniture to let go of it; from the
+                    // next frame it is drawn where it is now, or not at all.
+                    continue;
                 }
+                Some(e) => {
+                    commands.entity(e).remove::<(SitOn, GetUp)>();
+                }
+                None => {}
             }
         }
         // The furniture's answer to the last order, acted on once. Only an answer says it
@@ -3347,6 +3459,8 @@ pub fn report(
     res: Res<Residents>,
     world: Res<WorldData>,
     script: Option<Res<nvf_play::script::ScriptState>>,
+    bodies: Query<(Entity, &crate::limbs::ActorRig, &GlobalTransform)>,
+    world_root: Query<&GlobalTransform, With<WorldRoot>>,
 ) {
     if exit.read().next().is_none() {
         return;
@@ -3358,6 +3472,17 @@ pub fn report(
     };
     let core = &res.core;
     let data = game.data;
+    // Actor bodies drawn more than once for one reference (#2461), in game space.
+    let to_game = world_root.single().map_or(bevy::math::Affine3A::IDENTITY, |g| g.affine().inverse());
+    let twice = drawn_twice(bodies.iter().map(|(e, rig, g)| (rig.reference, e, to_game.transform_point3(g.translation()).to_array())));
+    for (reference, places) in &twice {
+        let r = core.list.iter().find(|r| r.actor.0 == *reference);
+        let label = r.map_or_else(|| data.name(game.world.placed.get(FormId(*reference)).map_or(FormId(*reference), |p| p.base)), |r| r.label.clone());
+        let tracked = r.and_then(|r| r.root.filter(|_| r.spawned));
+        let each: Vec<String> = places.iter().map(|(e, p)| format!("({:.0}, {:.0}, {:.0}){}", p[0], p[1], p[2], if Some(*e) == tracked { " driven" } else { "" })).collect();
+        info!("actor bodies: {label} ({reference:08X}) is drawn by {} bodies: {}", places.len(), each.join(", "));
+    }
+    info!("actor bodies summary: {} references drawn by more than one body ({} bodies in all)", twice.len(), twice.iter().map(|(_, p)| p.len()).sum::<usize>());
     let one = |r: &Resident| -> Option<String> {
         let a = core.ai.agents.get(&r.actor)?;
         let package = game.extra.get(&r.actor).and_then(|e| e.current_package).map(|p| data.name(p)).unwrap_or_else(|| "no package".into());
@@ -3474,6 +3599,7 @@ pub fn report(
         p.coming_updates,
         p.reached_loaded
     );
+    info!("far script summary: {} GameMode runs of residents out of the loaded cells (at their low-process updates and in waited hours)", p.far_scripts);
     info!(
         "arrival summary: {} residents put at their package's place behind a loading screen, {} seated at once on their furniture; {} left where they were (in the loaded area before the trip)",
         core.arrivals[0], core.arrivals[1], core.arrivals[2]
@@ -3529,12 +3655,78 @@ fn keeps_lock(lock_target: u32, use_target: Option<FormId>) -> bool {
     use_target.is_none_or(|t| t.0 == lock_target)
 }
 
+/// One reference's drawn bodies, each with where it stands.
+type Bodies<K> = Vec<(K, [f32; 3])>;
+
+/// The references drawn by more than one actor body at once, in FormID order, each with
+/// its bodies (`K`: the body, and where it stands), from every drawn body's reference;
+/// the player's own body is left out. One reference has one body; a second one stands
+/// where something left it and answers to the reference (#2461, Lt. Boyd at Camp
+/// McCarran) [design: a diagnostic for the smoke tests].
+fn drawn_twice<K: Copy>(bodies: impl IntoIterator<Item = (u32, K, [f32; 3])>) -> Vec<(u32, Bodies<K>)> {
+    let mut by_ref: std::collections::BTreeMap<u32, Bodies<K>> = std::collections::BTreeMap::new();
+    for (reference, body, at) in bodies.into_iter().filter(|b| b.0 != FormId::PLAYER_REF.0) {
+        by_ref.entry(reference).or_default().push((body, at));
+    }
+    by_ref.into_iter().filter(|(_, b)| b.len() > 1).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{carries_cell, level_for, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use super::{carries_cell, drawn_twice, level_for, newly_loaded, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use crate::world::CellKey;
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
+
+    /// #2432, #2434: Freeside's worldspaces lie on the same grid squares. Going through a
+    /// door from one into another (FreesideWorld to FreesideNorthWorld, that to
+    /// FreesideFortWorld) hands over every loaded cell of the one entered on the first
+    /// arrival, though the same squares were loaded in the one left; a square seen
+    /// before in the same worldspace is not handed over twice.
+    #[test]
+    fn sibling_worldspaces_on_the_same_squares_hand_over_their_cells_on_the_first_arrival() {
+        const FREESIDE: u32 = 0x0010_BEEA;
+        const NORTH: u32 = 0x0012_D94D;
+        const FORT: u32 = 0x0012_D94E;
+        let squares = |s: &[(i32, i32)]| -> HashSet<CellKey> { s.iter().map(|g| CellKey::Exterior(*g)).collect() };
+        let set = |v: Vec<CellKey>| -> HashSet<CellKey> { v.into_iter().collect() };
+        let (mut seen, mut world) = (HashSet::new(), 0);
+        let around_gate = [(0, 0), (1, 0), (0, 1), (1, 1)];
+        assert_eq!(newly_loaded(&mut seen, &mut world, FREESIDE, squares(&around_gate)).len(), 4, "the start");
+        assert!(newly_loaded(&mut seen, &mut world, FREESIDE, squares(&around_gate)).is_empty(), "the same squares again");
+        // Through the door into the north side, on the same squares: the loading screen
+        // empties the loaded cells, then they come in one by one; all of them are new.
+        assert!(newly_loaded(&mut seen, &mut world, NORTH, HashSet::new()).is_empty());
+        let mut got = newly_loaded(&mut seen, &mut world, NORTH, squares(&[(0, 0), (1, 1)]));
+        got.extend(newly_loaded(&mut seen, &mut world, NORTH, squares(&around_gate)));
+        assert_eq!(set(got), squares(&around_gate), "Orris's square (1, 1) is handed over");
+        // A frame that still shows the squares of the worldspace left counts them for
+        // the one entered (its cells are looked up there), not as seen already.
+        let (mut seen2, mut world2) = (HashSet::new(), 0);
+        newly_loaded(&mut seen2, &mut world2, NORTH, squares(&around_gate));
+        assert_eq!(set(newly_loaded(&mut seen2, &mut world2, FORT, squares(&around_gate))), squares(&around_gate), "the fort's people join");
+        // Into the fort and back out: each worldspace's squares on each arrival.
+        assert_eq!(newly_loaded(&mut seen, &mut world, FORT, squares(&[(1, 0)])), vec![CellKey::Exterior((1, 0))]);
+        assert_eq!(newly_loaded(&mut seen, &mut world, NORTH, squares(&[(1, 0)])), vec![CellKey::Exterior((1, 0))]);
+        // An interior and back to the same worldspace.
+        assert_eq!(newly_loaded(&mut seen, &mut world, NORTH, [CellKey::Interior(0x0010_E03B)].into()), vec![CellKey::Interior(0x0010_E03B)]);
+        assert_eq!(newly_loaded(&mut seen, &mut world, NORTH, squares(&[(1, 0), (2, 0)])).len(), 2);
+    }
+
+    /// #2461: a reference with two bodies is reported with both, one with one body is
+    /// not, and the player's own body never counts.
+    #[test]
+    fn a_reference_drawn_by_two_bodies_is_reported() {
+        let boyd = 0x000F_0678;
+        let silus = 0x000F_2DEF;
+        let bodies = [(boyd, 1, [296.0, 1665.0, 18671.0]), (silus, 2, [228.0, 1726.0, 18671.0]), (boyd, 3, [325.0, 719.0, 18672.0]), (FormId::PLAYER_REF.0, 4, [0.0; 3]), (FormId::PLAYER_REF.0, 5, [0.0; 3])];
+        let twice = drawn_twice(bodies);
+        assert_eq!(twice.len(), 1, "{twice:?}");
+        assert_eq!(twice[0].0, boyd);
+        assert_eq!(twice[0].1.iter().map(|b| b.0).collect::<Vec<_>>(), vec![1, 3]);
+        assert!(drawn_twice([(silus, 2, [0.0; 3])]).is_empty());
+    }
 
     /// #2120: a person carrying out a weapon use (a Use Weapon package with Continue
     /// During Combat, or a script's) is drawn facing the use's target, not its combat
@@ -3616,6 +3808,40 @@ mod tests {
         let other = Now { wants: Some(8), ..now };
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, true), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, false), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+    }
+
+    /// Review of #2353: a resident that was seated (its visual gone, so `Wanted` at once)
+    /// and is put at a standing place by a jump of the clock while the console stays open
+    /// (no `note` to refresh what it wants) ends standing: it is not sat back on its old
+    /// furniture once drawn. One put on new furniture is sat on that at once.
+    #[test]
+    fn a_seated_resident_put_at_a_standing_place_by_a_jump_is_not_seated_again() {
+        use super::{next_seat, retry::Now, seat_after_jump, stale_seat, Seat};
+        for before in [Seat::Wanted(7, true), Seat::Ordered(7, true)] {
+            // The jump's frame: nothing to use at the new place.
+            let (wants, seat) = seat_after_jump(before, None);
+            assert_eq!(wants, None);
+            // The same frame's cleanup (`Resident::jumped`) drops the old seat.
+            assert_eq!(stale_seat(seat, wants, true), Some(7));
+            let mut seat = Seat::None;
+            // Held by the console for a while, then drawn and free: never told to sit.
+            for (drawn, eligible) in [(false, false), (false, false), (true, false), (true, true), (true, true)] {
+                let frame = Now { wants, eligible, seconds: 0.1, changed: false };
+                let (next, order) = next_seat(seat, drawn, false, &frame, false);
+                assert_eq!(order, None, "{before:?}");
+                seat = next;
+            }
+            assert_eq!(seat, Seat::None, "{before:?}");
+        }
+        // Before the fix the old wish stayed: drawn, it would be sat on its old seat again.
+        let stale = Now { wants: Some(7), eligible: true, seconds: 0.1, changed: false };
+        assert!(next_seat(Seat::Wanted(7, true), true, false, &stale, false).1.is_some());
+        // To new furniture: on it at once, and the old seat is not left (it is replaced).
+        let (wants, seat) = seat_after_jump(Seat::Wanted(7, true), Some(9));
+        assert_eq!((wants, seat), (Some(9), Seat::Wanted(9, true)));
+        assert_eq!(stale_seat(seat, wants, true), None);
+        // Nothing changed this frame: no seat is dropped.
+        assert_eq!(stale_seat(Seat::Ordered(7, true), None, false), None);
     }
 
     #[test]

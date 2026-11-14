@@ -505,7 +505,10 @@ menu's (`dialogue_menu.rs`).
   discovered" over its name in large capitals, where and as "Quest added" is drawn
   (quest-messages.md), and "+10 XP" (`iXPRewardDiscoverMapMarker` is 10 in
   FalloutNV.esm). A place is found when the player comes within its marker's radius
-  (`XRDS`), as the Pip-Boy's map counts it (pipboy.md §5.3); saves keep the places found.
+  (`XRDS`), as the Pip-Boy's map counts it (pipboy.md §5.3); a marker without `XRDS` (65
+  of WastelandNV's 186 named ones, Coyote Den among them) within `iMapMarkerRevealDistance`,
+  1000 by default [documented: GECK wiki "Complete List of GameSettings"; that it is this
+  distance: hypothesis, #2338, observer check 128]; saves keep the places found.
   The sound is `UIPopUpMapMarkerAdded` [hypothesis: by its name].
 - [documented: `menus/prefabs/hudtemplates.xml`, `template_compass_icon_quest`] The
   quest target's icon is `glow_hud_compass_objective_marker.dds`, 40 x 50 at y 5 as the

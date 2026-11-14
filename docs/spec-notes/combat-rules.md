@@ -493,6 +493,34 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - actor hit volumes (§7) report the actor;
   - small-transparent colliders are the layers TRANSPARENT_SMALL and
     TRANSPARENT_SMALL_ANIM.
+  - **The plain Transparent layer (3) lets every shot through** (issue #2340): the
+    original's Transparent is a layer where "nothing can pass through except
+    projectiles", and Transparent Small is the same except that only projectiles with
+    the Pass Through Small Transparent flag pass it [documented: GECK wiki "Collision
+    layer", TRANSPARENT and TRANSPARENT SMALL]. So `layers::shot_ignores` holds
+    TRANSPARENT (characters still stop on it), and the small-transparent layers stay
+    under the projectile flag above. The same filter serves the aim ray, VATS mode's line
+    of fire and aim assist, so those pass layer 3 too. A melee swing's rays do not: the
+    exception is for projectiles, so the player's blows (the fan, the reach across the
+    ground, VATS mode's straight blow and the look ahead for an impact) take
+    `layers::melee_ignores`, the character's layers and invisible walls as before, and
+    stop on layer 3 (`PhysView::for_melee`). NPC blows land by reach and facing, with no
+    ray through the world, so they are unchanged. Blast cover lines already passed layer 3,
+    and so does sight (`detection.rs` `see_through`; the same wiki line: actors see
+    through it). Whether the original lets a 9mm through a layer-3 chain link is observer
+    check 130 [hypothesis until then: the wiki holds for mesh bodies].
+  - **Reach of the change** [documented: `fnvtool collide objects` over the eleven mesh
+    archives of the base game and its add-ons, `fnvtool world refs` over every worldspace
+    and the interior cells of FalloutNV.esm with its nine add-on masters, 2026-11-14]:
+    600 collision bodies in 579 meshes are on layer 3, all static. 6,570 placed references
+    (6,531 statics, 22 doors, 17 static collections) of 271 of those models carry one,
+    5,739 of them in interiors. The commonest are utility-room walls, corners and halls
+    whose layer-3 body is a flat ceiling grate at 183 units, catwalk rails (`Rails01`),
+    `trusswork01.nif` (all of it on layer 3), the lower gap of
+    `bathroomstalldivider01.nif`, the Divide's wall lights and `bedframe01static.nif`.
+    The road gate `clfencegateroad01.nif` (door `CLFenceGateRoad01`, 21 placed) has its
+    chain link `CLFenceGateRoad01Link` on layer 3; its add-on copy
+    `dlcanchclfencegateroad01.nif` has it on Transparent Small (26).
 - **Hits.** Hits and blasts are logged with the damage the rules give (target DT 0, no
   body part); applying it is step C5.
 - **Feedback** [design, until impact effects and audio]:
@@ -881,6 +909,14 @@ module notes).
   - damages actors in its radius, with line of sight, armour and the cause's and target's
     damage and DT perks (perk-entry-points.md §2, "Blasts"; with no cause, the target's
     with no condition on the attacker or the weapon [hypothesis: as the original]);
+  - reaches corpses too: one whose ragdoll took over from its hit volume is caught by its
+    ragdoll, its centre the trunk's, its reach the bounds of its bodies, its bodies' centres
+    seen and measured to as a living actor's part capsules are; once per actor, a volume not
+    yet dropped standing for it; placed objects' ragdolls (traps) and gore pieces are not
+    caught (#2346) [design: `CombatWorld::blast_targets_near`,
+    `PhysWorld::ragdoll_bounds`]. Only blasts: proximity fuses and swings still go by the
+    living actors' volumes. A corpse takes no damage (it is dead) but may lose the part facing
+    the blast (dismemberment.md §4.2);
   - uses the impact point for effects, radius, damage falloff and push. For actor line
     of sight only, an impact with a finite, nonzero surface normal starts 0.5 units
     outward along its normalized normal, then derives the existing 16-unit raised

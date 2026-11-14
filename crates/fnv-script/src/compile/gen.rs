@@ -27,6 +27,11 @@ fn precedence(op: &str) -> u8 {
 
 const PLAYER_NAMES: [&str; 2] = ["player", "playerref"];
 
+/// The code compiled for an enumeration name the table lacks, in a mod's source compiled
+/// by the engine ([`super::Seed::unknown_calls`]): one no animation group, actor value or
+/// statistic has [design].
+pub(super) const UNKNOWN_ENUM: u16 = u16::MAX;
+
 /// Begin-block spellings in shipped source that differ from the catalogue's block name
 /// [observed: scripts.md §3.4].
 const BLOCK_ALIASES: [(&str, &str); 1] = [("onpackageend", "onpackagedone")];
@@ -74,6 +79,22 @@ fn lambda_open(low: &str) -> Option<(usize, usize)> {
     }
     None
 }
+
+/// Where a line opens a lambda in the arrow form that spans lines, `({int iBtn} =>` with
+/// nothing after the arrow, its body on the next lines and a line starting with `)` closing
+/// it [observed: FreePostMojave.esm ships `MessageBoxExAlt ({int iBtn} =>` and `CallWhen
+/// ({} =>` written so with compiled bytes holding a lambda of those lines, #2275]: the
+/// `(`'s offset and the text between the braces.
+fn arrow_open(text: &str) -> Option<(usize, &str)> {
+    let t = text.trim_end().strip_suffix("=>")?.trim_end().strip_suffix('}')?;
+    let brace = t.rfind('{')?;
+    let at = t[..brace].trim_end().strip_suffix('(').map(str::len)?;
+    Some((at, &t[brace + 1..]))
+}
+
+/// A lambda [`Gen::take_lambdas`] has open: its first line, the text before its `(`, its
+/// parameters, its lines, and whether it is the arrow form (closed by `)`, not `end)`).
+type OpenLambda = (lex::Line, String, Vec<String>, Vec<lex::Line>, bool);
 
 /// An open `If` chain: where its last marker's skip count goes, and that marker's
 /// statement index.
@@ -129,6 +150,13 @@ pub(super) struct Gen<'a> {
     /// Compiling a line that is a call on its own (not `let`, `if eval` or any other
     /// expression).
     call_line: bool,
+    /// Compiling a vanilla `set` line read with the extender's grammar.
+    set_line: bool,
+    /// A variable declared with another type than its seeded slot's takes the declared
+    /// one, at the same index: for a unit written in NVSEScript, whose variable list the
+    /// extender's second compiler writes with its own iterators and renamed locals
+    /// (`__temp_<name>_<n>`) [observed: WeaponModCraftInfo.esp, #2275].
+    pub(super) declared_types_win: bool,
     /// The block-form lambdas taken out of the source: parameter names and their lines
     /// (`__lambda<i>` stands in their place).
     lambdas: Vec<(Vec<String>, Vec<lex::Line>)>,
@@ -210,6 +238,8 @@ impl<'a> Gen<'a> {
             in_arg_any: false,
             in_paren: false,
             call_line: false,
+            set_line: false,
+            declared_types_win: false,
             lambdas: Vec::new(),
             lambda_seq: 0,
         }
@@ -221,7 +251,7 @@ impl<'a> Gen<'a> {
 
     pub(super) fn unit(mut self, src: &str) -> Compiled {
         let mut long = Vec::new();
-        let lines = self.take_lambdas(lex::lines(src, &mut long));
+        let lines = self.take_lambdas(lex::join_open_conditions(lex::lines(src, &mut long)));
         for n in long {
             self.diags.push(Diag { line: n, kind: "line_too_long", error: false, detail: format!("over {} characters", lex::MAX_LINE) });
         }
@@ -253,22 +283,34 @@ impl<'a> Gen<'a> {
     /// the expression parser compiles where it stands.
     fn take_lambdas(&mut self, lines: Vec<lex::Line>) -> Vec<lex::Line> {
         let mut out: Vec<lex::Line> = Vec::new();
-        let mut open: Vec<(lex::Line, String, Vec<String>, Vec<lex::Line>)> = Vec::new();
+        let mut open: Vec<OpenLambda> = Vec::new();
         for l in lines {
             let low = l.text.to_ascii_lowercase();
+            if let Some((at, inside)) = arrow_open(&l.text) {
+                let names = inside.split([',', ' ']).filter(|w| !w.is_empty()).map(str::to_string).collect();
+                open.push((l.clone(), l.text[..at].to_string(), names, Vec::new(), true));
+                continue;
+            }
             if let Some((at, len)) = lambda_open(&low) {
+                // The parameters are what the braces hold; an arrow after them, `(begin
+                // function{} =>`, is no parameter [observed: LifeAfterDeath.esm ships a
+                // CallAfter lambda written so with compiled bytes, #2275].
                 let after = &l.text[at + len..];
+                let after = after.find('}').map_or(after, |c| &after[..c]);
                 let names = after.split(['{', '}', ',', ' ']).filter(|w| !w.is_empty()).map(str::to_string).collect();
                 let names: Vec<String> = names;
-                open.push((l.clone(), l.text[..at].to_string(), names, Vec::new()));
+                open.push((l.clone(), l.text[..at].to_string(), names, Vec::new(), false));
                 continue;
             }
             let closes = {
                 let t = low.trim_start();
-                t.starts_with("end") && t[3..].trim_start().starts_with(')')
+                match open.last() {
+                    Some(o) if o.4 => t.starts_with(')'),
+                    _ => t.starts_with("end") && t[3..].trim_start().starts_with(')'),
+                }
             };
             if closes && !open.is_empty() {
-                let (first, before, names, body) = open.pop().unwrap_or_else(|| unreachable!());
+                let (first, before, names, body, _) = open.pop().unwrap_or_else(|| unreachable!());
                 let i = self.lambdas.len();
                 self.lambdas.push((names, body));
                 let rest = &l.text[l.text.find(')').map_or(l.text.len(), |p| p + 1)..];
@@ -386,8 +428,12 @@ impl<'a> Gen<'a> {
         // A variable may not take an extender function's name or alias [observed: a
         // runtime-compiled script declaring `ref rK` (ReleaseKey's alias) is refused, rF
         // rG rB rD rP are not; hypothesis that every extender name is refused].
+        // In a mod's source compiled by the engine it is a warning: the unit shipped with
+        // compiled bytes, so the compiler of its day took the name [observed: Project
+        // Nevada - Core.esm 2.5 declares a variable `break` in a stage's result script],
+        // and a local is read before a function of its name (`x::xword`).
         if self.table.unnumbered.contains_key(&name.to_ascii_lowercase()) {
-            self.diag("variable_named_like_a_function", true, name.to_string());
+            self.diag("variable_named_like_a_function", !self.unknown_calls, name.to_string());
         }
         // A string or array variable holds an id [documented: Array Variable; String
         // Variable]; NVForever keeps the kind in the type (the record's list cannot).
@@ -406,6 +452,12 @@ impl<'a> Gen<'a> {
         // takes that type, at the same index.
         if let Some(v) = self.vars.iter_mut().find(|v| v.name.eq_ignore_ascii_case(name)) {
             if matches!(v.ty, VarType::FloatOrRef | VarType::Int) && matches!(ty, DeclType::String | DeclType::Array) {
+                v.ty = vt;
+                return;
+            }
+        }
+        if self.declared_types_win {
+            if let Some(v) = self.vars.iter_mut().find(|v| v.name.eq_ignore_ascii_case(name)) {
                 v.ty = vt;
                 return;
             }
@@ -429,6 +481,20 @@ impl<'a> Gen<'a> {
     }
 
     fn form(&self, name: &str) -> Option<FormInfo> {
+        // A quoted reference (`"Name".Function`, lex::tokens): the name inside, or a FormID
+        // in hex of any length when the load order has it [observed: Veronica Outfit
+        // Replacer.esp, `"E32A9".GetItemCount` calls on 0x000E32A9, #2275; hypothesis:
+        // the editor reads a quoted name as an Editor ID first].
+        if let Some(inner) = name.strip_prefix('"').and_then(|n| n.strip_suffix('"')) {
+            if let Some(f) = self.form(inner) {
+                return Some(f);
+            }
+            if !(1..=8).contains(&inner.len()) || !inner.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return None;
+            }
+            let g = self.env.local_form(u32::from_str_radix(inner, 16).ok()?)?;
+            return self.env.info(g);
+        }
         let low = name.to_ascii_lowercase();
         if PLAYER_NAMES.contains(&low.as_str()) {
             return Some(FormInfo { form: PLAYER, sig: *b"REFR" });
@@ -444,6 +510,32 @@ impl<'a> Gen<'a> {
             return Some(self.env.info(g).unwrap_or(FormInfo { form: g, sig: [0; 4] }));
         }
         None
+    }
+
+    /// A vanilla parameter's name that nothing has, in a mod's source compiled by the
+    /// engine: a FormID written short, when the load order has that form [observed: ABM-
+    /// Patched Perks.esp ships `player.AddItem f iAmount` with compiled bytes adding
+    /// 0x0000000F, the caps, #2275; hypothesis: any length below 8, and only a vanilla
+    /// parameter, where a word cannot be text].
+    fn short_form_id(&self, name: &str) -> Option<FormInfo> {
+        if !self.unknown_calls || !(1..8).contains(&name.len()) || !name.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        self.env.info(self.env.local_form(u32::from_str_radix(name, 16).ok()?)?)
+    }
+
+    /// A FormID of 1 to 8 hex digits, when the load order has that form (the player's
+    /// reference 0x14 included): an extender function's form parameter takes one
+    /// written bare ([`x`]'s xargs).
+    fn hex_form_id(&self, name: &str) -> Option<FormInfo> {
+        if !(1..=8).contains(&name.len()) || !name.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let id = self.env.local_form(u32::from_str_radix(name, 16).ok()?)?;
+        if id == PLAYER {
+            return Some(FormInfo { form: PLAYER, sig: *b"REFR" });
+        }
+        self.env.info(id)
     }
 
     /// The reference list entry for `slot` named as `spelling`. One form named two ways
@@ -529,6 +621,18 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// The opcode a name compiles to. A console command's number gives way to an extender
+    /// function of the same name with a page of its own: the catalogue's console row for
+    /// `SetStringSetting` comes from another page (ShowFullSceneGraph's), and took the
+    /// name from LU's two-parameter function, so every mod's `SetStringSetting "s" x`
+    /// compiled as a console command with no arguments [observed: RG_PrimmPlayerHome.esm
+    /// and P6UltimateHome.esp ship it with both arguments in their compiled bytes, #2275].
+    pub(super) fn numbered(&self, name: &str) -> Option<u16> {
+        let op = self.table.by_name(name)?;
+        let extender = op >= crate::table::CONSOLE_OPCODE_BASE && self.table.unnumbered.get(&name.to_ascii_lowercase()).is_some_and(|u| u.own_page);
+        (!extender).then_some(op)
+    }
+
     fn function(&mut self, tok: &Tok) -> Option<(Option<String>, FnInfo)> {
         if tok.kind != Kind::Word {
             return None;
@@ -540,7 +644,7 @@ impl<'a> Gen<'a> {
         if head.is_none() && self.var(name).is_some() {
             return None;
         }
-        let opcode = self.table.by_name(name)?;
+        let opcode = self.numbered(name)?;
         let f = self.table.get(opcode)?;
         let params = match f.param_count {
             Some(n) => Some(n),
@@ -606,19 +710,29 @@ impl<'a> Gen<'a> {
                 // (`GetGlobalValue`) [observed: script-compiler.md §3].
                 Some(Val::Global(r)) if !matches!(kind, "int" | "float" | "variable") => self.tagged(b, &Val::Ref(r)),
                 Some(v) => self.tagged(b, &v),
-                None => {
-                    self.diag("unresolved_name", true, t.text.clone());
-                    self.tagged(b, &Val::Num("0".into()));
-                }
+                None => match self.short_form_id(&t.text) {
+                    Some(f) => {
+                        let v = self.form_val(f, &t.text);
+                        self.tagged(b, &v);
+                    }
+                    None => {
+                        self.diag("unresolved_name", true, t.text.clone());
+                        self.tagged(b, &Val::Num("0".into()));
+                    }
+                },
             },
             ParamEnc::Enum(kind) => {
                 let code = t.text.parse::<u16>().ok().or_else(|| {
                     self.enums.get(kind).and_then(|m| m.get(&t.text.to_ascii_lowercase())).copied()
                 });
+                // In a mod's source compiled by the engine a name the table lacks is the
+                // code no group, value or stat has, with a warning, so the unit still
+                // runs: the call then finds nothing of that name [decision; the table
+                // holds only the names seen in compiled scripts].
                 if code.is_none() {
-                    self.diag("unknown_enum_name", true, format!("{kind}: {}", t.text));
+                    self.diag("unknown_enum_name", !self.unknown_calls, format!("{kind}: {}", t.text));
                 }
-                put16(b, code.unwrap_or(0));
+                put16(b, code.unwrap_or(if self.unknown_calls { UNKNOWN_ENUM } else { 0 }));
             }
             ParamEnc::Axis => {
                 let c = t.text.chars().next().unwrap_or('X').to_ascii_uppercase();
@@ -923,8 +1037,8 @@ impl<'a> Gen<'a> {
         // GECK's "Mismatched quotes", ext-bytecode.md §7]; a vanilla line's unclosed string
         // runs to the end of the line.
         let x_line = self.co
-            || matches!(kw, Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_))
-            || matches!(kw, Kw::Call(toks) if self.extended && (self.function(&toks[0]).is_none() || toks.iter().any(|t| t.kind == lex::Kind::Open)));
+            || matches!(kw, Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::Eval(_) | Kw::While(_) | Kw::ForEach(_))
+            || matches!(kw, Kw::Call(toks) if self.x_call_line(toks));
         if x_line && lex::unclosed_quote(&self.text) {
             self.diag("mismatched_quotes", true, self.text.clone());
             return;
@@ -933,7 +1047,7 @@ impl<'a> Gen<'a> {
         // and so does a vanilla `if` or `set` that calls an extender function
         // (`if rItem.GetBaseObject == rGun`) [observed: the peer's nvse-inv probes compile in
         // the original with xNVSE].
-        if self.co || (matches!(kw, Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. }) && self.calls_extender()) {
+        if self.co || (matches!(kw, Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. }) && (self.calls_extender() || self.calls_unknown())) {
             let x = lex::xtokens(&self.text);
             let mapped = match kw {
                 Kw::If(_) => Some(Kw::IfEval(x[1..].to_vec())),
@@ -947,7 +1061,10 @@ impl<'a> Gen<'a> {
                 _ => None,
             };
             if let Some(m) = mapped {
-                return self.statement_inner(&m);
+                self.set_line = matches!(kw, Kw::Set { .. });
+                self.statement_inner(&m);
+                self.set_line = false;
+                return;
             }
         }
         self.statement_inner(kw)
@@ -958,8 +1075,69 @@ impl<'a> Gen<'a> {
     fn calls_extender(&self) -> bool {
         lex::xtokens(&self.text).iter().filter(|t| t.kind == lex::XKind::Word).any(|t| {
             let name = t.text.rsplit('.').next().unwrap_or(&t.text);
-            self.table.by_name(name).is_none() && self.table.unnumbered.contains_key(&name.to_ascii_lowercase()) && self.var(name).is_none()
+            self.numbered(name).is_none() && self.table.unnumbered.contains_key(&name.to_ascii_lowercase()) && self.var(name).is_none()
         })
+    }
+
+    /// Whether a call line is one extended expression: in a unit of the extender's grammar
+    /// or in a mod's source compiled by the engine ([`super::Seed::unknown_calls`]), one
+    /// holding parentheses or calling a function the vanilla table lacks, so a unit whose
+    /// only extender use is one undocumented function still compiles. The engine compiles
+    /// only units whose bytes call the extender, which the editor wrote with the extender
+    /// loaded, where a vanilla function's argument in parentheses is an inline expression
+    /// [observed: S6S Base Game Perks Redux.esp's perk entries, `Player.RestoreAv Health
+    /// (player.getav survival)`, and Trap Tweaks.esp's `rewardXP (GetIniFltOrCreateC …)`
+    /// ship compiled bytes with an inline expression there, in units with no other
+    /// extender statement (#2275)].
+    fn x_call_line(&mut self, toks: &[Tok]) -> bool {
+        let vanilla = self.function(&toks[0]).is_some();
+        (self.extended || self.unknown_calls) && (!vanilla || toks.iter().any(|t| t.kind == lex::Kind::Open))
+    }
+
+    /// In a mod's source compiled by the engine ([`super::Seed::unknown_calls`]): whether
+    /// the line calls a function nothing knows, `Name args` or `Ref.Name`. Such a vanilla
+    /// `if` or `set` is read with the extender's grammar, where the name becomes a call
+    /// that reports "not built" when it runs (`x::Gen::xword`), instead of failing the
+    /// whole unit as an unresolved name [decision: one undocumented plugin function must
+    /// not cost a mod's script; observed: JustAssortedMods.esp 4.6 calls four functions the
+    /// catalogue has no page for].
+    fn calls_unknown(&self) -> bool {
+        if !self.unknown_calls {
+            return false;
+        }
+        let x = lex::xtokens(&self.text);
+        (0..x.len()).any(|i| {
+            let t = &x[i];
+            // A word in a call's place: the line's first operand, or after an operator or
+            // an opening parenthesis; `set x to …` and `if …` lead with their keyword.
+            let operand_place = i > 0 && (matches!(x[i - 1].kind, lex::XKind::Op | lex::XKind::Open) || (x[i - 1].kind == lex::XKind::Word && matches!(x[i - 1].text.to_ascii_lowercase().as_str(), "if" | "elseif" | "to")));
+            t.kind == lex::XKind::Word && operand_place && self.names_nothing(&t.text)
+        })
+    }
+
+    /// Whether `word` (`Name`, `Ref.Name` or `Quest.refVar.Name`) names no function,
+    /// variable, form, enumeration name or number, while what stands before its last dot
+    /// does resolve: the shape of a call of a function the catalogue lacks.
+    pub(super) fn names_nothing(&self, word: &str) -> bool {
+        let (head, name) = match word.rsplit_once('.') {
+            Some((h, n)) => (Some(h), n),
+            None => (None, word),
+        };
+        let low = name.to_ascii_lowercase();
+        let ident = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !ident || self.table.by_name(name).is_some() || self.table.unnumbered.contains_key(&low) || self.enums.values().any(|m| m.contains_key(&low)) {
+            return false;
+        }
+        match head {
+            None => self.var(name).is_none() && self.form(name).is_none(),
+            Some(h) => match h.split_once('.') {
+                // `Quest.refVar.Name`: the quest's script has the variable.
+                Some((q, v)) => self.var(q).is_none() && self.form(q).is_some_and(|f| self.env.script_vars(f.form).is_some_and(|vs| vs.iter().any(|x| x.name.eq_ignore_ascii_case(v)))),
+                // `refVar.Name`, or `Form.Name` where the form's script has no such variable.
+                None if self.var(h).is_some() => true,
+                None => self.form(h).is_some_and(|f| !self.env.script_vars(f.form).is_some_and(|vs| vs.iter().any(|x| x.name.eq_ignore_ascii_case(name)))),
+            },
+        }
     }
 
     fn statement_inner(&mut self, kw: &Kw) {
@@ -1050,6 +1228,10 @@ impl<'a> Gen<'a> {
                 self.loops += 1;
             }
             Kw::ForEach(toks) => {
+                // `foreach (item <- source)`: the whole head in one pair of parentheses
+                // [observed: Unofficial Patch NVSE Plus and JSawyer Ultimate ship such
+                // lines with compiled bytes, `foreach (aEntry <- ar_List 0, 1, …)`].
+                let toks = lex::unwrapped(toks);
                 let arrow = toks.iter().position(|t| t.is(lex::XKind::Op, "<-"));
                 let head = arrow.and_then(|k| {
                     let var = self.xwhole(&toks[..k])?;
@@ -1090,6 +1272,12 @@ impl<'a> Gen<'a> {
                 }
                 self.emit(None, if matches!(kw, Kw::Break) { op::X_BREAK } else { op::X_CONTINUE }, &[]);
             }
+            // `eval <expression>`: run for what it does; an assignment is a `let`.
+            Kw::Eval(toks) => {
+                let Some(e) = self.xwhole(toks) else { return };
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, if matches!(e, crate::ir::XExpr::Assign { .. }) { op::X_LET } else { op::X_EVAL }, &json);
+            }
             Kw::Let(toks) => {
                 let Some(e) = self.xwhole(toks) else { return };
                 if !matches!(e, crate::ir::XExpr::Assign { .. }) {
@@ -1115,7 +1303,17 @@ impl<'a> Gen<'a> {
                 // udf.return_value, ext-bytecode.md].
                 self.emit(None, op::RETURN, &[]);
             }
-            Kw::Set { target, expr } => {
+            Kw::Set { target, expr, on } => {
+                let on = match on {
+                    Some(h) => match self.reference(h) {
+                        Some(r) => Some(r),
+                        None => {
+                            self.diag("unresolved_name", true, h.clone());
+                            return;
+                        }
+                    },
+                    None => None,
+                };
                 let mut body = Vec::new();
                 let tv = if target.len() == 1 { self.atom(&target[0]) } else { None };
                 match tv {
@@ -1129,16 +1327,26 @@ impl<'a> Gen<'a> {
                 let e = self.expr(expr);
                 put16(&mut body, e.len() as u16);
                 body.extend_from_slice(&e);
-                self.emit(None, op::SET, &body);
+                self.emit(on, op::SET, &body);
             }
-            Kw::Call(toks) if self.co || (self.extended && (self.function(&toks[0]).is_none() || toks.iter().any(|t| t.kind == lex::Kind::Open))) => {
+            Kw::Call(toks) if self.co || self.x_call_line(toks) => {
                 // An inline expression among the arguments, or an extender function: the
                 // whole line is an extended expression run for what it does.
                 let x = lex::xtokens(&self.text);
                 self.call_line = true;
                 let e = self.xcall_line(&x);
                 self.call_line = false;
-                let Some(e) = e else { return };
+                let Some(mut e) = e else { return };
+                // `DebugPrint "t= " + $f`: the call, and an operator after its arguments
+                // with the rest of the line, which is dropped [observed:
+                // DynamicDetectionSystem.esp ships two such lines with compiled bytes that
+                // print the string alone, #2275].
+                while let crate::ir::XExpr::Binary { l, .. } = e {
+                    e = *l;
+                    if matches!(e, crate::ir::XExpr::Call { .. }) {
+                        self.diag("rest_of_line_dropped", false, self.text.clone());
+                    }
+                }
                 if !matches!(e, crate::ir::XExpr::Call { .. }) {
                     self.diag("not_a_call", true, self.text.clone());
                     return;
@@ -1161,7 +1369,17 @@ impl<'a> Gen<'a> {
                     },
                     None => None,
                 };
-                let args = Self::arg_tokens(&toks[1..]);
+                // A `:` right after an argument ends the arguments, in a mod's source
+                // compiled by the engine [observed: four plugins of the owner's Blue Moon
+                // list ship `player.say Hit:Ugh! || player.say Hit:Oof! …` with compiled
+                // bytes saying the topic `Hit` alone, #2275; hypothesis: the editor's other
+                // punctuation does not do so, `ShowMessage Msg :` drops it, scripts.md
+                // §3.4].
+                let end = if self.unknown_calls { toks.iter().skip(1).position(|t| t.kind == Kind::Punct && t.text == ":").map_or(toks.len(), |k| k + 1) } else { toks.len() };
+                if end < toks.len() {
+                    self.diag("rest_of_line_dropped", false, self.text.clone());
+                }
+                let args = Self::arg_tokens(&toks[1..end]);
                 let body = self.params(&f, &args);
                 self.emit(on, f.opcode, &body);
             }

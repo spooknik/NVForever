@@ -596,7 +596,9 @@ fn plugin_bytes() -> Vec<u8> {
             topic_type::CONVERSATION,
             0,
             50.0,
-            vec![L { id: K_LAST, quest: QA, ty: CONV, flags: info_flag::GOODBYE, speaker: Some(NPC2), responses: one("Last"), choices: vec![T_REPLY], ..L::default() }],
+            // A Goodbye line that links nowhere ends the conversation (one that links on
+            // goes on: `an_actor_talks_with_a_talking_activator_through_goodbye_lines_that_link_on`).
+            vec![L { id: K_LAST, quest: QA, ty: CONV, flags: info_flag::GOODBYE, speaker: Some(NPC2), responses: one("Last"), ..L::default() }],
         ),
         // HELLO: a line with a Link From (cannot start anything); a Topic line for the
         // player, said only when TestGate is 5; then a Conversation line that starts the
@@ -1611,6 +1613,7 @@ fn a_farewell_ending_inside_another_farewells_end_script_keeps_the_outer_hand_of
         two_d: false,
         end_ran: false,
         leads_on: false,
+        through: None,
     });
     for _ in 0..20_000 {
         if !g.speech.iter().any(|s| s.farewell && s.speaker == actor()) {
@@ -1665,6 +1668,7 @@ fn a_farewell_ending_inside_a_conversation_lines_end_script_leaves_the_conversat
         two_d: false,
         end_ran: false,
         leads_on: false,
+        through: None,
     });
     listen(&mut g);
     // ChatterREF's farewell ended as said inside the conversation's end script, its Add
@@ -2927,8 +2931,11 @@ fn finish_speech(g: &mut Game) {
 #[test]
 fn immediate_actor_conversation_results_run_in_order_once() {
     let mut f = ordered_fixture(K_OPEN, None);
-    // End this authored exchange after its opener.
-    f.data.infos.get_mut(&FormId(K_OPEN)).unwrap().goodbye = true;
+    // End this authored exchange after its opener: a Goodbye line that links nowhere.
+    let open = f.data.infos.get_mut(&FormId(K_OPEN)).unwrap();
+    open.goodbye = true;
+    open.choices.clear();
+    open.follow_ups.clear();
     for interrupt in [false, true] {
         let mut g = game(&f);
         call(&mut g, 0x1056, NPC1_REF, &[ArgValue::Value(Value::Ref(NPC2_REF)), ArgValue::Value(Value::Ref(T_ARGUE))]);

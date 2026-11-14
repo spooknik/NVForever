@@ -199,7 +199,17 @@ All three favour A. Rule used by `crates/fnv-vfs` (lowest precedence first):
    in the load order (#996) [hypothesis: no source says how the original picks; the
    shipped data has no such pair (every archive matches one plugin), so the rule changes
    nothing for an unmodded install, `vfs-order-shipped`; chosen because the longer name
-   is the more specific claim];
+   is the more specific claim].
+   A plugin also owns the numbered pieces `<plugin stem>N.bsa` and `<plugin stem>N - *.bsa`
+   (N decimal digits), after its unnumbered archives, in number order (#2521). [observed]
+   the Begin Again mod list ships `Begin Again Worldspace Merge.bsa` with
+   `…Merge1.bsa` to `…Merge6.bsa` beside its one plugin `Begin Again Worldspace Merge.esp`,
+   and the textures its rock meshes use (`textures\landscape\nv_rocks\nv_rockformations_04_d.dds`
+   and others) are only in `…Merge3.bsa` and `…Merge4.bsa`; without the pieces those rocks
+   drew untextured. [hypothesis] that the original mounts them: the list is built for the
+   original game; no source states its rule. A name that only begins with the stem
+   (`MergeExtra.bsa`) is not claimed, and the longest-stem rule above still applies
+   (`Merge3.bsa` is `Merge3.esp`'s when that plugin is loaded);
 4. loose files [hypothesis: no loose mesh or texture exists in the owner's `Data`
    (only music, radio songs, shader packages and the intro video), and the project never
    writes into the game folder, so this stays untested; `bInvalidateOlderFiles=1` is

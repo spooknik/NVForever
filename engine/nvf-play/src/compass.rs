@@ -70,6 +70,10 @@ const DISCOVER_XP: f64 = 10.0;
 /// Seconds between looks at who is near [design].
 const POLL: f32 = 0.1;
 
+/// How far (units) a quest target marked as itself moves before its place is logged
+/// again [design: a walker is not logged every step].
+const PLACE_LOG_STEP: f32 = 512.0;
+
 // ---- the pictures and where they stand [observed: fitted to the owner's screenshots] ----
 
 const TICK: &str = "textures\\interface\\hud\\glow_hud_tick_mark.dds";
@@ -291,6 +295,7 @@ fn gather(
     mut logged: Local<[usize; 5]>,
     mut graph: Local<Option<DoorGraph>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
+    mut logged_places: Local<PlacesLogged>,
 ) {
     *poll += time.delta_secs();
     if *poll < POLL || *state.get() != PlayState::Playing {
@@ -374,8 +379,22 @@ fn gather(
     if let (Some(loc), Some(st)) = (location.as_deref(), markers.as_deref()) {
         for c in st.marked_targets() {
             let graph = graph.get_or_insert_with(|| DoorGraph::build(sim.refs));
-            let Some((pos, itself)) = quest_mark_at(&sim, loc, graph, c.target, c.ignores_locks) else { continue };
+            let Some((pos, door)) = quest_mark_at(&sim, loc, graph, c.target, c.ignores_locks) else { continue };
+            let itself = door.is_none();
             placed += 1;
+            // Where each target is marked (itself or a door), logged when the door
+            // changes or the place moves [`PLACE_LOG_STEP`] (#2464, #2458): with the body
+            // the mark follows when it is the target itself.
+            if place_moved(&mut logged_places, (c.quest.0, c.objective, c.index), door, pos) {
+                let how = match door {
+                    Some(d) => format!("at door {d}, the first of the way there"),
+                    None => match bodies.get(&c.target.0) {
+                        Some(b) => format!("itself, its body at ({:.0}, {:.0}, {:.0}), {:.0} units off", b[0], b[1], b[2], (b[0] - pos[0]).hypot(b[1] - pos[1])),
+                        None => "itself, no body near the player".to_string(),
+                    },
+                };
+                info!("compass: quest target {} placed at ({:.0}, {:.0}, {:.0}) {how}", c.target, pos[0], pos[1], pos[2]);
+            }
             if on_compass(offset(heading, here, [pos[0], pos[1]])) {
                 marks.push(Mark::Quest);
                 shown += 1;
@@ -421,12 +440,28 @@ pub(crate) fn place(
     view.set_if_neq(CompassView(marks(&near.0, heading, here, &body)));
 }
 
+/// Each target check's (quest, objective, place in its list) last logged mark place: the
+/// door, or `None` for the target itself, and where. Keyed by the check, not by the
+/// target: two objectives may mark one reference, one ignoring locks and one not, at
+/// two doors.
+type PlacesLogged = std::collections::HashMap<(u32, i32, usize), (Option<FormId>, [f32; 3])>;
+
+/// Whether target check `key`'s mark place is new: never logged, at another door, or
+/// moved more than [`PLACE_LOG_STEP`]; then it is noted as logged.
+fn place_moved(logged: &mut PlacesLogged, key: (u32, i32, usize), door: Option<FormId>, pos: [f32; 3]) -> bool {
+    let moved = logged.get(&key).is_none_or(|(d, at)| *d != door || (at[0] - pos[0]).hypot(at[1] - pos[1]) > PLACE_LOG_STEP);
+    if moved {
+        logged.insert(key, (door, pos));
+    }
+    moved
+}
+
 /// Where the compass marks quest target `target` for a player at `loc` (see the module
 /// notes): the target itself in the player's cell or worldspace, else the door of the
 /// player's place that starts the way to it (`fnv_game::quest_targets::DoorGraph`);
-/// `None` when no way through doors is known. True with the target itself, false with a
-/// door.
-fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: FormId, ignores_locks: bool) -> Option<([f32; 3], bool)> {
+/// `None` when no way through doors is known. With the door, or `None` for the target
+/// itself.
+fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: FormId, ignores_locks: bool) -> Option<([f32; 3], Option<FormId>)> {
     let refs = sim.refs;
     let (cell, pos) = match sim.world.peek(target) {
         Some(s) => (s.cell?, s.pos),
@@ -441,10 +476,10 @@ fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: Form
     };
     let there = QuestPlace::of_cell(refs, cell);
     if here == there {
-        return Some((pos, true));
+        return Some((pos, None));
     }
     let door = graph.first_door(&sim.world, here, there, ignores_locks)?;
-    sim.world.peek(door).map(|s| s.pos).or_else(|| refs.get(door).map(|d| d.pos)).map(|p| (p, false))
+    sim.world.peek(door).map(|s| s.pos).or_else(|| refs.get(door).map(|d| d.pos)).map(|p| (p, Some(door)))
 }
 
 struct Art {
@@ -539,6 +574,23 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two objectives marking one reference at two doors (one ignores locks) each keep
+    /// their own logged place: logged once each, not again every look while nothing
+    /// moves; a move past the step is logged again (Sol review of #2461/#2464).
+    #[test]
+    fn two_objectives_on_one_target_log_their_places_once() {
+        let mut logged = PlacesLogged::new();
+        let (a, b) = ((0x1234, 10, 0), (0x1234, 20, 0));
+        let (door_a, door_b) = (Some(FormId(0x501)), Some(FormId(0x502)));
+        for first in [true, false, false] {
+            assert_eq!(place_moved(&mut logged, a, door_a, [0.0, 0.0, 0.0]), first);
+            assert_eq!(place_moved(&mut logged, b, door_b, [100.0, 0.0, 0.0]), first);
+        }
+        assert!(!place_moved(&mut logged, a, door_a, [PLACE_LOG_STEP - 1.0, 0.0, 0.0]));
+        assert!(place_moved(&mut logged, a, None, [0.0, 0.0, 0.0]), "another door, or the target itself");
+        assert!(place_moved(&mut logged, b, door_b, [100.0 + PLACE_LOG_STEP + 1.0, 0.0, 0.0]));
+    }
 
     #[test]
     fn a_mark_stands_at_its_bearing_from_the_heading() {

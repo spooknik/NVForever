@@ -569,8 +569,11 @@ fn follow(game: &Game, actor: FormId, def: &PackageDef) -> Goal {
 /// The goal of a Dialogue package [documented: GECK wiki, Dialogue Package].
 ///
 /// Carried out: a conversation with the player (the actor "will force-greet the
-/// player") and a Say To line to anyone. A conversation between two actors is not
-/// (there are no actor-to-actor conversations yet).
+/// player"), a Say To line to anyone, and a conversation with another actor or with a
+/// talking activator, which speaks for its talking actor (`Game::start_actor_conversation`;
+/// Veronica's FollowersVeronicaForceGreetIntercom talks to Hidden Valley's intercom,
+/// issue #2451) [documented: the package engages the actor "in a specific conversation
+/// with the player or another NPC"].
 fn talk(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
     let refs = game.world.placed;
     let linked = refs.get(actor).and_then(|r| r.linked);
@@ -584,9 +587,6 @@ fn talk(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
         _ => return Goal::NotCarriedOut("a dialogue package without a reference to talk to"),
     };
     let data = def.dialogue.unwrap_or_default();
-    if target != FormId::PLAYER_REF && !data.say_to {
-        return Goal::NotCarriedOut("a conversation between two actors");
-    }
     if data.say_to && data.topic.is_none() {
         return Goal::NotCarriedOut("a Say To package without a topic");
     }

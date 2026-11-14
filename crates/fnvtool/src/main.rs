@@ -29,6 +29,7 @@ mod crash_report;
 mod combat_cmd;
 mod combat_sim;
 mod dds_cmd;
+mod mo2_args;
 mod dialogue_cmd;
 mod spt_cmd;
 mod esm_cmd;
@@ -40,6 +41,7 @@ mod nav_path;
 mod observer;
 mod nif_cmd;
 mod phys_cmd;
+mod quest_sweep;
 mod script_cmd;
 mod sim_cmd;
 mod source;
@@ -117,6 +119,9 @@ enum Cmd {
     /// Layer 6 dialogue: topics, lines and headless conversations.
     #[command(subcommand)]
     Dialogue(dialogue_cmd::DialogueCmd),
+    /// Quests: static checks over the data for soft locks (issue #2365).
+    #[command(subcommand)]
+    Quest(quest_sweep::QuestCmd),
     /// Actor appearance: the parts that make up placed NPCs (workstream 5).
     #[command(subcommand)]
     Actor(ActorCmd),
@@ -1136,7 +1141,9 @@ pub enum NifCmd {
 #[derive(Args)]
 pub struct LoadOrderArgs {
     pub data_dir: PathBuf,
-    /// Plugins in load order.
+    /// Plugins in load order: names in the data folder, or full paths. `--mo2-profile
+    /// <profile folder>` (anywhere in the arguments) appends a Mod Organizer 2 profile's
+    /// active plugins as full paths instead.
     #[arg(required = true)]
     pub plugins: Vec<String>,
 }
@@ -1168,7 +1175,15 @@ fn init_logging() {
 
 fn main() -> ExitCode {
     crash_report::install();
-    let cli = Cli::parse();
+    // `--mo2-profile <dir>` becomes the profile's plugins as full paths (mo2_args).
+    let args = match mo2_args::expand(std::env::args_os().collect()) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("error: {e:#}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let cli = Cli::parse_from(args);
     init_logging();
     // The code page of the game's text: NVF_CODE_PAGE, else Windows-1252 (#1439).
     match fnv_util::text::chosen(None) {
@@ -1198,6 +1213,7 @@ fn main() -> ExitCode {
         Cmd::Sim(c) => sim_cmd::run(c),
         Cmd::Script(c) => script_cmd::run(c),
         Cmd::Dialogue(c) => dialogue_cmd::run(c),
+        Cmd::Quest(c) => quest_sweep::run(c),
         Cmd::Actor(c) => actor_cmd::run(c),
         Cmd::Combat(c) => combat_cmd::run(c),
         Cmd::Nav(c) => nav_cmd::run(c),

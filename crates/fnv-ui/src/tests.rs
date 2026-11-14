@@ -245,6 +245,44 @@ fn loops_of_traits_stop() {
     assert!(ui.dirty());
 }
 
+/// `src="me"` with the brackets left off is the tile itself, unless a tile bears the name
+/// [observed: MCM 1.5's Options.xml places its option rows by `<copy src="me" trait="x"/>`].
+#[test]
+fn a_bare_me_is_the_tile_itself() {
+    let src = MemSource::default()
+        .with("menus\\a.xml", r#"<menu name="A"> <rect name="Panel"> <x> 40 </x> <_x1> <copy src="me" trait="x"/> <add> 20 </add> </_x1> <_x2> <copy src="Me" trait="x"/> </_x2> </rect> </menu>"#)
+        .with("menus\\b.xml", r#"<menu name="B"> <rect name="me"> <x> 7 </x> </rect> <rect name="Panel"> <x> 40 </x> <_x1> <copy src="me" trait="x"/> </_x1> </rect> </menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus\\a.xml").unwrap();
+    ui.load_menu(&src, "menus\\b.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("A/Panel/_x1"), Some(60.0));
+    assert_eq!(ui.get_float("A/Panel/_x2"), Some(40.0));
+    // A tile of that name is the one meant.
+    assert_eq!(ui.get_float("B/Panel/_x1"), Some(7.0));
+}
+
+/// `src="parent"` and the other sources without an argument, brackets left off, are what
+/// they name unless a tile bears the name [observed: Vanilla UI Plus's MCM OptionRect.xml,
+/// `<y> <copy src="parent" trait="_y"/> </y>` on each option's title; issue #2298].
+#[test]
+fn a_bare_parent_is_the_parent() {
+    let src = MemSource::default().with(
+        "menus.xml",
+        r#"<menu name="A"> <rect name="Row"> <_y> 75 </_y> <text name="title"> <y> <copy src="parent" trait="_y"/> </y>
+            <_g> <copy src="Grandparent" trait="_n"/> </_g> <_s> <copy src="screen" trait="width"/> </_s> </text>
+            <text name="value"> <_b> <copy src="sibling" trait="y"/> </_b> </text> <_c> <copy src="child" trait="y"/> </_c> </rect> <_n> 3 </_n> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus.xml").unwrap();
+    ui.set_trait(ui.screen(), "width", Value::Num(1280.0));
+    ui.update();
+    assert_eq!(ui.get_float("A/Row/title/y"), Some(75.0));
+    assert_eq!(ui.get_float("A/Row/title/_g"), Some(3.0));
+    assert_eq!(ui.get_float("A/Row/title/_s"), Some(1280.0));
+    assert_eq!(ui.get_float("A/Row/value/_b"), Some(75.0), "the tile before");
+    assert_eq!(ui.get_float("A/Row/_c"), Some(75.0), "the first child");
+}
 #[test]
 fn missing_files_are_reported_not_fatal() {
     let src = MemSource::default().with("menus\\m.xml", "<menu name=\"M\"><include src=\"gone.xml\"/><x> 1 </x></menu>");
@@ -936,6 +974,102 @@ fn trait_write_counts_tell_a_write_from_a_change() {
     ui.set_trait(screen, "width", Value::Num(1280.0));
     ui.set_trait(screen, "width", Value::Num(1920.0));
     assert_eq!(ui.trait_write_counts(), (writes + 3, changes + 2));
+}
+
+#[test]
+fn the_extenders_paths_count_from_the_first_child() {
+    use crate::Count::FromFirst;
+    // MCM's shape: a rect with its parts in file order, the options panel first with its
+    // rows [documented: MCM Guide v6, `StartMenu/MCM/*:1/*:2` is Option2 of MCM_Options,
+    // `*:9` MCM_Info; menu-xml.md §10.4].
+    let src = MemSource::default().with(
+        "m.xml",
+        r#"<menu name="StartMenu"> <rect name="MCM">
+            <rect name="MCM_Options"> <hotrect name="Option1"> <_value> 1 </_value> </hotrect>
+              <hotrect name="Option2"> <_value> 2 </_value> </hotrect> <hotrect name="Option3"> <_value> 3 </_value> </hotrect> </rect>
+            <rect name="MCM_Scale"> <_n> 2 </_n> </rect>
+            <rect name="MCM_List"> <_n> 3 </_n> </rect>
+        </rect> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "m.xml").unwrap();
+    let get = |ui: &Ui, p: &str| ui.get_counted(p, FromFirst).map(Value::num);
+    assert_eq!(get(&ui, "StartMenu/MCM/*:1/*:2/_value"), Some(2.0), "the first child's second");
+    assert_eq!(get(&ui, "StartMenu/MCM/*:1/*:1/_value"), Some(1.0));
+    assert_eq!(get(&ui, "StartMenu/MCM/*:2/_n"), Some(2.0));
+    // 0 the last; none past the one before the last [observed: menu-xml.md §10.1].
+    assert_eq!(get(&ui, "StartMenu/MCM/*:0/_n"), Some(3.0));
+    assert_eq!(get(&ui, "StartMenu/MCM/*:1/*:0/_value"), Some(3.0));
+    assert_eq!(get(&ui, "StartMenu/MCM/*:3/_n"), None);
+    assert_eq!(get(&ui, "StartMenu/MCM/MCM_Options/Option3/_value"), Some(3.0), "names as ever");
+    // JIP's count from the last stays.
+    assert_eq!(ui.get_float("StartMenu/MCM/*:2/*:0/_value"), Some(3.0));
+    assert_eq!(ui.get_float("StartMenu/MCM/*:2/*:1/_value"), Some(2.0));
+    assert!(ui.set_counted("StartMenu/MCM/*:1/*:2/_value", FromFirst, Value::Num(0.0)));
+    assert_eq!(ui.get_float("StartMenu/MCM/MCM_Options/Option2/_value"), Some(0.0));
+    assert!(!ui.set_counted("StartMenu/MCM/*:7/_value", FromFirst, Value::Num(0.0)));
+}
+
+/// A trait name with `+` in it is one name [observed: Vanilla UI Plus's `_VUI+Fade`,
+/// `_VUI+OverwriteVerify`; #2298].
+#[test]
+fn a_plus_in_a_trait_name_is_part_of_it() {
+    let src = MemSource::default().with(
+        "menus\\a.xml",
+        r#"<menu name="A"> <_VUI+Fade> 2 </_VUI+Fade> <_VUI> 1 </_VUI> <_VUI+Check> <copy src="me" trait="_VUI+Fade"/> <add src="me" trait="_VUI"/> </_VUI+Check> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus\\a.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("A/_VUI+Fade"), Some(2.0));
+    assert_eq!(ui.get_float("A/_VUI"), Some(1.0));
+    assert_eq!(ui.get_float("A/_VUI+Check"), Some(3.0));
+}
+
+/// `sibling(name)` on a menu's root is the other menu of that name [observed: Vanilla UI
+/// Plus's start menu reads `sibling(HUDMainMenu)`; #2298].
+#[test]
+fn a_menus_sibling_is_another_menu() {
+    let src = MemSource::default()
+        .with("menus/h.xml", r#"<menu name="HUDMainMenu"> <_VUI+> 1 </_VUI+> </menu>"#)
+        .with("menus/s.xml", r#"<menu name="StartMenu"> <_VUI+> <copy src="sibling(HUDMainMenu)" trait="_VUI+"/> </_VUI+> </menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/s.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("StartMenu/_VUI+"), Some(0.0), "no HUD menu yet");
+    ui.load_menu(&src, "menus/h.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("StartMenu/_VUI+"), Some(1.0));
+}
+
+/// MCM's OptionRect: the value text stands left of the suffix by the suffix's width, which
+/// the renderer writes after the suffix's string changed (issue #2298, "6seconds").
+#[test]
+fn a_measured_width_moves_what_reads_it() {
+    let src = MemSource::default().with(
+        "menus/m.xml",
+        r#"<menu name="M"> <_suffix> 0 </_suffix> <_suffixText> </_suffixText>
+             <rect name="value">
+               <_xSuffix> <copy> 0 </copy> <sub src="child(suffix)" trait="width"/> <onlyif src="parent()" trait="_suffix"/> </_xSuffix>
+               <text name="text"> <x> <copy src="parent()" trait="_xSuffix"/> </x> </text>
+               <text name="suffix"> <string> <copy src="grandparent()" trait="_suffixText"/> </string> <visible> <copy src="grandparent()" trait="_suffix"/> </visible> </text>
+             </rect> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/m.xml").unwrap();
+    ui.update();
+    let suffix = ui.find_tile("M/value/suffix").unwrap();
+    ui.set_trait(suffix, "width", Value::Num(0.0));
+    ui.update();
+    // The script: the suffix and its text, then a frame's update.
+    ui.set_float("M/_suffix", 1.0);
+    ui.set_string("M/_suffixText", " seconds");
+    ui.update();
+    assert_eq!(ui.get_float("M/value/text/x"), Some(0.0));
+    // The next frame's measure, then its update.
+    ui.set_trait(suffix, "width", Value::Num(80.0));
+    ui.update();
+    assert_eq!(ui.get_float("M/value/text/x"), Some(-80.0));
 }
 
 /// Independently authored plain/derived values, includes and a template; no game XML.

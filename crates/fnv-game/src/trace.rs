@@ -83,6 +83,9 @@ pub enum EventKind {
     /// Something the VM skipped (an unknown opcode in a lenient run, an extended
     /// statement's run-time error).
     Skipped { unit: String, what: String },
+    /// The statement the skips just reported happened in, as canonical text (its first
+    /// line), for the mod log.
+    SkippedAt { unit: String, line: String },
     /// A line a script printed to the console (Ar_Dump and the extender's printing
     /// functions).
     ScriptPrint { unit: String, text: String },

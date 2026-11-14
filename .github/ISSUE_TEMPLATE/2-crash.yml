@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        A crash leaves a report with a backtrace in `%LOCALAPPDATA%\NVForever\logs`
+        A crash leaves a report with a backtrace in `Documents\My Games\NVForever\logs` (on Linux, `logs` in NVForever's home folder)
         (`crash-<date>-<time>-<pid>.txt`), next to the run log of the same run
         (`nvforever-<date>-<time>-<pid>.log`). **Those two files are the most useful thing
         you can send.**

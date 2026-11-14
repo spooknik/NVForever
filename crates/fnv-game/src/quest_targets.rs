@@ -120,6 +120,35 @@ pub struct DoorGraph {
 pub const MARKER_DOORS_MAX: usize = 8;
 
 impl DoorGraph {
+    /// The complete door sequence for an objective, including an empty sequence
+    /// when both references are in the same place. Use the marker's existing
+    /// bounded search and lock preference; the caller appends the target itself.
+    pub fn path(&self, world: &World, from: Place, to: Place, ignores_locks: bool) -> Option<Vec<FormId>> {
+        if !ignores_locks {
+            if let Some(path) = self.search_path(from, to, |d| !door_locked(world, d)) {
+                return Some(path);
+            }
+        }
+        self.search_path(from, to, |_| true)
+    }
+
+    fn search_path(&self, from: Place, to: Place, open: impl Fn(FormId) -> bool) -> Option<Vec<FormId>> {
+        if from == to { return Some(Vec::new()); }
+        let mut seen = std::collections::BTreeSet::from([from]);
+        let mut frontier = std::collections::VecDeque::from([(from, Vec::new())]);
+        while let Some((place, path)) = frontier.pop_front() {
+            if path.len() >= MARKER_DOORS_MAX { continue; }
+            for &(door, next) in self.edges.get(&place).into_iter().flatten() {
+                if !open(door) || !seen.insert(next) { continue; }
+                let mut path = path.clone();
+                path.push(door);
+                if next == to { return Some(path); }
+                frontier.push_back((next, path));
+            }
+        }
+        None
+    }
+
     pub fn build(refs: &fnv_sim::RefTable) -> DoorGraph {
         let mut edges: std::collections::BTreeMap<Place, Vec<(FormId, Place)>> = Default::default();
         for (&id, d) in &refs.refs {
@@ -209,5 +238,16 @@ mod tests {
         // There already, and a door shut on the only way.
         assert_eq!(g.search(c, c, |_| true), None);
         assert_eq!(g.search(w, b2, |d| d != FormId(0x111)), None);
+    }
+
+    #[test]
+    fn objective_paths_keep_all_doors_and_do_not_walk_cycles() {
+        let g = graph();
+        let cave = Place::Interior(FormId(20));
+        let upstairs = Place::Interior(FormId(11));
+        assert_eq!(g.search_path(cave, upstairs, |_| true), Some(vec![FormId(0x130), FormId(0x100), FormId(0x111)]));
+        assert_eq!(g.search_path(cave, cave, |_| true), Some(vec![]));
+        assert_eq!(g.search_path(cave, upstairs, |d| d != FormId(0x111)), None);
+        assert_eq!(g.search_path(cave, Place::Interior(FormId(999)), |_| true), None);
     }
 }

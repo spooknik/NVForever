@@ -1,0 +1,22 @@
+# The totals `fnvtool ext report {data} --mo2-profile <High and Dry profile> --schema
+# schemas/fnv` must print for the owner's High and Dry list (232 plugins, profile
+# "1 - Normal"; the NVR profiles add Cartographer.esp): the smoke scenario
+# modlist-high-dry (tools/smoke/scenarios.toml) expects each value below, by its JSON
+# path, to equal the run's (issue #2275). Counts only; nothing of the mods is kept here.
+#
+# units_picked: the units the game runs from their source text (they use the extender);
+# units_kept_bytes: those whose source does not compile, which keep compiled bytes whose
+# extender calls all give 0 (the 9 left: docs/spec-notes/script-compiler.md §8.1). A
+# branch that fixes a cause lowers units_kept_bytes and raises units_from_source by as
+# much; a rise fails the run (find the plugin and cause in the report's per_plugin list
+# before raising anything). A change to the mod list itself changes these too: write the
+# new summary here.
+
+[summary]
+units_picked = 1730
+units_from_source = 1721
+units_kept_bytes = 9
+# Functions the scripts call that NVForever has no entry for (their calls do nothing).
+# -> 10 measured after the base took in #2320's unlisted JIP commands and #2335's
+# MoveToMarker alias; the 10 left are Blue Moon's 11 without fLuckSaveMult.
+"unknown_functions.#" = 10

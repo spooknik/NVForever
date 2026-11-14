@@ -117,6 +117,13 @@ fn show_changes(
                 *f = faces;
             }
         }
+        let bases: std::collections::HashMap<u32, u32> = rt.game.face_from_base.iter().map(|(t, s)| (t.0, s.0)).collect();
+        if let Ok(mut b) = aw.face_bases.lock() {
+            if *b != bases {
+                info!("appearance: {} NPC bases take another's look (BaseCopyFaceGenFrom)", bases.len());
+                *b = bases;
+            }
+        }
     }
     for c in rt.game.take_appearance_changes() {
         let id = c.actor.0;

@@ -112,6 +112,14 @@ Subrecords [documented][observed]:
   index as the file's own [observed in game, 2026-10-09; see "Cross-check against
   xEdit"]. Our loader reads such an index as the file's own, as the game does
   (`LoadOrder::to_global`, #281; see below).
+- **Two records under one FormID in one file** [observed]: oHUD.esm holds QUST `aHUD`
+  (in its QUST group) and MESG `iHUDMainMenu` (in its later MESG group) both at
+  0x000801. In the game the form is the quest: GetType 71, editor ID `aHUD`, running,
+  its script's variables readable; `iHUDMainMenu` names nothing (does not compile) and
+  ShowMessage on the form fails [observed: #2276 job B, 2026-11-13]. The loader keeps
+  the first of a file's records under a FormID (`LoadOrder::new`); a later file still
+  overrides it. Across the 211 plugins of the owner's Blue Moon list this is the only
+  such case.
 - FormIDs below 0x800 in the first master are reserved for engine built-ins
   [hypothesis, community knowledge]; references into that range need not resolve to a
   record.

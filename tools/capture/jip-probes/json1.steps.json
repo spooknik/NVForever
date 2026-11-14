@@ -1,0 +1,284 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "json1",
+ "title": "json1, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONIsFileCached \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.cached.before",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONCacheFile \"nvfprobe.json\" 0)\nEnd\n",
+   "label": "json1.cache",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONIsFileCached \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.cached",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONCacheFile \"Data\\nvfprobe2.json\" 0)\nEnd\n",
+   "label": "json1.cache.data",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONIsFileCached \"Data\\nvfprobe2.json\")\nEnd\n",
+   "label": "json1.cached.data",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONCacheFile \"nvfnosuch.json\" 0)\nEnd\n",
+   "label": "json1.cache.missing",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.tostring",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"Data\\nvfprobe2.json\")\nEnd\n",
+   "label": "json1.tostring.data",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"num\" 0)\nEnd\n",
+   "label": "json1.type.num",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"str\" 0)\nEnd\n",
+   "label": "json1.type.str",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"arr\" 0)\nEnd\n",
+   "label": "json1.type.arr",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"obj\" 0)\nEnd\n",
+   "label": "json1.type.obj",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"nokey\" 0)\nEnd\n",
+   "label": "json1.type.nokey",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"obj/inner\" 0)\nEnd\n",
+   "label": "json1.type.obj/inner",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"obj.inner\" 0)\nEnd\n",
+   "label": "json1.type.obj.inner",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"arr/1\" 0)\nEnd\n",
+   "label": "json1.type.arr/1",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"arr[1]\" 0)\nEnd\n",
+   "label": "json1.type.arr[1]",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONGetValueType \"nvfprobe.json\" \"num\" 1)\nEnd\n",
+   "label": "json1.type.flag1",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nlet aA := JSONGetValueArray \"nvfprobe.json\" \"arr\" 0\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))\nEnd\n",
+   "label": "json1.arr.get",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nlet aA := JSONGetValueArray \"nvfprobe.json\" \"arr\" 0\nSetFunctionValue (sv_Join aA \",\")\nEnd\n",
+   "label": "json1.arr.values",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nlet aA := JSONGetValueArray \"nvfprobe.json\" \"obj\" 0\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))\nEnd\n",
+   "label": "json1.arr.obj",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nlet aA := JSONGetValueArray \"nvfprobe.json\" \"num\" 0\nSetFunctionValue (sv_Construct \"%g %z\" (ar_Size aA) (TypeOf aA))\nEnd\n",
+   "label": "json1.arr.num",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONSetValueFloat \"nvfprobe.json\" \"num\" 7 0)\nEnd\n",
+   "label": "json1.setfloat",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.after.setfloat",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONSetValueFloat \"nvfprobe.json\" \"newnum\" 8 0)\nEnd\n",
+   "label": "json1.setfloat.new",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONSetValueFloat \"nvfprobe.json\" \"num\" 9 1)\nEnd\n",
+   "label": "json1.setfloat.flag1",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONSetValueFloat \"nvfprobe.json\" \"num\" 10 0 0)\nEnd\n",
+   "label": "json1.setfloat.five",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.after.setfloat2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONSetValueString \"nvfprobe.json\" \"str\" \"changed\" 0)\nEnd\n",
+   "label": "json1.setstring",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.after.setstring",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONAppendValueFloat \"nvfprobe.json\" \"arr\" 4 0)\nEnd\n",
+   "label": "json1.appendfloat",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONAppendValueString \"nvfprobe.json\" \"arr\" \"five\" 0)\nEnd\n",
+   "label": "json1.appendstring",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.after.append",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONEraseArrayElement \"nvfprobe.json\" \"arr\" 0 0)\nEnd\n",
+   "label": "json1.erasearray",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.after.erasearray",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONClearKey \"nvfprobe.json\" \"obj\" 0)\nEnd\n",
+   "label": "json1.clearkey",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.after.clearkey",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONEraseKey \"nvfprobe.json\" \"str\" 0)\nEnd\n",
+   "label": "json1.erasekey",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.after.erasekey",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONCacheFileFromString \"{\\\"a\\\":1}\" \"nvfmem.json\")\nEnd\n",
+   "label": "json1.fromstring",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONIsFileCached \"nvfmem.json\")\nEnd\n",
+   "label": "json1.fromstring.cached",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfmem.json\")\nEnd\n",
+   "label": "json1.fromstring.tostring",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONCacheFileFromString \"nvfmem2.json\" \"{\\\"b\\\":2}\")\nEnd\n",
+   "label": "json1.fromstring.other",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfmem2.json\")\nEnd\n",
+   "label": "json1.fromstring.other.tostring",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONCloseFile \"nvfprobe.json\" 0)\nEnd\n",
+   "label": "json1.close.0",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONIsFileCached \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.cached.after.close",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONCacheFile \"nvfprobe.json\" 0)\nEnd\n",
+   "label": "json1.recache",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONToString \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.after.recache",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONSetValueFloat \"nvfprobe.json\" \"num\" 11 0)\nEnd\n",
+   "label": "json1.setfloat.save",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONCloseFile \"nvfprobe.json\" 1)\nEnd\n",
+   "label": "json1.close.1",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONCloseFile \"Data\\nvfprobe2.json\" 1 1)\nEnd\n",
+   "label": "json1.close.data.1.1",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nstring_var s\narray_var aA\nBegin Function { }\nSetFunctionValue (JSONIsFileCached \"nvfprobe.json\")\nEnd\n",
+   "label": "json1.cached.after.close1",
+   "field": "value"
+  }
+ ]
+}

@@ -25,6 +25,30 @@ fn opcodes() -> &'static HashMap<String, u32> {
     })
 }
 
+/// Every name and alias the opcode table gives `code`, as spelled there.
+pub(crate) fn opcode_names(code: u32) -> Vec<String> {
+    static TABLE: OnceLock<HashMap<u32, Vec<String>>> = OnceLock::new();
+    let t = TABLE.get_or_init(|| {
+        let doc: serde_json::Value =
+            serde_json::from_str(include_str!("../../../schemas/script/command_opcodes.json")).unwrap_or_default();
+        let mut by: HashMap<u32, Vec<String>> = HashMap::new();
+        if let Some(m) = doc["opcodes"].as_object() {
+            for (k, v) in m {
+                if let Some(c) = v.as_u64().and_then(|c| u32::try_from(c).ok()) {
+                    by.entry(c).or_default().push(k.clone());
+                }
+            }
+        }
+        by
+    });
+    t.get(&code).cloned().unwrap_or_default()
+}
+
+/// A command's opcode by name or alias, any case.
+pub(crate) fn opcode_of(name: &str) -> Option<u32> {
+    opcodes().get(&name.to_ascii_lowercase()).copied()
+}
+
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(_g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     let v = match name {

@@ -1,0 +1,25 @@
+# The totals `fnvtool ext report {data} --mo2-profile <Begin Again profile> --schema
+# schemas/fnv` must print for the owner's Begin Again list (a Tale of Two Wastelands list,
+# 203 plugins, profile "Begin Again"): the smoke scenario modlist-begin-again
+# (tools/smoke/scenarios.toml) expects each value below, by its JSON path, to equal the
+# run's (issue #2335). Counts only; nothing of the mods is kept here.
+#
+# units_picked: the units the game runs from their source text (they use the extender);
+# units_kept_bytes: those whose source does not compile, which keep compiled bytes whose
+# extender calls all give 0. None is left: the last 2, TTW - Capital Wasteland
+# Adjustments.esm's NVSEScript units (`name X;`), compile since the NVSEScript front end
+# of #2297 came in with the base branch. A branch that fixes a cause lowers units_kept_bytes and raises
+# units_from_source by as much; a rise fails the run (find the plugin and cause in the
+# report's per_plugin list before raising anything). A change to the mod list itself
+# changes these too: write the new summary here.
+
+[summary]
+units_picked = 934
+units_from_source = 934
+units_kept_bytes = 0
+# Functions the scripts call that NVForever has no entry for (their calls do nothing).
+# 12 -> 7 after merging the base with #2297 and #2320 and this branch's PC1st alias; the 7
+# left: ySIGetTagTrait, dATan2, GetVATSLeftAreaFree, GetVATSRightAreaFree (no installed
+# plugin registers them on Blue Moon either), Fists (a form, no command),
+# EnableImprovedRecipeMenu and InitRockItLauncher (JIP commands not catalogued yet).
+"unknown_functions.#" = 7

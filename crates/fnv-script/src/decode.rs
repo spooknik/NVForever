@@ -518,7 +518,10 @@ fn piece(c: &mut Ctx<'_>, f: &Flat<'_>) -> Piece {
     if f.opcode >= op::FIRST_FUNCTION && f.opcode != 0xFFFF {
         return Piece::Stmt(Stmt::Call { call: call(c, f.on, f.opcode, f.body) });
     }
-    if f.on.is_some() {
+    // A set with a calling-reference prefix (`Ref.Set x to v` in the source, #2335) is a
+    // set of its target [observed: the target names the script's own variable list;
+    // hypothesis: the original writes that variable and the reference does nothing].
+    if f.on.is_some() && f.opcode != op::SET {
         return raw(c, "reference prefix before a statement that is not a call");
     }
     let mut r = Rd::new(f.body);

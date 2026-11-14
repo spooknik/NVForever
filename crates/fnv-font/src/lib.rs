@@ -129,6 +129,29 @@ impl Line {
     pub fn text_in(&self, page: fnv_util::text::CodePage) -> String {
         self.glyphs.iter().map(|g| page.char_of(g.code)).collect()
     }
+
+    /// [`Line::text`] with the spaces between its words put back: the line holds the words'
+    /// characters only, so a gap after a character wider than its advance in `font` is
+    /// the spaces that stood there, as many as the space's advance goes into it (at least
+    /// one). The room before the first character is the text's leading spaces, put back the
+    /// same way (MCM's suffix " seconds" stood against its value). For a stand-in drawing of
+    /// the line that sets its own letters (issue #2298: MCM's texts ran together where a
+    /// font's picture was not read).
+    pub fn text_spaced(&self, font: &Font) -> String {
+        let page = fnv_util::text::code_page();
+        let space = font.glyph(b' ').advance();
+        let mut out = String::new();
+        let mut end = 0.0;
+        for g in &self.glyphs {
+            if g.x - end > 0.5 {
+                let n = if space > 0.0 { ((g.x - end) / space).round().max(1.0) as usize } else { 1 };
+                out.extend(std::iter::repeat_n(' ', n));
+            }
+            out.push(page.char_of(g.code));
+            end = g.x + font.glyph(g.code).advance();
+        }
+        out
+    }
 }
 
 fn f32_at(b: &[u8], at: usize) -> f32 {
@@ -270,6 +293,20 @@ mod tests {
         assert_eq!(a.advance(), 11.0);
         assert!(a.drawn() && !f.glyph(b' ').drawn());
         assert_eq!(f.glyph(b' ').advance(), 5.0);
+    }
+
+    #[test]
+    fn a_stand_in_line_keeps_its_spaces() {
+        let f = Font::parse(&file()).unwrap();
+        let lines = f.lines("Extra HUD  on", None);
+        assert_eq!(lines[0].text(), "ExtraHUDon", "the line holds the words' characters only");
+        assert_eq!(lines[0].text_spaced(&f), "Extra HUD  on");
+        // A leading space is set as room before the first letter and drawn back as a space.
+        let lead = f.lines(" seconds", None);
+        assert_eq!(lead[0].glyphs[0].x, 5.0);
+        assert_eq!(lead[0].text_spaced(&f), " seconds");
+        let wrapped = f.lines("ab cd", Some(25.0));
+        assert_eq!(wrapped.iter().map(|l| l.text_spaced(&f)).collect::<Vec<_>>(), ["ab", "cd"]);
     }
 
     #[test]

@@ -68,8 +68,13 @@ pub fn decode(bytes: &[u8]) -> String {
     }
 }
 
+/// A character of a tag's or an attribute's name. `+` too, which XML does not allow but the
+/// game's reader evidently does [observed: Vanilla UI Plus names traits `_VUI+Fade`,
+/// `_VUI+OverwriteVerify`, `_VUI+brightness` and reads them back by those names; cut at the
+/// `+` they all became one `_VUI`, its self-check failed and showed its "installation
+/// error" text, and its option titles lost their brightness, #2298].
 fn name_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':')
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':' | '+')
 }
 
 /// Reads `src`; never fails.

@@ -1366,6 +1366,14 @@ impl Ai {
     /// original's actors do while the player waits.]
     pub fn pass_time(&mut self, game: &mut Game, nav: &NavGraph, seconds: f32, step: f32) -> usize {
         let step = step.max(1e-3);
+        // The actors processed out of the loaded cells run their scripts once in the
+        // hour, as at a low-process update (`Game::run_far_frame`) [design: the loaded
+        // cells' scripts wait for the game to go on; issue #2445, Chauncey's warp to the
+        // bathhouse at 15 h had to come while the player waited there].
+        let far: Vec<FormId> = self.low.iter().filter(|(_, owed)| owed.is_some()).map(|(a, _)| *a).collect();
+        for a in far {
+            self.process_stats.far_scripts += usize::from(game.run_far_frame(a));
+        }
         let mut walked: std::collections::BTreeSet<FormId> = Default::default();
         let (mut left, mut still) = (seconds, 0);
         // Two updates running with nobody on its way end it: one may only have set an
@@ -1699,7 +1707,9 @@ impl Ai {
                 // (`Game::start_dialogue`): the actor talks for as long as it says the
                 // line [hypothesis: the package lasts as long as the line, as it lasts
                 // as long as a conversation].
-                if game.dialogue.as_ref().is_some_and(|c| c.actor == actor) || greets(game, actor) {
+                // A conversation with another actor lasts while either says its lines.
+                let with_actor = talk.target != FormId::PLAYER_REF && game.in_actor_conversation(actor);
+                if game.dialogue.as_ref().is_some_and(|c| c.actor == actor) || greets(game, actor) || with_actor {
                     // It turns to the one it talks to [documented: unless No
                     // Headtracking, speaker and target are "forced to look at each
                     // other by the package"; how fast is our choice]. Seated, only its
@@ -2006,10 +2016,10 @@ impl Ai {
         // Kendall's "There he is!" (TTW, CG04Security02Ambush, activate distance 1500)
         // came through the walls while the player was still in bed, and its end script's
         // stage 12 kept the wake-up's stage 3 from coming (docs/design/actor-behaviour.md).
-        // Only the player is measured, so a Say To line to an NPC is not held back. The
-        // actor stays as it is (waiting, or at the end of its walk) and tries again every
-        // update.
-        let needs_sight = !talk.say_to || talk.target == FormId::PLAYER_REF;
+        // Only the player is measured, so a Say To line or a conversation to anyone else
+        // (an actor, a talking activator) is not held back. The actor stays as it is
+        // (waiting, or at the end of its walk) and tries again every update.
+        let needs_sight = talk.target == FormId::PLAYER_REF;
         if needs_sight && !game.greet_sight(actor, talk.target) {
             if self.unseen_greets.insert(actor) {
                 self.log(game, actor, AiEvent::TalkUnseen { package, target: talk.target, away });
@@ -2033,6 +2043,21 @@ impl Ai {
             return;
         }
         if game.in_menu() || game.loading {
+            return;
+        }
+        // A conversation with another actor, or with a talking activator, which speaks
+        // for its talking actor (`Game::start_actor_conversation`): said in the world.
+        if talk.target != FormId::PLAYER_REF {
+            match game.start_actor_conversation(actor, talk.target, talk.topic) {
+                Ok(line) => {
+                    self.agents.get_mut(&actor).expect("listed").talk = Some(Talking::Speaking);
+                    self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: false, greeting: false });
+                }
+                Err(why) => {
+                    self.log(game, actor, AiEvent::NoTalk { package, why });
+                    self.talk_done(game, actor);
+                }
+            }
             return;
         }
         // The force greet: a conversation also for a greeting with the Goodbye flag

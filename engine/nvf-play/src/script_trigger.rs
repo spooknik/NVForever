@@ -38,9 +38,15 @@
 //!   per-frame run for GetSecondsPassed, `Game::trigger_frame`), **the entering frame included, after
 //!   OnTriggerEnter** [documented: OnTrigger every frame inside, T3; hypothesis: the order
 //!   on the entering frame, open in game, level-design.md §13 question 2]; OnTriggerLeave
-//!   once on the first frame it no longer does. A trigger that is disabled, or whose cell
-//!   unloads, is left without a Leave; an actor that is disabled, dies or leaves the
-//!   loaded cells leaves its triggers with one [hypothesis].
+//!   once on the first frame it no longer does. A trigger that is disabled is left
+//!   without a Leave; an actor that is disabled, dies or leaves the loaded cells leaves
+//!   its triggers with one [hypothesis]. A trigger whose cell unloads is left without a
+//!   Leave by the actors still in it (they stay inside, the cell only went out of reach),
+//!   but **the player** leaves it with one: the cell unloads because the player went
+//!   away (fast travel, a door, a script's MoveTo) [design, #2449: the Boomers'
+//!   NellisArtilleryScript counts the actors in its field in and out, and a player who
+//!   fast-travelled out of the field stayed counted, so the barrage never stopped after
+//!   the Boomers took the player in; [`leave_reported`]].
 
 use crate::script::Runtime;
 use crate::script_events::{trigger_changes, Capsule, TriggerKind, TriggerShape};
@@ -248,16 +254,48 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     for &t in &running {
         g.trigger_frame(t);
     }
+    // The runs for the second and later actors inside one trigger come 0 s after its
+    // first (`Game::trigger_again`, issue #2455).
+    let mut ran = BTreeSet::new();
     for &(t, a) in &ch.inside {
+        if !ran.insert(t) {
+            g.trigger_again(t);
+        }
         g.ref_event(t, event::ON_TRIGGER, Some(Value::Ref(a.0)), Some(a));
     }
     for &(t, a) in &ch.left {
-        // Only if the trigger is still there: one whose cell unloaded or that was
-        // disabled does not report the leave.
-        if g.present(t) && g.cell_of(t).is_some_and(|c| g.loaded_cells.contains(&c)) {
+        let loaded = g.cell_of(t).is_some_and(|c| g.loaded_cells.contains(&c));
+        if leave_reported(a, g.present(t), loaded) {
             bevy::log::info!("script: {} left trigger {}", who(g, a), g.data.name(t));
             g.ref_event(t, event::ON_TRIGGER_LEAVE, Some(Value::Ref(a.0)), Some(a));
         }
     }
     rt.triggers.inside = now;
+}
+
+/// Whether `actor` leaving trigger `t` runs its OnTriggerLeave (module notes): not when
+/// the trigger was disabled or deleted (`present` false); when the trigger's cell is no
+/// longer loaded, only for the player, who is the one that went away (#2449).
+fn leave_reported(actor: FormId, present: bool, loaded: bool) -> bool {
+    present && (loaded || actor == FormId::PLAYER_REF)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #2449: the player fast-travelling out of the Boomers' artillery field (its cell
+    /// unloads) leaves the trigger with an OnTriggerLeave, so the script counts the
+    /// player out; an NPC left behind in an unloaded cell is still inside; a disabled
+    /// trigger reports no leave.
+    #[test]
+    fn the_player_leaves_a_trigger_whose_cell_unloads() {
+        let npc = FormId(0x0010_0000);
+        assert!(leave_reported(FormId::PLAYER_REF, true, true));
+        assert!(leave_reported(npc, true, true));
+        assert!(leave_reported(FormId::PLAYER_REF, true, false), "the player went away: the leave runs");
+        assert!(!leave_reported(npc, true, false), "an NPC in an unloaded cell stays inside");
+        assert!(!leave_reported(FormId::PLAYER_REF, false, true), "a disabled trigger reports none");
+        assert!(!leave_reported(FormId::PLAYER_REF, false, false));
+    }
 }

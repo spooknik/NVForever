@@ -768,8 +768,18 @@ Joe Cobb and Trudy (below).
   Stations]. Tests: `dialogue.rs`
   `a_conversation_uses_a_topic_once_unless_its_quest_allows_repeats`,
   `a_follow_up_between_actors_keeps_the_topics_of_the_conversation`.
+- **A talking activator** can take part (issue #2451): it says its talking actor's
+  lines, chosen with that actor as the speaker and IsActorTalkingThroughActivator 1
+  (`Game::talker`), and the line is said by that actor through it (`Speech::through`),
+  so the other side's next line is said to the activator. Veronica's package at Hidden
+  Valley talks to HVIntercomREF, which speaks for Ramos.
 - **The next line** (`Game::next_conversation_line`), when a line has ended and its end
-  result has run: a Goodbye line ends the conversation [documented]; so does either
+  result has run: a Goodbye line ends the conversation [documented] unless it links on
+  (Link To or follow-ups), when it goes on [hypothesis from the data: 19 Conversation
+  lines of FalloutNV.esm are Goodbye with links; Jason Bright's speech is started at its
+  first part only (SCPT 0008D41A) and its Goodbye part 4 links to parts 5-9; Veronica's
+  exchange with Ramos (HVVeronicaEnter, four Goodbye lines) opens the bunker only at its
+  third line; observer check 139]; so does either
   side being gone [hypothesis]. Otherwise the line's next speaker says the next line:
   Target is the other actor, Self the same one, Either the other and else the same one
   [documented: xEdit wbNextSpeaker, the names; hypothesis: what they mean]. It says the

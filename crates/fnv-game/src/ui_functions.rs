@@ -202,11 +202,17 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         crate::ui_hud::flush(g);
     }
     Some(Ok(match lname.as_str() {
-        "getuifloat" | "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),
+        // The extender's own four count `*:N` from the first child, JIP's from the last
+        // (`fnv_ui::Count`) [observed: menu-xml.md §10.1; hud.md §14.8; documented: MCM
+        // Guide v6, menu-xml.md §10.4].
+        "getuifloat" => XVal::Num(g.ui_tree.get_counted(&path, fnv_ui::Count::FromFirst).map_or(NOT_FOUND, Value::num)),
+        "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),
         "getuifloatinherited" => XVal::Num(inherited(&g.ui_tree, &path, num(args, 1) != 0.0).unwrap_or(NOT_FOUND)),
         "getuistring" => XVal::Str(g.ui_tree.get_string(&path).unwrap_or_default()),
-        "setuifloat" | "setuifloatalt" => yes(g.ui_tree.set_float(&path, num(args, 1))),
-        "setuistring" | "setuistringalt" | "setuistringex" => yes(g.ui_tree.set_string(&path, &text(args, 1))),
+        "setuifloat" => yes(g.ui_tree.set_counted(&path, fnv_ui::Count::FromFirst, Value::Num(num(args, 1)))),
+        "setuifloatalt" => yes(g.ui_tree.set_float(&path, num(args, 1))),
+        "setuistring" | "setuistringex" => yes(g.ui_tree.set_counted(&path, fnv_ui::Count::FromFirst, Value::Str(text(args, 1)))),
+        "setuistringalt" => yes(g.ui_tree.set_string(&path, &text(args, 1))),
         "moduifloat" => yes(g.ui_tree.mod_float(&path, num(args, 1))),
         // MCM's shorthands for the traits of `StartMenu/MCM/*:child/*:grandchild/setting`
         // [documented: SetMCMFloat and SetMCMString give the SetUIFloat and SetUIString
@@ -240,7 +246,11 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         // `_modIndex2` from the next three [observed: job mcm976e, menu-xml.md §10.2:
         // `22 1 6 5 caps` gave Mod22 "Bottle Cap", 1, 6 and 5; `22 2 7 9` 2, 7 and 9;
         // `21 0 0 0` the name and zeros; MCM's own call passes the mod's load index and
-        // its form's value]. Nothing else of the row changed.
+        // its form's value]. Nothing else of the row changed. A row past 23 changes
+        // nothing: MCM's own loop calls it for every mod in MCMMods, and SubMenu1 follows
+        // Mod23 [hypothesis: the original's list of more than 23 mods leaves its sub-menu
+        // rows alone; observed: Begin Again's 27 mods wrote four mod names into SubMenu1-4,
+        // 2026-11-13].
         "setmcmmodlist" => {
             let form = match args.get(4) {
                 Some(XVal::Ref(f)) => crate::nvse::shown_name(g, fnv_sim::FormId(*f)),
@@ -248,7 +258,7 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
             };
             let ui = &mut g.ui_tree;
             let n = num(args, 0) as i64;
-            if let Some(row) = (n >= 1).then(|| mcm_place(ui, &[5, n])).flatten() {
+            if let Some(row) = (1..=23).contains(&n).then(|| mcm_place(ui, &[5, n])).flatten() {
                 if let Some((t, n)) = mcm_setting(ui, row, "text/string") {
                     ui.set_existing(t, &n, Value::Str(form));
                 }

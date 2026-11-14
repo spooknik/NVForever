@@ -14,6 +14,8 @@ use nvf_assets::GameData;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+mod tga;
+
 /// The interface's colour [observed: the brightest text of the owner's screenshot,
 /// message-menu.md §3].
 pub const AMBER: [f32; 3] = [1.0, 182.0 / 255.0, 66.0 / 255.0];
@@ -133,7 +135,7 @@ pub fn ui_scale_row(group: &'static str) -> crate::settings::Setting {
         "ui-scale",
         group,
         "UI scale",
-        "The size of the HUD and the menus, as a part of the original's (100%): smaller leaves more of the picture free, each HUD piece kept at its edge of the screen and each menu in the middle. Above 100% only the HUD grows: the menus stay at the original's size, so they keep on the screen. Takes effect at the next start (loading a save starts the game again). Not in the original.",
+        "The size of the HUD and the menus, as a part of the original's. Above 100% only the HUD grows. Takes effect at the next start.",
         crate::settings::Slider::choice(UI_SCALE_CHOICES, |_| ui_scale_part(ui_scale_setting()), |_, v| set_ui_scale_setting(ui_scale_of_part(v)), |v| format!("{:.0}%", ui_scale_of_part(v) * 100.0)),
     )
 }
@@ -412,7 +414,7 @@ fn texture_read(
     decode: fn(&[u8], bool, bool) -> Result<Image, String>,
 ) -> Option<(Handle<Image>, Vec2)> {
     let bytes = data.read(path)?;
-    match decode(&bytes, true, bc) {
+    match decode_texture(&bytes, bc, decode) {
         Ok(mut image) => {
             image.sampler = ImageSampler::linear();
             let size = image.size().as_vec2();
@@ -423,6 +425,14 @@ fn texture_read(
             None
         }
     }
+}
+
+fn decode_texture(bytes: &[u8], bc: bool, decode_dds: fn(&[u8], bool, bool) -> Result<Image, String>) -> Result<Image, String> {
+    if bytes.starts_with(b"DDS ") || !tga::recognizable(bytes) {
+        return decode_dds(bytes, true, bc);
+    }
+    let decoded = tga::decode(bytes)?;
+    nvf_assets::texture::checked_image(decoded.width, decoded.height, 1, bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb, decoded.rgba)
 }
 
 /// A font's picture from its `.tex` file, read before the `.dds` (docs/spec-notes/fonts.md
@@ -579,8 +589,9 @@ pub fn set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
 /// [`set_line`] with `mark` on every coloured node (each glyph, or the stand-in text).
 pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color, mark: impl Bundle + Clone) {
     let Some((image, size)) = &face.image else {
-        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251).
-        let text = line.text();
+        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251);
+        // the spaces between the words are put back (#2298).
+        let text = line.text_spaced(&face.font);
         let size = face.font.size * 0.75;
         p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(base - size), ..default() }).with_children(|n| {
             n.spawn((Text::new(text), TextFont { font_size: font_units(size), ..default() }, TextColor(color), mark));
@@ -771,6 +782,10 @@ fn own_texture(path: &str) -> String {
 #[cfg(test)]
 #[path = "interface_layout_tests.rs"]
 mod layout_tests;
+
+#[cfg(test)]
+#[path = "interface/tga_consumer_tests.rs"]
+mod tga_consumer_tests;
 
 #[cfg(test)]
 mod tests {

@@ -19,6 +19,7 @@ pub mod compile;
 pub mod decode;
 pub mod decompile;
 pub mod ir;
+pub mod keys;
 pub mod resolve;
 pub mod table;
 pub mod unit;

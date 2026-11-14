@@ -287,6 +287,21 @@ impl Tile {
     }
 }
 
+/// How a path's `name:N` / `*:N` counts the children that match (`Ui::find_trait_counted`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Count {
+    /// From the last child, from 0: JIP's functions (GetUIFloatAlt and the rest) [observed:
+    /// private jobs hud_hardcore hc0, hud_xp_limbs, hud_prompt2 p0-p8; hud.md §14.8].
+    FromLast,
+    /// From the first child, from 1, with 0 the last and nothing past the one before the
+    /// last: the extender's GetUIFloat, SetUIFloat, SetUIString and SetUIStringEx
+    /// [observed: GetUIFloat under the pause column, `*:1` its first child, `*:0` its last,
+    /// `*:8` of 8 nothing, menu-xml.md §10.1; documented: MCM Guide v6, Introduction and The
+    /// Options Panel: `StartMenu/MCM/*:4` is MCM's fourth child, `*:1/*:2` the options
+    /// panel's Option2, `*:9` MCM_Info, the ninth; menu-xml.md §10.4].
+    FromFirst,
+}
+
 /// The menus' tile tree.
 #[derive(Default)]
 pub struct Ui {
@@ -837,17 +852,36 @@ impl Ui {
         let segs = split(path);
         let (first, rest) = segs.split_first()?;
         let root = self.root_named(first)?;
-        self.walk(root, rest)
+        self.walk(root, rest, Count::FromLast)
     }
 
     /// The tile and trait a path names: [`Ui::find_tile`] of all but the last segment,
     /// and the last a trait of it.
     pub fn find_trait(&self, path: &str) -> Option<(TileId, usize)> {
+        self.find_trait_counted(path, Count::FromLast)
+    }
+
+    /// [`Ui::find_trait`] with `name:N` / `*:N` counted as `count` says (the extender's
+    /// GetUIFloat and SetUIFloat count from the first child, [`Count::FromFirst`]).
+    pub fn find_trait_counted(&self, path: &str, count: Count) -> Option<(TileId, usize)> {
         let segs = split(path);
         let (name, tiles) = segs.split_last()?;
         let (first, rest) = tiles.split_first()?;
         let root = self.root_named(first)?;
-        self.walk_to_trait(root, rest, name)
+        self.walk_to_trait(root, rest, name, count)
+    }
+
+    /// A trait's value by a path counted as `count` says ([`Ui::find_trait_counted`]).
+    pub fn get_counted(&self, path: &str, count: Count) -> Option<&Value> {
+        let (t, k) = self.find_trait_counted(path, count)?;
+        Some(&self.tile(t).traits[k].value)
+    }
+
+    /// Sets a trait by a path counted as `count` says, as [`Ui::set`] does.
+    pub fn set_counted(&mut self, path: &str, count: Count, v: Value) -> bool {
+        let Some((t, k)) = self.find_trait_counted(path, count) else { return false };
+        self.set_at(t, k, v);
+        true
     }
 
     /// A trait by a path under a tile: `Tile/…/trait` from `at`'s children, or a trait of
@@ -856,7 +890,7 @@ impl Ui {
     pub fn find_trait_in(&self, at: TileId, path: &str) -> Option<(TileId, usize)> {
         let segs = split(path);
         let (name, tiles) = segs.split_last()?;
-        self.walk_to_trait(at, tiles, name)
+        self.walk_to_trait(at, tiles, name, Count::FromLast)
     }
 
     fn root_named(&self, seg: &str) -> Option<TileId> {
@@ -864,28 +898,31 @@ impl Ui {
     }
 
     /// The children of `at` a segment matches, in order.
-    fn matching(&self, at: TileId, seg: &str) -> Vec<TileId> {
+    fn matching(&self, at: TileId, seg: &str, count: Count) -> Vec<TileId> {
         let (name, index) = match seg.rsplit_once(':') {
             Some((n, k)) if k.trim().parse::<usize>().is_ok() => (n, k.trim().parse::<usize>().ok()),
             _ => (seg, None),
         };
         let all = self.tile(at).children.iter().copied();
         let named: Vec<TileId> = all.filter(|&c| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name)).collect();
-        match index {
-            Some(k) => named.iter().rev().nth(k).copied().into_iter().collect(),
-            None => named,
+        match (index, count) {
+            (Some(k), Count::FromLast) => named.iter().rev().nth(k).copied().into_iter().collect(),
+            // 0 the last, 1 the first, N the N-th, none past the one before the last.
+            (Some(0), Count::FromFirst) => named.last().copied().into_iter().collect(),
+            (Some(k), Count::FromFirst) => named.get(k - 1).filter(|_| k < named.len()).copied().into_iter().collect(),
+            (None, _) => named,
         }
     }
 
-    fn walk(&self, at: TileId, segs: &[&str]) -> Option<TileId> {
+    fn walk(&self, at: TileId, segs: &[&str], count: Count) -> Option<TileId> {
         let Some((seg, rest)) = segs.split_first() else { return Some(at) };
-        self.matching(at, seg).into_iter().find_map(|c| self.walk(c, rest))
+        self.matching(at, seg, count).into_iter().find_map(|c| self.walk(c, rest, count))
     }
 
-    fn walk_to_trait(&self, at: TileId, segs: &[&str], name: &str) -> Option<(TileId, usize)> {
+    fn walk_to_trait(&self, at: TileId, segs: &[&str], name: &str, count: Count) -> Option<(TileId, usize)> {
         match segs.split_first() {
             None => self.tile(at).trait_index(name).map(|k| (at, k)),
-            Some((seg, rest)) => self.matching(at, seg).into_iter().find_map(|c| self.walk_to_trait(c, rest, name)),
+            Some((seg, rest)) => self.matching(at, seg, count).into_iter().find_map(|c| self.walk_to_trait(c, rest, name, count)),
         }
     }
 
@@ -1326,6 +1363,10 @@ impl Ui {
             }
             Src::Child(None) => self.tile(me).children.first().copied(),
             Src::Child(Some(n)) => child_named(me, n),
+            // A menu's siblings are the other menus [observed: Vanilla UI Plus's start menu
+            // reads `<copy src="sibling(HUDMainMenu)" trait="_VUI+"/>` on its root, and its
+            // own check shows an "installation error" unless that gives its 1, #2298].
+            Src::Sibling(Some(n)) if parent(me).is_none() => self.root_named(n).filter(|&r| r != me),
             Src::Sibling(n) => {
                 let p = parent(me)?;
                 let kids = &self.tile(p).children;
@@ -1343,7 +1384,25 @@ impl Ui {
             Src::Io => Some(self.root_of(me)),
             Src::Named(n) => {
                 let root = self.root_of(me);
-                self.find_named(root, n).or_else(|| self.root_named(n))
+                // `src="me"`, the brackets left off, is the tile itself when no tile bears
+                // the name [observed: MCM 1.5's Options.xml, `<_x1> <copy src="me"
+                // trait="x"/> <add> 20 </add> </_x1>` on MCM_Options, whose rows stand in
+                // the right pane in the original; read as a name it gave 0 and the rows
+                // stood at the screen's left, the owner's run of 2026-11-12].
+                // Likewise every source that takes no argument: `parent`, `grandparent`,
+                // `child`, `sibling`, `globals`, `screen`, `io` and `strings` [observed:
+                // Vanilla UI Plus writes them so throughout its menus, `parent` 1,739 times,
+                // `sibling` 614, `child` 15 in the Blue Moon list's files; its MCM
+                // OptionRect.xml places each option's title by `<copy src="parent"
+                // trait="_y"/>`, and read as a name every title stood at y 0, one over the
+                // other at the top of the screen, the owner's run of 2026-11-13, #2298].
+                self.find_named(root, n).or_else(|| self.root_named(n)).or_else(|| {
+                    let bare = Src::parse(&format!("{n}()"));
+                    match bare {
+                        Src::Me | Src::Parent | Src::Grandparent | Src::Child(None) | Src::Sibling(None) | Src::Globals | Src::Screen | Src::Io | Src::Strings => self.resolve(me, &bare),
+                        _ => None,
+                    }
+                })
             }
         }
     }

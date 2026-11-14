@@ -1006,6 +1006,46 @@ fn a_blast_catches_a_big_creature_by_its_body() {
     assert!(blast(&world(true, Some(80.0)), &t, &e, [40.0, 0.0, 0.0], None).is_empty());
 }
 
+/// A living actor and a corpse that has no hit volume (a ragdoll's, #2346): the corpse is
+/// among the bodies only a blast asks for.
+struct Graveyard {
+    living: Toy,
+    corpses: Vec<(ActorId, V3, f32)>,
+}
+
+impl CombatWorld for Graveyard {
+    fn ray(&self, from: V3, to: V3, ignore: &[ActorId]) -> Option<WorldHit> {
+        Toy { actors: self.living.actors.iter().chain(&self.corpses).copied().collect(), fence: false, wall: self.living.wall }.ray(from, to, ignore)
+    }
+
+    fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
+        self.living.actors_near(point, radius)
+    }
+
+    fn blast_targets_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
+        let corpses = Toy { actors: self.corpses.clone(), fence: false, wall: None };
+        self.actors_near(point, radius).into_iter().chain(corpses.actors_near(point, radius)).collect()
+    }
+}
+
+/// A blast catches a settled corpse beside a living actor, each once; a wall still shields
+/// the corpse. Only blasts: the corpse is not among `actors_near` (what proximity fuses and
+/// swings ask), so it sets off no mine.
+#[test]
+fn a_blast_catches_a_corpse_without_a_hit_volume() {
+    let t = CombatTuning::default();
+    let e = ExplosionStats { damage: 100.0, radius: 200.0, force: 300.0, ..ExplosionStats::default() };
+    let world = |wall| Graveyard { living: Toy { actors: vec![(7, [0.0, 80.0, 40.0], 20.0)], fence: false, wall }, corpses: vec![(9, [100.0, 0.0, 10.0], 30.0)] };
+    let hits = blast(&world(None), &t, &e, [0.0, 0.0, 5.0], None);
+    let mut caught: Vec<ActorId> = hits.iter().map(|h| h.actor).collect();
+    caught.sort_unstable();
+    assert_eq!(caught, vec![7, 9], "{hits:?}");
+    assert!(hits.iter().all(|h| h.damage > 0.0));
+    assert!(world(None).actors_near([100.0, 0.0, 10.0], 50.0).is_empty(), "no proximity fuse sees the corpse");
+    let shielded = blast(&world(Some(50.0)), &t, &e, [0.0, 0.0, 5.0], None);
+    assert_eq!(shielded.iter().map(|h| h.actor).collect::<Vec<_>>(), vec![7]);
+}
+
 /// A blast on the floor, the centre of an actor's bounds a little below the floor's
 /// level (a low creature on a slope): the line to it runs straight into the floor. Its
 /// body's parts above the floor are seen.

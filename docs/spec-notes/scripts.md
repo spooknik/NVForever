@@ -178,7 +178,17 @@ the unknown opcode 0x127C) decodes with values only [observed]. The functions an
   [observed].
 - **enum, animation group**: PlayGroup 864, IsAnimPlaying 114 (codes 0 Idle, 2
   SpecialIdle, 3 Forward, 4 Backward, 5 Left, 6 Right, 7–10 Fast*, 15 TurnLeft, 17 Aim,
-  24 Equip, 25 Unequip [observed]).
+  24 Equip, 25 Unequip [observed]; 227 JumpStart, 228 JumpLoop [observed: a mod's compiled
+  script, JustAssortedMods.esp 4.6 `JVSAnimEffectScript`, whose two IsAnimPlaying calls
+  carry these codes in source order; no shipped unit names them]; 44 Attack4, 47
+  Attack4IS, 50 Attack5, 62 Attack7, 201 JamB, 223 Stagger [observed: the PlayGroup calls
+  of Project Nevada 2.5's and Unofficial Patch NVSE Plus 1.7.3's compiled scripts beside
+  their source, each name with one code in every unit that has it]).
+- **enum, form type**: GetIsObjectType's parameter, stored as an animation group is
+  (xEdit's `ptFormType`). 27 Container [observed: Project Nevada - Core.esm 2.5,
+  `obj.GetIsObjectType Container` compiled to `B1 11 04 00 01 00 1B 00`; no shipped unit
+  calls the function]. Other type names are not read yet: an error in the editor's
+  compile, a warning and code 65535 in a mod's source (script-compiler.md §7).
 - **enum, sex**: GetIsSex 6, GetPCIsSex 8, SexChange 12 (0 Male, 1 Female).
 - **enum, misc stat**: ModPCMiscStat 6, GetPCMiscStat 4 (the source writes the stat name
   quoted, `"Corpses Eaten"`; the bytes hold the code).
@@ -629,7 +639,17 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   7 at 3.22 s of 3.25, 70 at 0.96 of 1.0, 95, 100 and 105 at 0.96–0.98 of 1.0,
   layer5-captures.md §10.7; `Game::mark_run`]. Round 3 counted the time since the last
   call, which made the walk-through's 85 → 90 countdown expire at once; that rule is
-  gone. **Menus and loading screens do not count**: the game time
+  gone. **A trigger's OnTrigger** is its per-frame run when the script has no GameMode
+  block (`Game::trigger_frame`); it runs once for each actor inside, and only the
+  first run of a frame gets the frame's time, the later ones 0 (`Game::trigger_again`)
+  [documented: the GECK wiki's "time since the script last ran"; hypothesis: that the
+  original also runs it once per reference inside]. No trigger block runs while the game
+  is paused (a menu, a message box, a conversation, a loading screen; nvf-play
+  `script.rs`) [hypothesis: OnTrigger is held as GameMode is]. Both made Hidden Valley's
+  virus purge (HVHuntingVirusTrigger, SCPT 0015A154, `Begin OnTrigger` with no actor,
+  20 s by GetSecondsPassed) run out in a fraction of its time, with Ibsen and two scribes
+  in the room and under message boxes (issue #2455; smoke `hv-virus-purge-timer`).
+  **Menus and loading screens do not count**: the game time
   (`Game::time`) and the GameMode quest delay stop while a menu is open or a loading
   screen is up [observed: after a 900-frame container menu the first drop was one frame
   for VCG00 and VMQ03aTimer's own 0.5 s, `L5.quest.seconds_after_menu`; a `coc` loading
