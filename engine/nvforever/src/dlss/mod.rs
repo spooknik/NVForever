@@ -697,8 +697,8 @@ fn ready() -> bool {
 /// (`GENERAL`, `STORAGE_READ_WRITE` in `evaluate.rs`), and NGX clears it with
 /// `vkCmdClearColorImage`, which needs `TRANSFER_DST` [observed: Khronos validation layer,
 /// `VUID-vkCmdClearColorImage-image-00002` inside `nv.ngx.dlss.Evaluate`, 2026-11-12]. The
-/// HDR format (`Rgba16Float`) every prepared view has already (`prep::prepare` renders others
-/// natively); nothing DLSS does copies from the main textures, so FSR's `COPY_SRC` (its opaque
+/// HDR format (`Rgba16Float`) every DLSS view has already (`prep::format_suitable`: DLSS takes
+/// no other, `prep::prepare` renders others natively); nothing DLSS does copies from the main textures, so FSR's `COPY_SRC` (its opaque
 /// copy) is not needed.
 pub(crate) fn main_texture_usages() -> wgpu::TextureUsages {
     wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_DST

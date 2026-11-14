@@ -656,16 +656,18 @@ pub struct DlssUpscaling {
     pub quality: UpscaleQuality,
 }
 
-/// Bilinear on a perspective HDR camera (#2414): the common preparation ([`prep`]) draws the
+/// Bilinear on a perspective camera (#2414): the common preparation ([`prep`]) draws the
 /// scene at the quality's render size (FSR's ratio), and its pass ([`bilinear::bilinear_pass`])
-/// stretches it to the window before bloom. No motion-vector prepass, no `TemporalJitter` and
+/// stretches it to the window before bloom. Unlike FSR and DLSS it does not require `Hdr`: the
+/// view stays 8-bit unless something else makes it HDR (the light glow, `graphics::apply`;
+/// `prep::format_suitable`). No motion-vector prepass, no `TemporalJitter` and
 /// no `MipBias`: nothing is jittered and textures keep their own mip levels [design: with no
 /// history to gather detail over frames, a negative bias would only make them shimmer]. The
 /// depth prepass the main camera always has (`main.rs` `setup`) is expanded for the
 /// screen-space effects, as for FSR. The graphics settings enforce `Msaa::Off` and no other
 /// anti-aliasing while it is on, as for FSR and DLSS (`graphics::apply`).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-#[require(Hdr, DepthPrepass)]
+#[require(DepthPrepass)]
 pub struct BilinearUpscaling {
     pub quality: UpscaleQuality,
 }

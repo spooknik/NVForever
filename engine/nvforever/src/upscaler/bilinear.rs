@@ -10,6 +10,13 @@
 //! draws the main pass at [`policy`]'s render size (`MainPassResolutionOverride`), and
 //! [`bilinear_pass`] stretches it where FSR's pass sits, before bloom, tonemapping and the UI,
 //! which stay at the window's size.
+//!
+//! The view is HDR only when something else asks for it (the light glow: `graphics::apply`);
+//! otherwise its picture is 8-bit, tonemapped in the material shaders, with no separate
+//! tonemapping pass, and the stretch reads and writes half the bytes (`prep::format_suitable`).
+//! Measured on an Intel N150 at 1920x1080, Performance, with the HDR view: the stretch with the
+//! depth expansion 2.6 ms of the GPU's frame and the tonemapping pass 1.3 ms [observed,
+//! 2026-11-14: the main session's profile build].
 
 use bevy::core_pipeline::prepass::ViewPrepassTextures;
 use bevy::prelude::*;
@@ -52,10 +59,14 @@ pub(crate) fn bilinear_pass(
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_bilinear");
     let encoder = ctx.command_encoder();
     prepared.history_valid.store(false, Ordering::Relaxed);
-    common.stretch(device, encoder, prepared, target);
+    if !common.stretch(device, encoder, prepared, target) {
+        span.end(ctx.command_encoder());
+        return;
+    }
     if !prepared.drawing_said.swap(true, Ordering::Relaxed) {
         let (render, output) = (prepared.render_size, prepared.output_size);
-        info!("Bilinear stretch active: {}x{} -> {}x{}", render.x, render.y, output.x, output.y);
+        let picture = if target.main_texture_format() == wgpu::TextureFormat::Rgba16Float { "HDR" } else { "8-bit" };
+        info!("Bilinear stretch active: {}x{} -> {}x{}, {picture} picture", render.x, render.y, output.x, output.y);
     }
     if let Some(depth) = prepass.and_then(|prepass| prepass.depth.as_ref()) {
         common.expand_depth(device, encoder, prepared, &depth.texture.texture);

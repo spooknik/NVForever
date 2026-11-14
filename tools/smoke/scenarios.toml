@@ -24752,7 +24752,19 @@ paths = ["engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "bilinear", "--upscaler-quality", "performance", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
 run_seconds = 18
-expect = ["upscaler: Bilinear Performance asked for, Bilinear Performance draws", "graphics: Bilinear Performance active", "Bilinear stretch active: 640x360 -> 1280x720"]
+expect = ["upscaler: Bilinear Performance asked for, Bilinear Performance draws", "graphics: Bilinear Performance active", { text = "Bilinear stretch active: 640x360 -> 1280x720, HDR picture", label = "stretched from the HDR picture the glow asks for" }]
+forbid = [{ text = "FSR 3.1.4:", label = "FSR's state made for Bilinear" }, { text = "FSR dispatch", label = "an FSR dispatch" }, { text = "requires a single-sampled HDR view", label = "an unusable view: drawn natively" }, "Shader validation error", "Validation Error", { text = "panicked", label = "a panic on a thread that does not end the game" }]
+
+[[scenario]]
+name = "bilinear-8-bit"
+source = "#2414, docs/design/fsr-upscaling.md \"Bilinear\": with the light glow off (as in the Low preset) a Bilinear view stays 8-bit: tonemapped in the material shaders, no tonemapping pass, the stretch and the ambient occlusion before it drawn through their 8-bit pipelines; Goodsprings outdoors at Bilinear Performance from the command line, FXAA after the stretch"
+note = "upscaler/prep.rs format_suitable and Pipelines::ensure_format, ssao.rs's multiply pipeline by format, graphics.rs apply (Hdr only for FSR, DLSS or the glow). 640x360 is FSR's ratio 2 at 1280x720. A pipeline of the wrong format on the 8-bit picture is a wgpu validation error"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/fsr_fallback.wgsl", "engine/nvforever/src/fsr_depth.wgsl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao.rs", "engine/nvforever/src/imagespace.rs"]
+env = { WGPU_BACKEND = "vulkan" }
+args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "bilinear", "--upscaler-quality", "performance", "--graphics-only", "no-glow,ambient-occlusion,fxaa", "--no-voice", "--no-lodgen"]
+run_seconds = 18
+expect = ["upscaler: Bilinear Performance asked for, Bilinear Performance draws", "graphics: Bilinear Performance active", { text = "Bilinear stretch active: 640x360 -> 1280x720, 8-bit picture", label = "stretched from the 8-bit picture: the view is not HDR" }]
 forbid = [{ text = "FSR 3.1.4:", label = "FSR's state made for Bilinear" }, { text = "FSR dispatch", label = "an FSR dispatch" }, { text = "requires a single-sampled HDR view", label = "an unusable view: drawn natively" }, "Shader validation error", "Validation Error", { text = "panicked", label = "a panic on a thread that does not end the game" }]
 
 [[scenario]]

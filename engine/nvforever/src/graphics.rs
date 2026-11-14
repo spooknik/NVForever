@@ -691,11 +691,12 @@ fn sun_shadow_quality(
 /// Put the improvements that are on onto the main camera and the sun, take those that are
 /// off away (when a switch changes, and once at the start).
 ///
-/// What every upscaler needs follows the effective upscaler (`upscaling`: the HDR,
+/// What every upscaler needs follows the effective upscaler (`upscaling`: the
 /// single-sampled view, so multisampling off, and TAA off), and what only the temporal ones
-/// need follows FSR or DLSS (`temporal`: the motion prepass, blended cut-outs drawn
-/// alpha-tested, FXAA and SMAA replaced by their own smoothing; their jitter and mip bias come
-/// with their components). With Bilinear, which smooths nothing, FXAA and SMAA stay as chosen:
+/// need follows FSR or DLSS (`temporal`: the HDR view, the motion prepass, blended cut-outs
+/// drawn alpha-tested, FXAA and SMAA replaced by their own smoothing; their jitter and mip bias
+/// come with their components). A Bilinear view is HDR only when the light glow makes it so
+/// (#2414: the stretch takes the 8-bit picture too, `upscaler::prep::format_suitable`). With Bilinear, which smooths nothing, FXAA and SMAA stay as chosen:
 /// they run after tonemapping on the stretched picture, at the window's size [design: the main
 /// session's review of #2414]. FSR's own sharpening and component follow FSR alone, DLSS's
 /// component DLSS alone and Bilinear's Bilinear alone (`upscaler::effective_temporal`;
@@ -773,7 +774,10 @@ fn apply(
         } else {
             e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow)>();
         }
-        if upscaling {
+        // FSR and DLSS take the HDR picture only. Bilinear only filters, so its view stays
+        // 8-bit unless the glow asks for HDR: no tonemapping pass, half the bytes through the
+        // main passes and the stretch (#2414, docs/design/fsr-upscaling.md "Bilinear").
+        if temporal {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
@@ -1065,8 +1069,8 @@ mod tests {
     }
 
     /// Bilinear (#2414) turns multisampling and TAA off as FSR and DLSS do but keeps FXAA and
-    /// SMAA as chosen (it smooths nothing itself), keeps the HDR view, and puts nothing temporal
-    /// on the camera: no motion prepass, no jitter, no mip bias, blended cut-outs left blended.
+    /// SMAA as chosen (it smooths nothing itself), keeps the HDR view the glow asks for (the
+    /// vanilla preset has it on), and puts nothing temporal on the camera: no motion prepass, no jitter, no mip bias, blended cut-outs left blended.
     /// It draws on a device without FSR, sharpening stays the separate pass, and Off gives the
     /// saved choice back.
     #[test]
@@ -1117,6 +1121,41 @@ mod tests {
                 assert_eq!(crate::upscaler::effective(app.world()), UpscalerChoice::Off);
             }
         }
+    }
+
+    /// The HDR view (#2414): FSR and DLSS always have it; Bilinear only while the light glow
+    /// asks for it, so with the glow off (the Low preset) its picture stays 8-bit. Switching
+    /// between them takes it away and puts it back.
+    #[test]
+    fn a_bilinear_view_is_hdr_only_while_the_glow_asks_for_it() {
+        use crate::upscaler::{DlssState, Session};
+        let hdr = |app: &App, camera: Entity| app.world().entity(camera).contains::<bevy::camera::Hdr>();
+        let pick = |app: &mut App, choice: UpscalerChoice| {
+            app.world_mut().resource_mut::<Graphics>().upscaler = choice;
+            app.world_mut().resource_mut::<UpscalerStatus>().update(choice);
+            app.update();
+        };
+        let (mut app, camera) = aa_app(ScreenAa::Fxaa, true);
+        app.world_mut().resource_mut::<Graphics>().glow = false;
+        app.insert_resource(UpscalerStatus::new(Session { streamline_loaded: true, dlss: DlssState::Ready, fsr: None }));
+        app.update();
+        assert!(!hdr(&app, camera), "native, glow off: 8-bit");
+        pick(&mut app, UpscalerChoice::Bilinear(UpscaleQuality::Performance));
+        assert!(app.world().entity(camera).contains::<BilinearUpscaling>());
+        assert!(!hdr(&app, camera), "Bilinear, glow off: 8-bit");
+        pick(&mut app, UpscalerChoice::Fsr(UpscaleQuality::Performance));
+        assert!(hdr(&app, camera), "FSR: HDR whatever the glow");
+        pick(&mut app, UpscalerChoice::Bilinear(UpscaleQuality::Quality));
+        assert!(!hdr(&app, camera), "back to Bilinear: FSR's HDR taken away");
+        pick(&mut app, UpscalerChoice::Dlss(UpscaleQuality::Quality));
+        assert!(hdr(&app, camera), "DLSS: HDR whatever the glow");
+        pick(&mut app, UpscalerChoice::Bilinear(UpscaleQuality::Quality));
+        assert!(!hdr(&app, camera));
+        app.world_mut().resource_mut::<Graphics>().glow = true;
+        app.update();
+        assert!(hdr(&app, camera), "Bilinear, glow on: HDR, for the glow");
+        pick(&mut app, UpscalerChoice::Off);
+        assert!(hdr(&app, camera), "native, glow on: HDR");
     }
 
     #[test]

@@ -601,9 +601,9 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
 
 - **Off by default**, like the row; no default changes. On every GPU and backend
   (`upscaler::resolve` never refuses it) and switched at once, no restart.
-- **The camera** gets `BilinearUpscaling`, with the HDR view and the depth prepass the main
-  camera always has; no `MotionVectorPrepass`, `TemporalJitter` or `MipBias` (so no jittered
-  pipeline variant either). Multisampling and TAA are off while it is on, as for FSR (the view
+- **The camera** gets `BilinearUpscaling` with the depth prepass the main camera always has;
+  no `MotionVectorPrepass`, `TemporalJitter` or `MipBias` (so no jittered pipeline variant
+  either), and no HDR view of its own: FSR and DLSS require `Hdr`, Bilinear does not. Multisampling and TAA are off while it is on, as for FSR (the view
   must be single-sampled, and TAA needs the jitter and motion it does without), but FXAA and
   SMAA stay as the anti-aliasing row chooses: Bilinear smooths nothing, and they run after
   tonemapping on the stretched picture at the window's size [design: the main session's review
@@ -614,6 +614,19 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
   (FSR's needs FSR, DLSS's says `Not with Bilinear`). A live switch from FSR takes FSR's own
   state away (`fsr::keeps_fsr_state`); one from DLSS frees DLSS's resources
   (`dlss::release_now`).
+- **The picture's format** (`prep::format_suitable`, `graphics::apply`). The view is HDR
+  (Rgba16Float) only while something else asks for it, the light glow (with its eye adaptation
+  and bright pass); with the glow off, as in the Low preset, it stays 8-bit, as the native view
+  does then: the material shaders tonemap, Bevy's separate tonemapping pass is left out, and the
+  main passes, the stretch and every pass after it move half the bytes. The stretch and the
+  alpha copy are pipelines per picture format (`prep::Pipelines::ensure_format`, made the first
+  time a view of a format is prepared), so are the ambient occlusion's multiply before the
+  upscaler (`ssao.rs`; on the 8-bit picture it darkens the tonemapped colour, as the occlusion
+  after tonemapping does natively). The Pip-Boy screen's mark (alpha 0.25) survives 8-bit
+  alpha; a 10-bit picture (2-bit alpha) is not taken and draws natively with the usual warning.
+  Why: on the N150 at 1920x1080, Bilinear Performance with the HDR view, the tonemapping pass
+  took 1.3 ms of the GPU's frame and the final blit 0.73 ms, against no tonemapping pass and
+  0.43 ms natively without the glow [observed, 2026-11-14: the main session's profile build].
 - **The common preparation** (`prep::prepare`, Bilinear's `policy`: FSR's ratio, no jitter
   phases, no bias): the render-size override, the ambient occlusion at the render size before
   the upscaler, the depth expanded to the window's size afterwards. The render-size corrected
@@ -630,11 +643,13 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
   at the display size, a second only while the Pip-Boy's screen is on its model. The HUD and
   menus draw after it, at the window's size.
 - **Native AA** with Bilinear draws at full size and changes nothing but adds the copy.
-- **What it says**: `Bilinear stretch active: 640x360 -> 1280x720` once per prepared view (each
-  switch on, each new size); the performance overlay's Upscaling row
-  `Bilinear Performance  640x360 -> 1280x720`. Smoke: `bilinear-quality` (Goodsprings,
-  enhanced, from the command line), `bilinear-switch` (FSR 3.1, then Bilinear picked, its
-  mode changed, the window resized, FSR again and Off, on the settings page while playing).
+- **What it says**: `Bilinear stretch active: 640x360 -> 1280x720, HDR picture` (or `8-bit
+  picture`) once per prepared view (each switch on, each new size); the performance overlay's
+  Upscaling row `Bilinear Performance  640x360 -> 1280x720`. Smoke: `bilinear-quality`
+  (Goodsprings, enhanced, from the command line: the HDR picture), `bilinear-8-bit` (the glow
+  off, ambient occlusion and FXAA on: the 8-bit picture), `bilinear-switch` (FSR 3.1, then
+  Bilinear picked, its mode changed, the window resized, FSR again and Off, on the settings page
+  while playing).
 - **Not measured yet**: what it saves on the N150 [hypothesis: about what the issue's
   1280x720 and 960x540 runs save, less one display-size pass and the AO at its size].
 

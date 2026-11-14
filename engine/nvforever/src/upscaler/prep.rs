@@ -31,6 +31,7 @@ use std::{borrow::Cow, sync::atomic::AtomicBool};
 
 use bevy::camera::{CameraMainTextureUsages, MainPassResolutionOverride};
 use bevy::diagnostic::FrameCount;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::render::{
     camera::{MipBias, TemporalJitter},
@@ -256,9 +257,9 @@ pub(crate) fn extract(
     }
 }
 
-/// A view the upscaler cannot use (multisampled, not HDR, or offset) whose warning has been
-/// logged: [`prepare`] meets it every frame and says so once, until the view is usable again
-/// or the upscaler is switched off.
+/// A view the upscaler cannot use (multisampled, a picture format it does not take,
+/// [`format_suitable`], or offset) whose warning has been logged: [`prepare`] meets it every
+/// frame and says so once, until the view is usable again or the upscaler is switched off.
 #[derive(Component)]
 pub(crate) struct UnsuitableViewWarned;
 
@@ -357,6 +358,23 @@ pub(crate) fn transition(old: Option<(&UpscaleCamera, UVec2, UVec2)>, camera: &U
     }
 }
 
+/// Whether `upscaler` can draw a view whose picture (main texture) has `format`. FSR 3.1 and
+/// DLSS take the HDR picture only (Rgba16Float; `graphics::apply` makes their views HDR).
+/// Bilinear (#2414) only filters the picture, so it also takes the 8-bit one of a view nothing
+/// else made HDR (the light glow off, as in the Low preset): the tonemapping is then done in the
+/// material shaders, the separate tonemapping pass is left out and the stretch moves half the
+/// bytes [design: #2414, the N150 profile of 2026-11-14]. Each format gets its own colour
+/// pipelines ([`Pipelines::ensure_format`]). A 10-bit picture is not taken: its 2-bit alpha
+/// cannot hold the Pip-Boy screen's mark (`imagespace.wesl` `SCREEN_MARK`, 0.25).
+pub(crate) fn format_suitable(upscaler: Upscaler, format: wgpu::TextureFormat) -> bool {
+    use wgpu::TextureFormat::{Bgra8Unorm, Bgra8UnormSrgb, Rgba16Float, Rgba8Unorm, Rgba8UnormSrgb};
+    match format {
+        Rgba16Float => true,
+        Rgba8UnormSrgb | Rgba8Unorm | Bgra8UnormSrgb | Bgra8Unorm => upscaler == Upscaler::Bilinear,
+        _ => false,
+    }
+}
+
 /// What a view with an upscaler camera asking for `choice` was drawn with: upscaled from the
 /// policy's render size when the view is `suitable` and the backend gave one, else natively at
 /// the output size ([`prepare`]'s two native branches).
@@ -387,12 +405,14 @@ pub(crate) fn prepare(
     let mut first: Option<DrawnUpscale> = None;
     for (entity, view, camera, msaa, mut usages, mut jitter, mut bias, old, ao, warned) in &mut views {
         let choice = camera.settings.choice();
-        if *msaa != Msaa::Off || view.target_format != wgpu::TextureFormat::Rgba16Float || view.viewport.xy() != UVec2::ZERO {
+        let upscaler = camera.settings.upscaler();
+        if *msaa != Msaa::Off || !format_suitable(upscaler, view.target_format) || view.viewport.xy() != UVec2::ZERO {
             first.get_or_insert(drawn(choice, None, view.viewport.zw(), false));
             // Met every frame while it lasts: said once. The view renders natively, without
             // the upscaler's jitter and mip bias, as for an unsupported size below.
             if !warned {
-                warn!("{} requires a single-sampled HDR view with no viewport offset; rendering natively until it is one", camera.settings.upscaler().name());
+                let or_8_bit = if upscaler == Upscaler::Bilinear { " (or an 8-bit one)" } else { "" };
+                warn!("{} requires a single-sampled HDR view{or_8_bit} with no viewport offset; rendering natively until it is one", upscaler.name());
                 commands.entity(entity).insert(UnsuitableViewWarned);
             }
             set_jitter_and_bias(jitter.as_deref_mut(), bias.as_deref_mut(), Vec2::ZERO, 0.0);
@@ -415,7 +435,10 @@ pub(crate) fn prepare(
             continue;
         };
         let render_size = policy.render_size;
-        renderer.0.get_or_insert_with(|| Pipelines::new(device.wgpu_device()));
+        // The colour passes for the view's picture format: Rgba16Float always, a Bilinear view's
+        // 8-bit format the first time one is drawn (#2414). The view targets are made from the
+        // same `target_format` later in this schedule, so the pass finds them.
+        renderer.0.get_or_insert_with(|| Pipelines::new(device.wgpu_device())).ensure_format(device.wgpu_device(), view.target_format);
         // DLSS's own usages on the cameras it draws (FSR adds its own in `fsr::prepare`).
         if matches!(camera.settings, UpscaleSettings::Dlss(_)) {
             usages.0 |= crate::dlss::main_texture_usages();
@@ -490,10 +513,27 @@ pub(crate) struct Pipelines {
     prepare_depth: wgpu::RenderPipeline,
     expand_depth: wgpu::RenderPipeline,
     depth_as_color: wgpu::RenderPipeline,
-    fallback: wgpu::RenderPipeline,
-    alpha: wgpu::RenderPipeline,
+    /// The stretch (the spatial fallback) and the alpha copy for each picture format drawn:
+    /// Rgba16Float from the start, a Bilinear view's 8-bit format once one is drawn
+    /// ([`format_suitable`], [`Self::ensure_format`]). A render pipeline draws into one format.
+    colour: HashMap<wgpu::TextureFormat, ColourPipelines>,
     /// Linear filtering.
     pub(crate) sampler: wgpu::Sampler,
+}
+
+/// The two colour passes of one picture format (`fsr_fallback.wgsl` `fragment` and `alpha`).
+struct ColourPipelines {
+    stretch: wgpu::RenderPipeline,
+    alpha: wgpu::RenderPipeline,
+}
+
+impl ColourPipelines {
+    fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, format: wgpu::TextureFormat) -> Self {
+        Self {
+            stretch: fullscreen_pipeline(device, "fsr_spatial_fallback", include_str!("../fsr_fallback.wgsl"), layout, "fragment", &[(format, wgpu::ColorWrites::ALL)]),
+            alpha: fullscreen_pipeline(device, "fsr_restore_alpha", include_str!("../fsr_fallback.wgsl"), layout, "alpha", &[(format, wgpu::ColorWrites::ALPHA)]),
+        }
+    }
 }
 
 impl Pipelines {
@@ -512,17 +552,31 @@ impl Pipelines {
             color_entry, uniform_entry,
             wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
         ] });
-        let rgba = [(wgpu::TextureFormat::Rgba16Float, wgpu::ColorWrites::ALL)];
-        let alpha = [(wgpu::TextureFormat::Rgba16Float, wgpu::ColorWrites::ALPHA)];
+        let hdr = wgpu::TextureFormat::Rgba16Float;
+        let mut colour = HashMap::default();
+        colour.insert(hdr, ColourPipelines::new(device, &fallback_layout, hdr));
         Self {
             prepare_depth: fullscreen_pipeline(device, "fsr_prepare_depth", include_str!("../fsr_depth.wgsl"), &depth_layout, "prepare_depth", &[]),
             expand_depth: fullscreen_pipeline(device, "fsr_expand_depth", include_str!("../fsr_depth.wgsl"), &depth_layout, "expand_depth", &[]),
             depth_as_color: fullscreen_pipeline(device, "fsr_depth_as_color", include_str!("../fsr_depth.wgsl"), &depth_layout, "depth_as_color", &[(wgpu::TextureFormat::R32Float, wgpu::ColorWrites::ALL)]),
-            fallback: fullscreen_pipeline(device, "fsr_spatial_fallback", include_str!("../fsr_fallback.wgsl"), &fallback_layout, "fragment", &rgba),
-            alpha: fullscreen_pipeline(device, "fsr_restore_alpha", include_str!("../fsr_fallback.wgsl"), &fallback_layout, "alpha", &alpha),
+            colour,
             sampler: device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..default() }),
             depth_layout, fallback_layout,
         }
+    }
+
+    /// The colour passes for pictures of `format`, made the first time a view of it is
+    /// prepared ([`prepare`]; only formats [`format_suitable`] takes get there).
+    pub(crate) fn ensure_format(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+        if !self.colour.contains_key(&format) {
+            let pipelines = ColourPipelines::new(device, &self.fallback_layout, format);
+            self.colour.insert(format, pipelines);
+        }
+    }
+
+    /// The colour passes for the view's picture now (its main texture's format).
+    fn colour(&self, target: &ViewTarget) -> Option<&ColourPipelines> {
+        self.colour.get(&target.main_texture_format())
     }
 
     fn depth_group(&self, device: &wgpu::Device, prepared: &PreparedUpscale, source: &wgpu::TextureView) -> wgpu::BindGroup {
@@ -588,33 +642,41 @@ impl Pipelines {
     /// The render rectangle scaled up to the display size without history, when the upscaler
     /// cannot reconstruct (`fsr_fallback.wgsl` `fragment`).
     pub(crate) fn fallback(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, prepared: &PreparedUpscale, target: &ViewTarget) {
+        // FSR's and DLSS's views are HDR (`format_suitable`), whose passes are always made.
+        let Some(colour) = self.colour(target) else { return };
         let post = target.post_process_write();
-        self.stretch_into(device, encoder, prepared, "fsr_spatial_fallback", post.source, post.destination);
+        let group = self.fallback_group(device, "fsr_fallback_group", prepared, post.source);
+        Self::stretch_into(encoder, &group, &colour.stretch, "fsr_spatial_fallback", post.destination);
     }
 
     /// Bilinear's whole upscale (#2414): the render rectangle stretched to the display size by
     /// the fallback's bilinear filter into the view's other main texture, the scene's alpha
     /// restored over it where a shape marks it (the Pip-Boy's screen on its model, as for FSR
     /// and DLSS: the filter would blend the mark's edge), then the flip that makes it the main
-    /// texture for the passes after.
-    pub(crate) fn stretch(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, prepared: &PreparedUpscale, target: &ViewTarget) {
-        self.stretch_into(device, encoder, prepared, "nvf_bilinear", target.main_texture_view(), target.main_texture_other_view());
+    /// texture for the passes after. In the picture's own format, HDR or 8-bit
+    /// ([`format_suitable`]); `false`, nothing drawn and no flip, when the passes for it are not
+    /// made (not met: [`prepare`] makes them for the format the view targets are made with).
+    pub(crate) fn stretch(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, prepared: &PreparedUpscale, target: &ViewTarget) -> bool {
+        let Some(colour) = self.colour(target) else { return false };
+        let group = self.fallback_group(device, "fsr_fallback_group", prepared, target.main_texture_view());
+        Self::stretch_into(encoder, &group, &colour.stretch, "nvf_bilinear", target.main_texture_other_view());
         if prepared.camera.screen_mark {
             self.restore_alpha(device, encoder, prepared, target);
         }
         target.post_process_write();
+        true
     }
 
-    /// `source`'s render rectangle drawn over the whole of `destination` by the fallback's
-    /// bilinear filter (`fsr_fallback.wgsl` `fragment`).
-    fn stretch_into(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, prepared: &PreparedUpscale, label: &str, source: &wgpu::TextureView, destination: &wgpu::TextureView) {
-        let group = self.fallback_group(device, "fsr_fallback_group", prepared, source);
+    /// The render rectangle of `group`'s source drawn over the whole of `destination` by the
+    /// fallback's bilinear filter (`fsr_fallback.wgsl` `fragment`, `pipeline` made for
+    /// `destination`'s format).
+    fn stretch_into(encoder: &mut wgpu::CommandEncoder, group: &wgpu::BindGroup, pipeline: &wgpu::RenderPipeline, label: &str, destination: &wgpu::TextureView) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(label), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: destination, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
             depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
         });
-        pass.set_pipeline(&self.fallback);
-        pass.set_bind_group(0, &group, &[]);
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, group, &[]);
         pass.draw(0..3, 0..1);
     }
 
@@ -622,12 +684,13 @@ impl Pipelines {
     /// render-resolution texel (the main texture, before the flip), so the marks drawn into
     /// it (the Pip-Boy screen's, `imagespace.wesl` `SCREEN_MARK`) reach the post passes.
     pub(crate) fn restore_alpha(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, prepared: &PreparedUpscale, target: &ViewTarget) {
+        let Some(colour) = self.colour(target) else { return };
         let group = self.fallback_group(device, "fsr_restore_alpha_group", prepared, target.main_texture_view());
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("fsr_restore_alpha"), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: target.main_texture_other_view(), depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
             depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
         });
-        pass.set_pipeline(&self.alpha);
+        pass.set_pipeline(&colour.alpha);
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..3, 0..1);
     }
@@ -798,6 +861,23 @@ mod tests {
         assert_eq!((jitter.offset, bias.0), (Vec2::new(0.25, -0.5), -1.5));
         set_jitter_and_bias(None, None, Vec2::ONE, 2.0);
         assert_eq!((jitter.offset, bias.0), (Vec2::new(0.25, -0.5), -1.5), "untouched: they were not given");
+    }
+
+    /// FSR 3.1 and DLSS take the HDR picture only; Bilinear also the 8-bit picture of a view
+    /// nothing else made HDR (#2414), but no picture whose alpha cannot hold the screen's mark.
+    #[test]
+    fn bilinear_takes_an_8_bit_picture_and_the_temporal_upscalers_only_hdr() {
+        use wgpu::TextureFormat::*;
+        for upscaler in [Upscaler::Fsr, Upscaler::Dlss, Upscaler::Bilinear] {
+            assert!(format_suitable(upscaler, Rgba16Float), "{upscaler:?}: HDR");
+            assert!(!format_suitable(upscaler, Rgb10a2Unorm), "{upscaler:?}: a 2-bit alpha loses the mark");
+            assert!(!format_suitable(upscaler, Rgba32Float), "{upscaler:?}: not filterable");
+            for eight_bit in [Rgba8UnormSrgb, Rgba8Unorm, Bgra8UnormSrgb, Bgra8Unorm] {
+                assert_eq!(format_suitable(upscaler, eight_bit), upscaler == Upscaler::Bilinear, "{upscaler:?} {eight_bit:?}");
+            }
+        }
+        // The Pip-Boy screen's mark (0.25, matched within 0.02) survives an 8-bit alpha.
+        assert!(((0.25f32 * 255.0).round() / 255.0 - 0.25).abs() < 0.02);
     }
 
     /// Bilinear's policy through the backend switch, in literal sizes at 1280x720: FSR's shares,

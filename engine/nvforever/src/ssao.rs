@@ -147,9 +147,10 @@ pub(crate) struct AoPipelines {
     occlusion: HashMap<bool, CachedRenderPipelineId>,
     apply: HashMap<(TextureFormat, bool), CachedRenderPipelineId>,
     multiply_base: RenderPipelineDescriptor,
-    /// Before FSR: the factor multiplied into FSR's HDR input and its opaque copy (queued
-    /// the first time a view needs it).
-    multiply: Option<CachedRenderPipelineId>,
+    /// Before the upscaler: the factor multiplied into its input (and FSR's opaque copy), by
+    /// the picture's format (queued the first time a view of it needs it): HDR for FSR and
+    /// DLSS, HDR or 8-bit for Bilinear (#2414, `upscaler::prep::format_suitable`).
+    multiply: HashMap<TextureFormat, CachedRenderPipelineId>,
 }
 
 /// A view's pipelines, whether its depth is multisampled, and its occlusion texture.
@@ -165,7 +166,9 @@ pub(crate) struct AoView {
     before_fsr: bool,
 }
 
-/// FSR's input and its opaque copy: the HDR format FSR requires (fsr.rs `prepare`).
+/// FSR's input and its opaque copy: the HDR format FSR requires (fsr.rs `prepare`). The
+/// multiply pass's base is built for it; a Bilinear view's 8-bit picture gets its own
+/// (`prepare`).
 const BEFORE_FSR_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 /// How open a texel is, and its distance (the apply pass weighs texels by it).
@@ -228,7 +231,7 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         occlusion: HashMap::default(),
         apply: HashMap::default(),
         multiply_base,
-        multiply: None,
+        multiply: HashMap::default(),
     });
 }
 
@@ -242,11 +245,16 @@ fn prepare(
 ) {
     for (entity, view, msaa, settings) in &views {
         let before_fsr = settings.runs_before_fsr();
-        if before_fsr && pipelines.multiply.is_none() {
-            pipelines.multiply = Some(cache.queue_render_pipeline(pipelines.multiply_base.clone()));
-        }
         let multi = msaa.samples() > 1;
         let format = view.target_format;
+        if before_fsr && !pipelines.multiply.contains_key(&format) {
+            let mut d = pipelines.multiply_base.clone();
+            if let Some(target) = d.fragment.as_mut().and_then(|f| f.targets.first_mut()).and_then(Option::as_mut) {
+                target.format = format;
+            }
+            let id = cache.queue_render_pipeline(d);
+            pipelines.multiply.insert(format, id);
+        }
         let occlusion = match pipelines.occlusion.get(&multi) {
             Some(id) => *id,
             None => {
@@ -344,7 +352,8 @@ fn occlusion_pass(
 
 /// While an upscaler upscales: the occlusion worked out at its render size from the depth as
 /// drawn (before the common passes expand it) and multiplied into the render-size rectangle
-/// of the HDR picture the upscaler reads, and, under FSR, of FSR's opaque copy, so its masks
+/// of the picture the upscaler reads (HDR; for Bilinear 8-bit too, #2414, already tonemapped
+/// then, as natively without the glow), and, under FSR, of FSR's opaque copy, so its masks
 /// compare the two as before. A temporal upscaler (FSR, DLSS) then accumulates it with
 /// everything else: the occlusion is jittered with the scene and smoothed by it; Bilinear
 /// (#2414) stretches it with the picture, unjittered. Either way at about half the cost of the
@@ -363,11 +372,11 @@ pub(crate) fn ao_before_fsr(
     mut ctx: RenderContext,
 ) {
     let (target, index, ao, prepass, prepared, fsr) = view.into_inner();
-    if !ao.before_fsr || depth_multisampled(prepass) != Some(false) || !format_matches(target, BEFORE_FSR_FORMAT) {
+    if !ao.before_fsr || depth_multisampled(prepass) != Some(false) || !format_matches(target, ao.format) {
         return;
     }
     let Some(depth) = prepass.depth_only_view() else { return };
-    let Some(multiply) = pipelines.multiply.and_then(|id| cache.get_render_pipeline(id)) else { return };
+    let Some(multiply) = pipelines.multiply.get(&ao.format).and_then(|id| cache.get_render_pipeline(*id)) else { return };
     let Some(occlusion) = cache.get_render_pipeline(ao.occlusion) else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
     let diagnostics = ctx.diagnostic_recorder();
@@ -377,8 +386,9 @@ pub(crate) fn ao_before_fsr(
     occlusion_pass(&mut ctx, &device, &layout, occlusion, depth, binding.clone(), index.index(), ao);
     let layout = cache.get_bind_group_layout(&pipelines.multiply_layout);
     let bind_group = device.create_bind_group("ssao_multiply_bind_group", &layout, &BindGroupEntries::with_indices(((0, depth), (1, binding), (4, &ao.texture.default_view))));
-    // FSR's opaque copy, only where FSR draws: DLSS has none.
-    let opaque = fsr.map(|fsr| fsr.opaque().create_view(&default()));
+    // FSR's opaque copy, only where FSR draws: DLSS and Bilinear have none. It has FSR's HDR
+    // format, as FSR's picture does (the one pipeline draws both).
+    let opaque = fsr.filter(|_| ao.format == BEFORE_FSR_FORMAT).map(|fsr| fsr.opaque().create_view(&default()));
     let picture: &wgpu::TextureView = target.main_texture_view();
     let size = prepared.render_size.as_vec2();
     // Loaded, not cleared (wgpu's default operations clear): the blend multiplies what is there.
