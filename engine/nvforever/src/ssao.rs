@@ -15,7 +15,9 @@
 //! (FSR, DLSS or Bilinear) upscales it runs at the render size on the HDR picture before the
 //! upscaler instead ([`ao_before_fsr`]; the names say FSR, the first to use it).
 //!
-//! On the main camera only, while it carries [`AmbientOcclusion`].
+//! On the main camera only, while it carries [`AmbientOcclusion`]. Switched off, the
+//! camera's prepared state goes with it ([`forget_without_ao`]), and the passes run only on a
+//! view that still carries the component.
 
 use crate::fly::FlyCam;
 use bevy::core_pipeline::prepass::ViewPrepassTextures;
@@ -95,6 +97,46 @@ impl AmbientOcclusion {
     }
 }
 
+/// The view's prepared occlusion state `T` ([`AoView`], or the uniform's index) dropped from a
+/// view that no longer carries [`AmbientOcclusion`] (switched off, `graphics.rs` `apply`). The
+/// render world keeps its views from frame to frame: when the camera's component is removed,
+/// the extraction removes only the component itself from the view (`ExtractComponentPlugin`
+/// registers a `SyncComponentPlugin` whose target is the component alone), and `prepare` and
+/// Bevy's `prepare_uniform_components` only ever insert. Without this, the [`AoView`] (and its
+/// occlusion texture, held from the texture cache) and the uniform's index would stay, a pass
+/// keyed on them could run on a view whose depth no upscaler expands for it, and Bilinear would
+/// keep expanding the depth for an occlusion no longer drawn (`upscaler::bilinear::DepthReaders`).
+/// The passes also ask for the live component ([`ao_pass`], [`ao_before_fsr`]). Said once each
+/// time it lets something go: `ambient occlusion: off on a view, ... let go`.
+fn forget_without_ao<T: AoState>(mut commands: Commands, stale: Query<Entity, (With<T>, Without<AmbientOcclusion>)>) {
+    for entity in &stale {
+        commands.entity(entity).remove::<T>();
+        info!("ambient occlusion: off on a view, {} let go", T::WHAT);
+    }
+}
+
+/// A view's prepared occlusion state that [`forget_without_ao`] lets go, and how its line
+/// names it.
+trait AoState: Component {
+    const WHAT: &'static str;
+}
+
+impl AoState for AoView {
+    const WHAT: &'static str = "its passes and occlusion texture";
+}
+
+impl AoState for DynamicUniformIndex<AmbientOcclusion> {
+    const WHAT: &'static str = "its uniform index";
+}
+
+/// Whether the view's occlusion is applied after the upscaler this frame and so reads the depth
+/// prepass at the display size (Bilinear's [`crate::upscaler::bilinear::DepthReaders`]): only
+/// while the view carries [`AmbientOcclusion`] (`live`), whatever prepared state it still has
+/// (`prepared_after`: [`AoView::after_upscaler`] of its [`AoView`], if any).
+pub(crate) fn reads_depth_after_upscaler(prepared_after: Option<bool>, live: bool) -> bool {
+    live && prepared_after == Some(true)
+}
+
 /// Whether the occlusion is applied before FSR while FSR upscales ([`ao_before_fsr`]);
 /// `NVF_AO_BEFORE_FSR=0` applies it after tonemapping, at the display size, as without FSR
 /// (the way of builds before 2026-11-08), for comparisons.
@@ -112,6 +154,10 @@ impl Plugin for SsaoPlugin {
         render_app
             .add_systems(RenderStartup, init_pipelines)
             .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources))
+            .add_systems(
+                Render,
+                (forget_without_ao::<AoView>, forget_without_ao::<DynamicUniformIndex<AmbientOcclusion>>).in_set(RenderSystems::PrepareResources),
+            )
             .add_systems(Core3d, ao_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).before(bevy::anti_alias::fxaa::fxaa).before(bevy::anti_alias::smaa::smaa).before(crate::imagespace::blur_pass))
             .add_systems(Core3d, ao_before_fsr.in_set(Core3dSystems::EarlyPostProcess).before(crate::fsr::fsr_pass).before(crate::dlss::dlss_pass));
     }
@@ -373,7 +419,10 @@ fn occlusion_pass(
 /// itself after it, `upscaler/prep.rs` `PrepPlugin`).
 #[allow(clippy::type_complexity)]
 pub(crate) fn ao_before_fsr(
-    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, &crate::upscaler::prep::PreparedUpscale, Option<&crate::fsr::PreparedFsr>)>,
+    view: ViewQuery<
+        (&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, &crate::upscaler::prep::PreparedUpscale, Option<&crate::fsr::PreparedFsr>),
+        With<AmbientOcclusion>,
+    >,
     pipelines: Res<AoPipelines>,
     cache: Res<PipelineCache>,
     uniforms: Res<ComponentUniforms<AmbientOcclusion>>,
@@ -420,10 +469,11 @@ pub(crate) fn ao_before_fsr(
     span.end(ctx.command_encoder());
 }
 
-/// The occlusion into the view's texture, then the picture multiplied by it.
+/// The occlusion into the view's texture, then the picture multiplied by it. Only on a view
+/// that carries [`AmbientOcclusion`] this frame ([`forget_without_ao`]).
 #[allow(clippy::type_complexity)]
 pub(crate) fn ao_pass(
-    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, Has<crate::upscaler::prep::PreparedUpscale>)>,
+    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, Has<crate::upscaler::prep::PreparedUpscale>), With<AmbientOcclusion>>,
     pipelines: Res<AoPipelines>,
     cache: Res<PipelineCache>,
     uniforms: Res<ComponentUniforms<AmbientOcclusion>>,
@@ -467,4 +517,47 @@ pub(crate) fn ao_pass(
     pass.draw(0..3, 0..1);
     drop(pass);
     span.end(ctx.command_encoder());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// Stands in for the prepared state (an [`AoView`] needs a GPU texture).
+    #[derive(Component)]
+    struct Prepared;
+
+    impl AoState for Prepared {
+        const WHAT: &'static str = "a test's state";
+    }
+
+    /// The prepared state goes when the view's [`AmbientOcclusion`] does, and stays while it is
+    /// there; a view that never had any is left alone.
+    #[test]
+    fn the_prepared_state_goes_with_the_component() {
+        let mut world = World::new();
+        let live = world.spawn((AmbientOcclusion::default(), Prepared)).id();
+        let off = world.spawn(Prepared).id();
+        let never = world.spawn_empty().id();
+        world.run_system_once(forget_without_ao::<Prepared>).unwrap();
+        assert!(world.get::<Prepared>(live).is_some(), "the occlusion is still on");
+        assert!(world.get::<Prepared>(off).is_none(), "switched off: its state dropped");
+        assert!(world.get_entity(never).is_ok());
+        // Switched off later: dropped the next frame it is prepared.
+        world.entity_mut(live).remove::<AmbientOcclusion>();
+        world.run_system_once(forget_without_ao::<Prepared>).unwrap();
+        assert!(world.get::<Prepared>(live).is_none());
+    }
+
+    /// Bilinear expands the depth for the occlusion only while the view carries the component
+    /// and its occlusion is applied after the upscaler; stale state alone never asks for it.
+    #[test]
+    fn only_a_live_occlusion_after_the_upscaler_reads_the_depth() {
+        assert!(reads_depth_after_upscaler(Some(true), true));
+        assert!(!reads_depth_after_upscaler(Some(false), true), "applied before the upscaler");
+        assert!(!reads_depth_after_upscaler(Some(true), false), "stale state of an occlusion switched off");
+        assert!(!reads_depth_after_upscaler(None, true), "not prepared yet");
+        assert!(!reads_depth_after_upscaler(None, false));
+    }
 }

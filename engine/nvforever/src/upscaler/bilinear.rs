@@ -50,7 +50,8 @@ pub(crate) fn policy(quality: UpscaleQuality, output: UVec2) -> Policy {
 /// - the sun shafts (`shafts::shafts_pass`), while the sun is on the screen;
 /// - the eye adaptation's metering mask (`eye_adapt::mask_pass`), on with the light glow;
 /// - the occlusion applied after tonemapping (`ssao::ao_pass`, `NVF_AO_BEFORE_FSR=0` only;
-///   before the upscaler it reads the depth as drawn, `ssao::ao_before_fsr`).
+///   before the upscaler it reads the depth as drawn, `ssao::ao_before_fsr`), while the view
+///   carries the occlusion (`ssao::reads_depth_after_upscaler`).
 ///
 /// Nothing else after the stretch reads it [design: a search of the engine's passes for the
 /// prepass depth, 2026-11-14: FXAA, SMAA, bloom, the bright pass, the grade itself, the
@@ -84,13 +85,19 @@ pub(crate) fn bilinear_pass(
         &ViewTarget,
         &PreparedUpscale,
         Option<&ViewPrepassTextures>,
-        (Option<&crate::imagespace::ImageSpaceGrade>, Option<&crate::shafts::LightShafts>, Has<AutoExposure>, Option<&crate::ssao::AoView>),
+        (
+            Option<&crate::imagespace::ImageSpaceGrade>,
+            Option<&crate::shafts::LightShafts>,
+            Has<AutoExposure>,
+            Option<&crate::ssao::AoView>,
+            Has<crate::ssao::AmbientOcclusion>,
+        ),
     )>,
     upscale: Res<UpscaleRenderer>,
     device: Res<RenderDevice>,
     mut ctx: RenderContext,
 ) {
-    let (target, prepared, prepass, (grade, shafts, eye_mask, ao)) = view.into_inner();
+    let (target, prepared, prepass, (grade, shafts, eye_mask, ao, ao_live)) = view.into_inner();
     let UpscaleSettings::Bilinear(_) = prepared.camera.settings else { return };
     let Some(common) = &upscale.0 else { return };
     let device = device.wgpu_device();
@@ -112,7 +119,7 @@ pub(crate) fn bilinear_pass(
         blur: grade.is_some_and(|g| g.blurs()),
         shafts: shafts.is_some_and(|s| s.draws()),
         eye_mask,
-        ao_after: ao.is_some_and(|ao| ao.after_upscaler()),
+        ao_after: crate::ssao::reads_depth_after_upscaler(ao.map(|ao| ao.after_upscaler()), ao_live),
     };
     if let Some(depth) = prepass.and_then(|prepass| prepass.depth.as_ref()).filter(|_| readers.any()) {
         common.expand_depth(device, encoder, prepared, &depth.texture.texture);
