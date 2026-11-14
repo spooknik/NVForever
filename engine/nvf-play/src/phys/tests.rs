@@ -977,3 +977,63 @@ fn an_actor_standing_on_the_landscape_follows_the_smoothed_surface() {
     p.space = Space::Interior(7);
     assert_eq!(p.landscape_lift([x, y, stored]), None);
 }
+
+/// An actor asked about before the collision under it loads is looked at again once it
+/// has: the lift is not kept at none (#2149, review round 2).
+#[test]
+fn a_standing_actor_is_looked_at_again_when_its_collision_loads() {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(smooth_cell), loader: loader::Loader::manual(), ..Default::default() };
+    p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    assert!(!p.cells.contains_key(&PhysCell::Exterior(1, 0)), "only the cell underfoot is in");
+    // The made-up cells all have the same landscape: (0, 0)'s spots are (1, 0)'s too.
+    let s = p.cells[&PhysCell::Exterior(0, 0)].surface.clone().expect("terrain");
+    let (x, y) = lifted_spots(&s)[0];
+    let (stored, smooth) = (s.stored_height_at(x, y).unwrap(), s.height_at(x, y).unwrap());
+    let feet = [CELL_SIZE + x, y, stored];
+    assert_eq!(p.standing_drawn_feet(5, feet, true), feet, "no collision there yet: where its feet are");
+    p.loader.run_manual(false);
+    for _ in 0..8 {
+        p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    }
+    assert!(p.cells.contains_key(&PhysCell::Exterior(1, 0)));
+    let drawn = p.standing_drawn_feet(5, feet, true);
+    assert!((drawn[2] - smooth).abs() < 1e-3, "the same feet, now on the smoothed ground: {drawn:?}, ground {smooth}");
+    // And back when the collision goes again.
+    p.unload(PhysCell::Exterior(1, 0));
+    assert_eq!(p.standing_drawn_feet(5, feet, true), feet);
+}
+
+/// A character that walks and stops on a sloping, smoothed landscape and is then taken
+/// away is drawn where it was drawn: its feet came from physics and are not lifted onto
+/// the landscape a second time (#2149, review round 2).
+#[test]
+fn feet_a_character_left_are_drawn_as_the_character_was() {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(smooth_cell), loader: loader::Loader::manual(), ..Default::default() };
+    p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    let s = p.cells[&PhysCell::Exterior(0, 0)].surface.clone().expect("terrain");
+    let spots = lifted_spots(&s);
+    let (x, y) = spots[spots.len() - 1];
+    assert!(p.add_npc(7, [x, y, s.height_at(x, y).unwrap() + 20.0]));
+    for i in 0..90 {
+        let go = if i < 45 { [120.0, 60.0] } else { [0.0, 0.0] };
+        let b = p.npcs.get_mut(&7).unwrap();
+        p.world.move_character(&mut b.ch, CharacterInput { velocity: go, ..Default::default() });
+        p.world.step();
+    }
+    p.update_drawn_sinks();
+    let b = &p.npcs[&7];
+    let (feet, sink) = (b.ch.feet, b.sink);
+    assert!(b.ch.grounded, "it came to rest on the landscape: {feet:?}");
+    assert!((feet[0] - x).hypot(feet[1] - y) > 1.0, "it walked: {feet:?} from ({x}, {y})");
+    p.remove_npc(7);
+    let drawn = p.standing_drawn_feet(7, feet, true);
+    assert_eq!(drawn, [feet[0], feet[1], feet[2] - sink], "drawn where its character was drawn");
+    // Feet moved since (a walk on the navmesh): no longer the character's.
+    let moved = [feet[0] + 50.0, feet[1], feet[2]];
+    let _ = p.standing_drawn_feet(7, moved, true);
+    assert!(!p.left.contains_key(&7));
+}

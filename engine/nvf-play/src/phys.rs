@@ -136,6 +136,11 @@ pub struct PhysState {
     /// landscape, and how far below them the body is drawn
     /// ([`PhysState::standing_drawn_feet`]).
     standing: HashMap<u32, ([f32; 3], bool, f32)>,
+    /// Where each actor's character stood, and how far below it its body was drawn, when
+    /// the character was taken away ([`PhysState::remove_npc`]): feet still there came
+    /// from physics and are drawn as the character was, never lifted onto the landscape
+    /// again ([`PhysState::standing_drawn_feet`], #2149).
+    left: HashMap<u32, ([f32; 3], f32)>,
     pub stats: PhysStats,
     /// Feet before the last fixed step (the camera interpolates from it).
     pub(crate) prev_feet: [f32; 3],
@@ -212,6 +217,7 @@ impl Default for PhysState {
             player_lift: step_lift::StepLift::default(),
             actor_heights: HashMap::new(),
             standing: HashMap::new(),
+            left: HashMap::new(),
             stats: PhysStats::default(),
             prev_feet: [0.0; 3],
             persistent_by_grid: HashMap::new(),
@@ -948,6 +954,7 @@ impl PhysState {
         let t0 = Instant::now();
         let Prepared { cell, surface, terrain, refs, times } = p;
         let d = ctx.d;
+        self.forget_standing_near(cell);
         // An exterior cell's water (`Cell::water_surface`, the rule the renderer draws it
         // with); not an interior's XCLW, where the game swam at a placed water object's
         // height instead [observed: physics.md §6.6; placed water not modelled yet].
@@ -1113,6 +1120,7 @@ impl PhysState {
             debug!("physics cell {cell:?} no longer wanted before it was ready");
         }
         let Some(c) = self.cells.remove(&cell) else { return };
+        self.forget_standing_near(cell);
         self.world.set_water(water_area(cell), None);
         if let PhysCell::Exterior(x, y) = cell {
             self.world.remove_terrain((x, y));
@@ -1606,7 +1614,20 @@ impl PhysState {
 
     pub fn remove_npc(&mut self, id: u32) {
         if let Some(b) = self.npcs.remove(&id) {
+            self.left.insert(id, (b.ch.feet, b.sink));
             self.world.remove_character(b.ch);
+        }
+    }
+
+    /// Forget what [`PhysState::standing_drawn_feet`] found for actors standing in or next
+    /// to `cell`, whose collision came or went (the support under them may have changed).
+    fn forget_standing_near(&mut self, cell: PhysCell) {
+        match cell {
+            PhysCell::Exterior(x, y) => self.standing.retain(|_, (feet, _, _)| {
+                let (gx, gy) = cell_of(feet[0], feet[1]);
+                (gx - x).abs() > 1 || (gy - y).abs() > 1
+            }),
+            PhysCell::Interior(_) => self.standing.clear(),
         }
     }
 
@@ -1614,26 +1635,46 @@ impl PhysState {
     /// character rests (the contact shell above the collision under them, within
     /// [`REST_TOLERANCE`]: where a walk by physics, the arrival rule or a placement on
     /// the ground left them) are drawn as a character's would be, on the drawn ground
-    /// ([`PhysState::ground_drawn`]). Others (a placed height, the navmesh's height) are
-    /// drawn at `feet`, except that with `on_landscape` (not for an actor at furniture)
-    /// feet standing on the bare landscape follow the smoothed surface: drawn as far
-    /// above it as they were above the stored triangles ([`PhysState::landscape_lift`],
-    /// #2149). Looked up again only when the feet or `on_landscape` change.
+    /// ([`PhysState::ground_drawn`]). Feet where its character was taken away from it
+    /// ([`PhysState::remove_npc`]) are drawn as the character was. Others (a placed
+    /// height, the navmesh's height) are drawn at `feet`, except that with `on_landscape`
+    /// (not for an actor under the furniture's control) feet standing on the bare
+    /// landscape follow the smoothed surface: drawn as far above it as they were above the
+    /// stored triangles ([`PhysState::landscape_lift`], #2149). Looked up again when the
+    /// feet or `on_landscape` change and when collision comes or goes next to them.
     pub fn standing_drawn_feet(&mut self, id: u32, feet: [f32; 3], on_landscape: bool) -> [f32; 3] {
         let sink = match self.standing.get(&id) {
             Some((at, on, sink)) if *at == feet && *on == on_landscape => *sink,
             _ => {
                 let down = 1.0 + fnv_phys::TERRAIN_SHELL + REST_TOLERANCE;
-                let sink = match self.ground_under([feet[0], feet[1], feet[2] + 1.0], down, None) {
-                    Some(g) if (feet[2] - g.bare - g.shell).abs() <= REST_TOLERANCE => feet[2] - g.drawn,
-                    _ if on_landscape => self.landscape_lift(feet).map_or(0.0, |lift| -lift),
-                    _ => 0.0,
+                let physics = match self.left.get(&id) {
+                    Some((at, sink)) if *at == feet => Some(*sink),
+                    Some(_) => {
+                        self.left.remove(&id);
+                        None
+                    }
+                    None => None,
+                };
+                let sink = match physics {
+                    Some(sink) => sink,
+                    None => self.authored_sink(feet, down, on_landscape),
                 };
                 self.standing.insert(id, (feet, on_landscape, sink));
                 sink
             }
         };
         [feet[0], feet[1], feet[2] - sink]
+    }
+
+    /// [`PhysState::standing_drawn_feet`]'s sink for feet that did not come from a
+    /// character: on the drawn ground when they rest on the collision, else lifted with
+    /// the landscape when `on_landscape` and they stand on it, else none.
+    fn authored_sink(&mut self, feet: [f32; 3], down: f32, on_landscape: bool) -> f32 {
+        match self.ground_under([feet[0], feet[1], feet[2] + 1.0], down, None) {
+            Some(g) if (feet[2] - g.bare - g.shell).abs() <= REST_TOLERANCE => feet[2] - g.drawn,
+            _ if on_landscape => self.landscape_lift(feet).map_or(0.0, |lift| -lift),
+            _ => 0.0,
+        }
     }
 
     /// How far the smoothed landscape surface lies above the stored LAND triangles under
@@ -1665,6 +1706,7 @@ impl PhysState {
             self.remove_npc(id);
         }
         self.standing.clear();
+        self.left.clear();
         self.loader.clear();
         let all: Vec<PhysCell> = self.cells.keys().copied().collect();
         for c in all {

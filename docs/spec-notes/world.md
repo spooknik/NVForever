@@ -221,10 +221,12 @@ apart and the last row/column coincides with the neighbour's first.
   collision; the console's CenterOnCell reads the stored grid, which is the same there
   (the cell's centre is a LAND vertex). An actor standing without a physics character at
   an authored or navmesh height over the bare landscape (within 32 units of the stored
-  triangles, the landscape the first collision under it, not at furniture) is drawn as
-  far above the smoothed surface as it stood above the stored triangles
-  (`nvf_play::phys` `landscape_lift`); one whose feet rest on the collision is drawn on
-  it as before. Distant LOD is not touched: its chunks are sunk
+  triangles, the landscape the first collision under it, not walking up to, on or
+  getting off furniture) is drawn as far above the smoothed surface as it stood above
+  the stored triangles (`nvf_play::phys` `landscape_lift`); one whose feet rest on the
+  collision is drawn on it as before, and feet a physics character left are drawn as the
+  character was (never lifted twice). The answer is kept per actor and looked at again
+  when its feet change or collision loads or unloads next to it. Distant LOD is not touched: its chunks are sunk
   under the loaded cells with skirts (§7), and the loaded edge moves only between LAND
   vertices, by at most 8 units. On Goodsprings' cells (−17, 0) and (−18, 0), 1,084 and
   1,541 of the 3,136 new vertices move by more than half a unit, the 95th percentile by
