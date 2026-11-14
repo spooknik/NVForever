@@ -28,6 +28,7 @@ pub mod imagespace;
 pub mod imposter;
 pub mod index;
 pub mod land;
+pub mod land_surface;
 pub mod lighting;
 pub mod loadscreen;
 pub mod placed;

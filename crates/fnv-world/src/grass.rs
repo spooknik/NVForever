@@ -4,6 +4,7 @@
 
 use crate::fields::{formid_of, global, num, winner, Fields};
 use crate::land::{Land, QUAD_SIDE, SIDE, SPACING};
+use crate::land_surface::Surface;
 use crate::CELL_SIZE;
 use fnv_esm::{LoadOrder, Schema};
 use serde_json::Value;
@@ -242,20 +243,13 @@ impl Coverage {
     }
 }
 
-/// Height of the landscape at cell-local (x, y): each grid square is two triangles split
-/// along its south-west → north-east diagonal, as the renderer draws it (world.md §3).
+/// Height of the landscape at cell-local (x, y) on the LAND grid as stored: each grid
+/// square is two triangles split along its south-west → north-east diagonal, as the
+/// renderer draws it (world.md §3); the point is brought into the cell first. The one
+/// triangle rule of `crate::land_surface` ([`crate::land_surface::grid_height_at`]).
 pub fn height_at(heights: &[f32], x: f32, y: f32) -> f32 {
-    let max = (SIDE - 1) as f32;
-    let (u, v) = ((x / SPACING).clamp(0.0, max), (y / SPACING).clamp(0.0, max));
-    let (c, r) = ((u.floor() as usize).min(SIDE - 2), (v.floor() as usize).min(SIDE - 2));
-    let (fx, fy) = (u - c as f32, v - r as f32);
-    let h = |r: usize, c: usize| heights[r * SIDE + c];
-    let (sw, se, nw, ne) = (h(r, c), h(r, c + 1), h(r + 1, c), h(r + 1, c + 1));
-    if fx >= fy {
-        sw + fx * (se - sw) + fy * (ne - se)
-    } else {
-        sw + fx * (ne - nw) + fy * (nw - sw)
-    }
+    let (x, y) = (x.clamp(0.0, CELL_SIZE), y.clamp(0.0, CELL_SIZE));
+    crate::land_surface::grid_height_at(heights, SIDE, SPACING, x, y).unwrap_or(f32::NAN)
 }
 
 /// Unit normal of the landscape at cell-local (x, y): the stored normals blended between
@@ -329,6 +323,21 @@ pub fn place(
     settings: &GrassSettings,
 ) -> Vec<Plant> {
     let Some(heights) = land.heights.as_deref() else { return Vec::new() };
+    place_on(land, &Surface::stored(heights), grid, water, types, texture_types, settings)
+}
+
+/// [`place`] on the landscape surface the cell is drawn with (`surface`, smoothed or as
+/// stored, `crate::land_surface`): the plants stand on its heights, tilted by its normals
+/// when smoothed and by the LAND's own ([`normal_at`]) otherwise.
+pub fn place_on(
+    land: &Land,
+    surface: &Surface,
+    grid: (i32, i32),
+    water: Option<f32>,
+    types: &[Grass],
+    texture_types: &HashMap<u32, Vec<usize>>,
+    settings: &GrassSettings,
+) -> Vec<Plant> {
     let s = settings.min_size;
     if s.is_nan() || s <= 1.0 || settings.density_scale <= 0.0 {
         return Vec::new();
@@ -368,11 +377,11 @@ pub fn place(
                 if cover.at(texture, x, y) <= settings.texture_threshold {
                     continue;
                 }
-                let z = height_at(heights, x, y);
+                let z = surface.height_at_clamped(x, y);
                 if !g.water_rule.allows(z, g.water_distance as f32, water) {
                     continue;
                 }
-                let normal = normal_at(land, x, y);
+                let normal = surface.normal_at(x, y).unwrap_or_else(|| normal_at(land, x, y));
                 let slope = normal[2].clamp(-1.0, 1.0).acos().to_degrees();
                 if slope < g.min_slope as f32 || slope > g.max_slope as f32 {
                     continue;
@@ -463,6 +472,29 @@ mod tests {
         let fewer = place(&land, (-3, 2), None, &[grass(100)], &map, &settings);
         assert!(!fewer.is_empty() && fewer.len() < plants.len());
         assert!(fewer.iter().all(|p| p.position[0] < 7.5 * SPACING));
+    }
+
+    /// On a smoothed surface (#2149) the plants stand on its heights and lean with its
+    /// normals, not the stored triangles'.
+    #[test]
+    fn plants_stand_on_the_surface_they_are_drawn_on() {
+        let mut land = flat((0..4).map(|q| base(q, 0x10)).collect());
+        let heights: Vec<f32> = (0..SIDE * SIDE).map(|i| (((i % SIDE) as f32 * 0.5).sin() * 80.0 / 8.0).round() * 8.0 + (i / SIDE) as f32 * 8.0).collect();
+        land.heights = Some(heights.clone());
+        let mut block: crate::land_surface::Block = [[None; 3]; 3];
+        block[1][1] = Some(&heights);
+        let s = Surface::smoothed(&block).unwrap();
+        let map = HashMap::from([(0x10, vec![0])]);
+        let plants = place_on(&land, &s, (-3, 2), None, &[grass(100)], &map, &GrassSettings::default());
+        assert!(!plants.is_empty());
+        let mut off_stored = 0;
+        for p in &plants {
+            let [x, y, z] = p.position;
+            assert_eq!(z, s.height_at_clamped(x, y));
+            assert_eq!(p.normal, s.normal_at(x, y).unwrap());
+            off_stored += usize::from((z - height_at(&heights, x, y)).abs() > 0.1);
+        }
+        assert!(off_stored > 0, "some stand where smoothing moved the ground");
     }
 
     #[test]
