@@ -26639,7 +26639,7 @@ run_seconds = 20
 expect = [
   "terrain: smoothed, each grid square drawn and collided as 2 x 2, at most 8 units from the stored triangles",
   { re = 'terrain summary: (\d+) cells drawn smoothed', range = [9, 100000], label = "the loaded cells are drawn smoothed" },
-  { re = 'terrain summary: \d+ cells drawn smoothed, (\d+) on the stored triangles', max = 0, label = "none on the stored triangles" },
+  { re = 'terrain summary: \d+ cells drawn smoothed, (\d+) on the stored triangles', range = [0, 0], label = "none on the stored triangles" },
   { re = 'player placed: feet \(', label = "the player is placed on the ground" },
 ]
 forbid = [{ text = "player fell through", label = "the collision is where the ground is" }, { text = "panicked", label = "no panic" }, { text = "Caught rendering error", label = "no rendering (validation) error" }]
@@ -26654,7 +26654,7 @@ args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages", "--no-
 run_seconds = 20
 expect = [
   "terrain: the stored triangles, not smoothed",
-  { re = 'terrain summary: (\d+) cells drawn smoothed', max = 0, label = "no cell is smoothed" },
+  { re = 'terrain summary: (\d+) cells drawn smoothed', range = [0, 0], label = "no cell is smoothed" },
   { re = 'terrain summary: \d+ cells drawn smoothed, (\d+) on the stored triangles', range = [9, 100000], label = "the loaded cells are drawn on the stored triangles" },
   { re = 'player placed: feet \(', label = "the player is placed on the ground" },
 ]
