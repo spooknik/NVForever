@@ -105,11 +105,11 @@ pub fn probe(
     info!("actor feet: {n} actors within {:.0} units of the camera, {lifted} with a foot bone over {LIFTED} units above the root", p.range);
 }
 
-/// The full-detail landscape height at game (x, y), as the terrain mesh draws it.
+/// The full-detail landscape height at game (x, y), as the terrain mesh draws it (on the
+/// smoothed or stored surface, `WorldData::land_surface`).
 fn land_height(world: &WorldData, x: f32, y: f32) -> Option<f32> {
     let g = fnv_world::cell_of(x, y);
-    let land = world.grid_cell(g)?.land?;
-    let land = fnv_world::land::load_land(world.lo, world.schema, land, fnv_world::land::LandParts::HEIGHTS)?;
+    let surface = world.land_surface(g)?;
     let (ox, oy) = (g.0 as f32 * fnv_world::CELL_SIZE, g.1 as f32 * fnv_world::CELL_SIZE);
-    Some(fnv_world::grass::height_at(land.heights.as_ref()?, x - ox, y - oy))
+    Some(surface.height_at_clamped(x - ox, y - oy))
 }

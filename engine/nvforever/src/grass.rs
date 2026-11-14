@@ -18,8 +18,9 @@ use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, Shade
 use bevy::shader::ShaderRef;
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject};
 use fnv_nif::NifFile;
-use fnv_world::grass::{load_grass, place, texture_grasses, Grass, GrassSettings, Plant};
+use fnv_world::grass::{load_grass, place_on, texture_grasses, Grass, GrassSettings, Plant};
 use fnv_world::land::{load_land, Land, LandParts};
+use fnv_world::land_surface::Surface;
 use fnv_world::CELL_SIZE;
 use nvf_assets::model::ModelCtx;
 use std::collections::HashMap;
@@ -254,7 +255,9 @@ fn grow_owed(
     let Some((cell, &o)) = owed.iter().next() else { return };
     commands.entity(cell).remove::<GrassOwed>();
     let Some(land) = load_land(world.lo, world.schema, o.land, LandParts::ALL) else { return };
-    grass.spawn(&mut commands, cell, &world, o.land, &land, o.grid, o.water, &mut models);
+    // The surface the cell's ground is drawn on (smoothed or stored, #2149).
+    let Some(surface) = world.land_surface(o.grid) else { return };
+    grass.spawn(&mut commands, cell, &world, o.land, &land, &surface, o.grid, o.water, &mut models);
     if streamer.fade_secs > 0.0 {
         // The new meshes need a fade range like the cell's other meshes (fade.rs).
         streamer.fades.entry(o.grid).and_modify(CellFade::again).or_insert(CellFade::new(1.0, false));
@@ -331,21 +334,21 @@ impl GrassCtx<'_> {
     }
 
     /// Generate and draw the grass of one cell's landscape (`land`, the LAND record
-    /// `land_id`) under `cell` (an entity at the cell's south-west corner, game space).
-    /// With grass switched off the cell is owed it ([`GrassOwed`]).
+    /// `land_id`, drawn on `surface`) under `cell` (an entity at the cell's south-west
+    /// corner, game space). With grass switched off the cell is owed it ([`GrassOwed`]).
     #[allow(clippy::too_many_arguments)]
-    pub fn spawn(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land_id: u32, land: &Land, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
+    pub fn spawn(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land_id: u32, land: &Land, surface: &Surface, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
         if !self.config.enabled {
             commands.entity(cell).insert(GrassOwed { land: land_id, grid, water });
             return;
         }
         let t0 = std::time::Instant::now();
-        self.grow(commands, cell, world, land, grid, water, models);
+        self.grow(commands, cell, world, land, surface, grid, water, models);
         self.cache.build_ms += t0.elapsed().as_secs_f64() * 1000.0;
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn grow(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land: &Land, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
+    fn grow(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land: &Land, surface: &Surface, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
         let max_types = self.config.generate.max_types_per_texture;
         for t in land.layers.iter().filter_map(|l| l.texture) {
             if self.cache.texture_types.contains_key(&t) {
@@ -355,7 +358,7 @@ impl GrassCtx<'_> {
             let kinds: Vec<usize> = texture_grasses(world.lo, world.schema, t).into_iter().filter_map(|g| self.kind(world, g)).take(max_types).collect();
             self.cache.texture_types.insert(t, kinds);
         }
-        let plants = place(land, grid, water, &self.cache.types, &self.cache.texture_types, &self.config.generate);
+        let plants = place_on(land, surface, grid, water, &self.cache.types, &self.cache.texture_types, &self.config.generate);
         if plants.is_empty() {
             return;
         }

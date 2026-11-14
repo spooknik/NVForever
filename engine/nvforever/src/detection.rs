@@ -241,24 +241,24 @@ pub struct DetectionState {
     stats: Stats,
 }
 
-/// The heights of each exterior cell's LAND record, read when first needed (worldspace,
-/// grid square → heights; `None` for a square without land).
+/// The landscape surface of each exterior cell (smoothed or stored, as drawn), read when
+/// first needed (worldspace, grid square → surface; `None` for a square without land).
 #[derive(Default)]
 struct LandCache {
-    cells: HashMap<(u32, i32, i32), Option<Vec<f32>>>,
+    cells: HashMap<(u32, i32, i32), Option<fnv_world::land_surface::Surface>>,
 }
 
 impl LandCache {
     /// The land's height at game (x, y) in worldspace `ws`.
     fn height(&mut self, world: &WorldData, ws: u32, x: f32, y: f32) -> Option<f32> {
         let g = fnv_world::cell_of(x, y);
-        let h = self.cells.entry((ws, g.0, g.1)).or_insert_with(|| {
+        let s = self.cells.entry((ws, g.0, g.1)).or_insert_with(|| {
             let w = world.index.worldspaces.get(&ws)?;
-            let land = world.index.cells.get(w.grid.get(&g)?)?.land?;
-            fnv_world::land::load_land(world.lo, world.schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights
+            let ids = fnv_world::land_surface::land_ids(g, |n| w.grid.get(&n).and_then(|c| world.index.cells.get(c)).and_then(|c| c.land));
+            fnv_world::land_surface::load_surface(world.lo, world.schema, &ids, nvf_play::smooth_terrain::on())
         });
         let (ox, oy) = (g.0 as f32 * fnv_world::CELL_SIZE, g.1 as f32 * fnv_world::CELL_SIZE);
-        h.as_deref().map(|h| fnv_world::grass::height_at(h, x - ox, y - oy))
+        s.as_ref().map(|s| s.height_at_clamped(x - ox, y - oy))
     }
 }
 

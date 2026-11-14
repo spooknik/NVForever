@@ -17,6 +17,16 @@
 //! Measured [observed, world.md §3 "Texture repeat"]: textures repeat every 256 world
 //! units ([`TerrainSettings::tile`]) with u = x / 256 and v = y / 256, v growing northwards.
 //!
+//! # The surface: stored or smoothed
+//!
+//! The meshes are built over the cell's landscape surface (`fnv_world::land_surface`): the
+//! LAND grid as stored, or smoothed (#2149, on by default, `nvf_play::smooth_terrain`),
+//! each grid square then cut into `SUBDIV` × `SUBDIV` squares on a smooth patch through the
+//! LAND vertices, the same surface the collision is built on. Smoothed, the normals are the
+//! surface's own; the vertex colours and the layers' opacities are interpolated on the
+//! stored triangles, so the paint lies where it did [design, #2149]. Stored, the meshes are
+//! what they always were (VNML normals, the record's colours and opacities).
+//!
 //! # One draw for the base and its first layers
 //!
 //! Each blended layer is a second lighting of the ground under it: at Goodsprings a
@@ -51,7 +61,8 @@ use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, Mater
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
 use bevy::shader::ShaderRef;
-use fnv_world::land::{land_texture, load_land, Land, LandParts, Layer, DEFAULT_DIFFUSE, DEFAULT_NORMAL, QUAD_SIDE, SIDE, SPACING};
+use fnv_world::land::{land_texture, load_land, Land, LandParts, Layer, DEFAULT_DIFFUSE, DEFAULT_NORMAL, QUAD_SIDE, SIDE};
+use fnv_world::land_surface::{block_of, load_heights, LandIds, Surface};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::nif_material::sort_first;
 use nvf_assets::{nif_material, NifMaterial};
@@ -78,6 +89,9 @@ pub struct TerrainCache {
     pub folded_layers: usize,
     pub quadrants_without_base: usize,
     pub layers: usize,
+    /// Cells drawn on the smoothed surface and on the stored one (#2149).
+    pub smoothed_cells: usize,
+    pub stored_cells: usize,
 }
 
 impl TerrainCache {
@@ -341,36 +355,85 @@ fn srgb_to_linear(c: u8) -> f32 {
 /// normal towards +u (east) and green towards +v (north).
 const TANGENT_SIGN: f32 = -1.0;
 
-/// Mesh of one quadrant (17 × 17 vertices) in cell-local game space.
-fn quadrant_mesh(land: &Land, q: u8, alpha: Option<&[f32]>, cell_origin: Vec2, tile: f32) -> Option<Mesh> {
-    let h = land.heights.as_ref()?;
-    let (qx, qy) = ((q % 2) as usize * (QUAD_SIDE - 1), (q / 2) as usize * (QUAD_SIDE - 1));
-    let n = QUAD_SIDE * QUAD_SIDE;
+/// Vertices along a quadrant's side on a surface of `sub` squares per grid square.
+fn quad_side(sub: usize) -> usize {
+    (QUAD_SIDE - 1) * sub + 1
+}
+
+/// The vertices of a grid with `side` vertices a side (the LAND's 33 or a quadrant's 17)
+/// and their weights at its point (`fr`, `fc`) refined `sub` times: the stored triangle
+/// (south-west → north-east split) the point lies in. A grid vertex is itself, weight 1.
+fn stored_weights(fr: usize, fc: usize, sub: usize, side: usize) -> [(usize, f32); 3] {
+    let (r, c) = (fr / sub, fc / sub);
+    if fr % sub == 0 && fc % sub == 0 {
+        let i = r * side + c;
+        return [(i, 1.0), (i, 0.0), (i, 0.0)];
+    }
+    let (fy, fx) = ((fr % sub) as f32 / sub as f32, (fc % sub) as f32 / sub as f32);
+    // A point on the last row or column lies on the square before it.
+    let (r, fy) = if r == side - 1 { (r - 1, 1.0) } else { (r, fy) };
+    let (c, fx) = if c == side - 1 { (c - 1, 1.0) } else { (c, fx) };
+    let (sw, se, nw, ne) = (r * side + c, r * side + c + 1, (r + 1) * side + c, (r + 1) * side + c + 1);
+    if fx >= fy {
+        [(sw, 1.0 - fx), (se, fx - fy), (ne, fy)]
+    } else {
+        [(sw, 1.0 - fy), (nw, fy - fx), (ne, fx)]
+    }
+}
+
+/// A quadrant's 17 × 17 grid (a layer's opacities) on the quadrant's vertices of a surface
+/// of `sub` squares per grid square, interpolated on the stored triangles.
+fn refine_quad(grid: &[f32], sub: usize) -> Vec<f32> {
+    if sub == 1 {
+        return grid.to_vec();
+    }
+    let qs = quad_side(sub);
+    (0..qs * qs).map(|v| stored_weights(v / qs, v % qs, sub, QUAD_SIDE).iter().map(|&(k, w)| w * grid[k]).sum()).collect()
+}
+
+/// Mesh of one quadrant in cell-local game space, on `surface` (17 × 17 vertices as
+/// stored, 33 × 33 smoothed by 2); `alpha`: a layer's opacities on the same vertices
+/// ([`refine_quad`]).
+fn quadrant_mesh(land: &Land, surface: &Surface, q: u8, alpha: Option<&[f32]>, cell_origin: Vec2, tile: f32) -> Option<Mesh> {
+    let h = surface.heights();
+    let (sub, side, spacing) = (surface.sub(), surface.side(), surface.spacing());
+    let qs = quad_side(sub);
+    let (qx, qy) = ((q % 2) as usize * (qs - 1), (q / 2) as usize * (qs - 1));
+    let n = qs * qs;
     let (mut pos, mut nor, mut uv, mut col) = (Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n));
     let mut tan = Vec::with_capacity(n);
-    for r in 0..QUAD_SIDE {
-        for c in 0..QUAD_SIDE {
+    // Smoothed: the vertex colours in linear light at the LAND vertices, interpolated below.
+    let linear: Option<Vec<[f32; 3]>> = if sub > 1 { land.colors.as_ref().map(|v| v.iter().map(|c| c.map(srgb_to_linear)).collect()) } else { None };
+    for r in 0..qs {
+        for c in 0..qs {
             let (gr, gc) = (qy + r, qx + c);
-            let i = gr * SIDE + gc;
-            let (x, y) = (gc as f32 * SPACING, gr as f32 * SPACING);
+            let i = gr * side + gc;
+            let (x, y) = (gc as f32 * spacing, gr as f32 * spacing);
             pos.push([x, y, h[i]]);
-            let normal = land
-                .normals
-                .as_ref()
-                .map(|v| Vec3::new(v[i][0] as f32, v[i][1] as f32, v[i][2] as f32).normalize_or(Vec3::Z))
-                .unwrap_or(Vec3::Z);
+            let normal = match surface.normals() {
+                Some(nm) => Vec3::from_array(nm[i]).normalize_or(Vec3::Z),
+                // As stored the surface is the LAND grid: vertex i is LAND vertex i.
+                None => land
+                    .normals
+                    .as_ref()
+                    .map(|v| Vec3::new(v[i][0] as f32, v[i][1] as f32, v[i][2] as f32).normalize_or(Vec3::Z))
+                    .unwrap_or(Vec3::Z),
+            };
             nor.push(normal.to_array());
             // East (the direction of +u) laid into the surface.
             let east = (Vec3::X - normal * normal.x).normalize_or(Vec3::X);
             tan.push([east.x, east.y, east.z, TANGENT_SIGN]);
             let (wx, wy) = (cell_origin.x + x, cell_origin.y + y);
             uv.push([wx / tile, wy / tile]);
-            let rgb = land.colors.as_ref().map_or([1.0; 3], |v| v[i].map(srgb_to_linear));
-            let a = alpha.map_or(1.0, |a| a[r * QUAD_SIDE + c]);
+            let rgb = match &linear {
+                Some(lin) => stored_weights(gr, gc, sub, SIDE).iter().fold([0.0; 3], |acc, &(k, w)| [acc[0] + w * lin[k][0], acc[1] + w * lin[k][1], acc[2] + w * lin[k][2]]),
+                None => land.colors.as_ref().map_or([1.0; 3], |v| v[i].map(srgb_to_linear)),
+            };
+            let a = alpha.map_or(1.0, |a| a[r * qs + c]);
             col.push([rgb[0], rgb[1], rgb[2], a]);
         }
     }
-    let mut idx = Vec::with_capacity((QUAD_SIDE - 1) * (QUAD_SIDE - 1) * 6);
+    let mut idx = Vec::with_capacity((qs - 1) * (qs - 1) * 6);
     // A layer keeps only the triangles it paints: one whose three corners have opacity 0
     // blends to exactly what lies under it (its alpha is 0 across the triangle), so it
     // is left out [engineering choice: the same picture; most layers paint patches, and
@@ -378,11 +441,12 @@ fn quadrant_mesh(land: &Land, q: u8, alpha: Option<&[f32]>, cell_origin: Vec2, t
     // frame outdoors at 1440p, docs/design/frame-rate-audit.md, terrain texture layers,
     // #1886].
     let paints = |t: [u32; 3]| alpha.is_none_or(|a| t.iter().any(|&v| a[v as usize] > 0.0));
-    for r in 0..QUAD_SIDE - 1 {
-        for c in 0..QUAD_SIDE - 1 {
-            let i = (r * QUAD_SIDE + c) as u32;
-            let (e, nn, ne) = (i + 1, i + QUAD_SIDE as u32, i + QUAD_SIDE as u32 + 1);
-            // Counter-clockwise seen from above (+z).
+    for r in 0..qs - 1 {
+        for c in 0..qs - 1 {
+            let i = (r * qs + c) as u32;
+            let (e, nn, ne) = (i + 1, i + qs as u32, i + qs as u32 + 1);
+            // Counter-clockwise seen from above (+z), as the collision's triangles
+            // (`Surface::triangles`).
             for t in [[i, e, ne], [i, ne, nn]] {
                 if paints(t) {
                     idx.extend_from_slice(&t);
@@ -439,16 +503,16 @@ fn across(q: u8, side: usize) -> (Option<usize>, u8) {
 }
 
 /// The base mesh of quadrant `q` with the opacities of its first layers (`alphas`, at most
-/// [`folded_layers`], in the layers' order) at each vertex, where terrain.wesl reads them:
+/// [`folded_layers`], in the layers' order, on the mesh's vertices: [`refine_quad`]) at each vertex, where terrain.wesl reads them:
 /// the first in the vertex colour's alpha, the second and third in the second texture
 /// coordinate, the fourth in the size of the tangent's last number past 1 (its sign stays
 /// [`TANGENT_SIGN`]), and, where [`folded_layers`] is [`FOLDED_LAYERS`], the fifth and
 /// sixth in the first texture coordinate, which the shader then works out.
-fn folded_mesh(land: &Land, q: u8, alphas: &[&[f32]], cell_origin: Vec2, tile: f32) -> Option<Mesh> {
+fn folded_mesh(land: &Land, surface: &Surface, q: u8, alphas: &[&[f32]], cell_origin: Vec2, tile: f32) -> Option<Mesh> {
     use bevy::mesh::VertexAttributeValues;
-    let mut mesh = quadrant_mesh(land, q, None, cell_origin, tile)?;
+    let mut mesh = quadrant_mesh(land, surface, q, None, cell_origin, tile)?;
     let at = |k: usize, v: usize| alphas.get(k).map_or(0.0, |a| a[v]);
-    let n = QUAD_SIDE * QUAD_SIDE;
+    let n = quad_side(surface.sub()).pow(2);
     if let Some(VertexAttributeValues::Float32x4(col)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) {
         for (v, c) in col.iter_mut().enumerate() {
             c[3] = at(0, v);
@@ -562,6 +626,8 @@ fn quadrant_layers(layers: &[Layer], q: u8) -> Vec<(usize, &Layer)> {
 pub struct TerrainPrep {
     /// The cell's landscape as the data has it (grass and footsteps read its layers).
     pub land: Land,
+    /// The surface the meshes are built on, stored or smoothed (the collision's too).
+    pub surface: Surface,
     /// The layers drawn: the land's, stitched to the neighbours' ([`stitch_layers`]).
     layers: Vec<Layer>,
     meshes: HashMap<(u8, Option<usize>), Mesh>,
@@ -573,37 +639,47 @@ pub struct TerrainPrep {
 }
 
 /// Read LAND `land_id` of grid square `grid` and build its meshes (`tile`: world units per
-/// texture repeat, [`TerrainSettings::tile`]); `neighbours`: the LAND of the grid squares
-/// around it ([`NEIGHBOURS`]), whose texture layers its own are stitched to. `None`: no
-/// landscape or no heights.
-pub fn prepare_terrain(lo: &LoadOrder, schema: &EsmSchema, land_id: u32, grid: (i32, i32), tile: f32, neighbours: [Option<u32>; 4]) -> Option<TerrainPrep> {
+/// texture repeat, [`TerrainSettings::tile`]); `lands`: the LAND of the grid squares around
+/// it (`fnv_world::land_surface::LandIds`), whose texture layers its own are stitched to
+/// ([`NEIGHBOURS`]) and, with `smooth` (`nvf_play::smooth_terrain`), whose heights the
+/// smoothed surface reads along its edges. `None`: no landscape or no heights.
+pub fn prepare_terrain(lo: &LoadOrder, schema: &EsmSchema, land_id: u32, grid: (i32, i32), tile: f32, lands: LandIds, smooth: bool) -> Option<TerrainPrep> {
     let land = load_land(lo, schema, land_id, LandParts::ALL)?;
-    land.heights.as_ref()?;
+    let centre = land.heights.as_ref()?;
+    let surface = if smooth {
+        let mut ids = lands;
+        ids[1][1] = None;
+        let mut around = load_heights(lo, schema, &ids, true);
+        around[1][1] = Some(centre.clone());
+        Surface::smoothed(&block_of(&around))?
+    } else {
+        Surface::stored(centre)
+    };
     let parts = LandParts { heights: false, normals: false, colors: false, layers: true };
-    let around = neighbours.map(|n| n.and_then(|id| load_land(lo, schema, id, parts)).map(|l| l.layers));
+    let around = NEIGHBOURS.map(|(dx, dy)| lands[(dy + 1) as usize][(dx + 1) as usize].and_then(|id| load_land(lo, schema, id, parts)).map(|l| l.layers));
     let layers = stitch_layers(&land.layers, &around);
     let origin = Vec2::new(grid.0 as f32 * fnv_world::CELL_SIZE, grid.1 as f32 * fnv_world::CELL_SIZE);
     let mut meshes = HashMap::new();
     let mut folded = HashMap::new();
     for q in 0..4u8 {
-        if let Some(mesh) = quadrant_mesh(&land, q, None, origin, tile) {
+        if let Some(mesh) = quadrant_mesh(&land, &surface, q, None, origin, tile) {
             meshes.insert((q, None), mesh);
         }
         let quad = quadrant_layers(&layers, q);
-        let alphas: Vec<Vec<f32>> = quad.iter().map(|(_, l)| alpha_grid(l)).collect();
+        let alphas: Vec<Vec<f32>> = quad.iter().map(|(_, l)| refine_quad(&alpha_grid(l), surface.sub())).collect();
         for ((i, _), alpha) in quad.iter().zip(&alphas) {
-            if let Some(mesh) = quadrant_mesh(&land, q, Some(alpha), origin, tile) {
+            if let Some(mesh) = quadrant_mesh(&land, &surface, q, Some(alpha), origin, tile) {
                 meshes.insert((q, Some(*i)), mesh);
             }
         }
         if !alphas.is_empty() {
             let first: Vec<&[f32]> = alphas.iter().take(folded_layers(tile)).map(Vec::as_slice).collect();
-            if let Some(mesh) = folded_mesh(&land, q, &first, origin, tile) {
+            if let Some(mesh) = folded_mesh(&land, &surface, q, &first, origin, tile) {
                 folded.insert(q, mesh);
             }
         }
     }
-    Some(TerrainPrep { land, layers, meshes, folded, tile })
+    Some(TerrainPrep { land, surface, layers, meshes, folded, tile })
 }
 
 /// A mesh of a cell's land (its base or a texture layer over it).
@@ -611,9 +687,14 @@ pub fn prepare_terrain(lo: &LoadOrder, schema: &EsmSchema, land_id: u32, grid: (
 pub struct LandMesh;
 
 /// Spawn a cell's terrain from its prepared landscape ([`prepare_terrain`]); returns the
-/// landscape (for the grass).
-pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, prep: TerrainPrep, tm: &mut TerrainCtx) -> Land {
-    let TerrainPrep { land, layers: drawn, mut meshes, mut folded, tile } = prep;
+/// landscape and the surface it is drawn on (for the grass).
+pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, prep: TerrainPrep, tm: &mut TerrainCtx) -> (Land, Surface) {
+    let TerrainPrep { land, surface, layers: drawn, mut meshes, mut folded, tile } = prep;
+    if surface.is_smoothed() {
+        tm.tm.cache.smoothed_cells += 1;
+    } else {
+        tm.tm.cache.stored_cells += 1;
+    }
     let folds = tm.tm.folds();
     let most = folded_layers(tile);
     // The repeat for the shader to work the texture coordinate out with, 0 when the mesh
@@ -659,13 +740,120 @@ pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, p
             }
         }
     }
-    land
+    (land, surface)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bevy::mesh::VertexAttributeValues;
+    use fnv_world::land::SPACING;
+
+    /// The land's own grid as stored (smoothing off).
+    fn stored(land: &Land) -> Surface {
+        Surface::stored(land.heights.as_ref().unwrap())
+    }
+
+    /// Hills with ridges across the split diagonal, coloured by height.
+    fn hilly_land() -> Land {
+        let heights: Vec<f32> = (0..SIDE * SIDE)
+            .map(|i| {
+                let (r, c) = ((i / SIDE) as f32, (i % SIDE) as f32);
+                ((200.0 * (c * 0.4).sin() * (r * 0.3).cos() + 60.0 * ((c - r) * 0.9).sin()) / 8.0).round() * 8.0
+            })
+            .collect();
+        let colors = (0..SIDE * SIDE).map(|i| [(i % 251) as u8, (i % 7 * 30) as u8, 200]).collect();
+        Land { heights: Some(heights), normals: Some(vec![[0, 0, 127]; SIDE * SIDE]), colors: Some(colors), ..Default::default() }
+    }
+
+    fn smoothed(land: &Land) -> Surface {
+        let mut block: fnv_world::land_surface::Block = [[None; 3]; 3];
+        block[1][1] = land.heights.as_deref();
+        Surface::smoothed(&block).unwrap()
+    }
+
+    fn attr3(mesh: &Mesh, a: bevy::mesh::MeshVertexAttribute) -> Vec<[f32; 3]> {
+        let Some(VertexAttributeValues::Float32x3(v)) = mesh.attribute(a) else { panic!() };
+        v.clone()
+    }
+
+    /// Smoothed, each quadrant mesh lies exactly on the surface the collision is built on
+    /// (its vertices are the surface's), with the surface's normals and four times the
+    /// squares; the LAND vertices keep their heights and colours.
+    #[test]
+    fn a_smoothed_quadrant_is_drawn_on_the_collision_surface() {
+        let land = hilly_land();
+        let s = smoothed(&land);
+        let qs = quad_side(s.sub());
+        for q in 0..4u8 {
+            let mesh = quadrant_mesh(&land, &s, q, None, Vec2::ZERO, 256.0).unwrap();
+            let pos = attr3(&mesh, Mesh::ATTRIBUTE_POSITION);
+            let nor = attr3(&mesh, Mesh::ATTRIBUTE_NORMAL);
+            assert_eq!((pos.len(), triangles(&mesh).len()), (qs * qs, (qs - 1) * (qs - 1) * 2));
+            let (qx, qy) = ((q % 2) as usize * (qs - 1), (q / 2) as usize * (qs - 1));
+            for (v, p) in pos.iter().enumerate() {
+                let i = (qy + v / qs) * s.side() + qx + v % qs;
+                assert_eq!(*p, s.vertex(i), "quadrant {q} vertex {v}");
+                let n = Vec3::from_array(nor[v]);
+                assert!(n.dot(Vec3::from_array(s.normals().unwrap()[i])) > 0.9999);
+            }
+            // The triangles are the collision's, by vertex position.
+            let all = s.triangles();
+            let tri = triangles(&mesh)[2 * (qs - 1) + 1];
+            let global = tri.map(|v| ((qy + v as usize / qs) * s.side() + qx + v as usize % qs) as u32);
+            assert!(all.contains(&global), "{global:?}");
+        }
+        let mesh = quadrant_mesh(&land, &s, 0, None, Vec2::ZERO, 256.0).unwrap();
+        let Some(VertexAttributeValues::Float32x4(col)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR) else { panic!() };
+        let colors = land.colors.as_ref().unwrap();
+        // LAND vertex (1, 1) is mesh vertex (2, 2): its colour exactly; the point half way
+        // along the diagonal to (2, 2) the mean of the two (the stored triangles' paint).
+        let at = |r: usize, c: usize| colors[r * SIDE + c].map(srgb_to_linear);
+        assert_eq!(col[2 * qs + 2][..3], at(1, 1));
+        let mid = col[3 * qs + 3];
+        for k in 0..3 {
+            assert!((mid[k] - (at(1, 1)[k] + at(2, 2)[k]) / 2.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn layer_opacities_are_interpolated_on_the_stored_triangles() {
+        let mut alpha = vec![0.0; QUAD_SIDE * QUAD_SIDE];
+        alpha[5 * QUAD_SIDE + 7] = 0.8;
+        let fine = refine_quad(&alpha, 2);
+        let qs = quad_side(2);
+        assert_eq!(fine.len(), qs * qs);
+        assert_eq!(fine[10 * qs + 14], 0.8);
+        // Half way to each neighbour along the rows, the columns and the diagonal.
+        for v in [10 * qs + 15, 10 * qs + 13, 11 * qs + 14, 9 * qs + 14, 11 * qs + 15, 9 * qs + 13] {
+            assert!((fine[v] - 0.4).abs() < 1e-6, "{v}: {}", fine[v]);
+        }
+        // Not across the other diagonal: the stored triangles never join those corners.
+        assert_eq!((fine[11 * qs + 13], fine[9 * qs + 15]), (0.0, 0.0));
+        assert_eq!(refine_quad(&alpha, 1), alpha);
+        // A smoothed layer keeps only the triangles it paints: the 24 around the vertex.
+        let land = hilly_land();
+        let layer = quadrant_mesh(&land, &smoothed(&land), 0, Some(&fine), Vec2::ZERO, 256.0).unwrap();
+        assert_eq!(triangles(&layer).len(), 24);
+    }
+
+    /// Off: the stored surface draws exactly what was drawn before smoothing came.
+    #[test]
+    fn stored_quadrants_are_the_land_grid() {
+        let land = hilly_land();
+        let mesh = quadrant_mesh(&land, &stored(&land), 3, None, Vec2::ZERO, 256.0).unwrap();
+        let pos = attr3(&mesh, Mesh::ATTRIBUTE_POSITION);
+        let h = land.heights.as_ref().unwrap();
+        assert_eq!(pos.len(), QUAD_SIDE * QUAD_SIDE);
+        for (v, p) in pos.iter().enumerate() {
+            let (gr, gc) = (16 + v / QUAD_SIDE, 16 + v % QUAD_SIDE);
+            assert_eq!(*p, [gc as f32 * SPACING, gr as f32 * SPACING, h[gr * SIDE + gc]]);
+        }
+        let Some(VertexAttributeValues::Float32x4(col)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR) else { panic!() };
+        assert_eq!(col[0][..3], land.colors.as_ref().unwrap()[16 * SIDE + 16].map(srgb_to_linear));
+        assert!(attr3(&mesh, Mesh::ATTRIBUTE_NORMAL).iter().all(|n| *n == [0.0, 0.0, 1.0]));
+    }
+
 
     fn sloped_land() -> Land {
         // A slope rising to the east and, less, to the north.
@@ -678,7 +866,7 @@ mod tests {
     fn texture_repeat_and_direction() {
         // Quadrant 3 (north-east) of cell (-17, 0): u and v grow with world x and y.
         let origin = Vec2::new(-17.0 * 4096.0, 0.0);
-        let mesh = quadrant_mesh(&sloped_land(), 3, None, origin, 256.0).unwrap();
+        let mesh = quadrant_mesh(&sloped_land(), &stored(&sloped_land()), 3, None, origin, 256.0).unwrap();
         let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
         assert_eq!(uv[0], [(origin.x + 2048.0) / 256.0, 2048.0 / 256.0]);
         // One repeat every two grid squares, eastwards and northwards.
@@ -688,7 +876,7 @@ mod tests {
 
     #[test]
     fn tangents_match_the_generator() {
-        let mesh = quadrant_mesh(&sloped_land(), 0, None, Vec2::ZERO, 256.0).unwrap();
+        let mesh = quadrant_mesh(&sloped_land(), &stored(&sloped_land()), 0, None, Vec2::ZERO, 256.0).unwrap();
         let Some(VertexAttributeValues::Float32x4(ours)) = mesh.attribute(Mesh::ATTRIBUTE_TANGENT).cloned() else { panic!() };
         let mut generated = mesh.clone();
         generated.generate_tangents().unwrap();
@@ -717,8 +905,8 @@ mod tests {
         // A repeat that does not divide the cell: four layers, the mesh keeps its texture
         // coordinate.
         assert_eq!((folded_layers(256.0), folded_layers(300.0), folded_layers(0.0)), (FOLDED_LAYERS, FOLDED_LAYERS_WITH_UV, FOLDED_LAYERS_WITH_UV));
-        let base = quadrant_mesh(&land, 0, None, Vec2::ZERO, 300.0).unwrap();
-        let folded = folded_mesh(&land, 0, &refs, Vec2::ZERO, 300.0).unwrap();
+        let base = quadrant_mesh(&land, &stored(&land), 0, None, Vec2::ZERO, 300.0).unwrap();
+        let folded = folded_mesh(&land, &stored(&land), 0, &refs, Vec2::ZERO, 300.0).unwrap();
         // The base's own geometry: every triangle, the same positions, normals and texture
         // coordinates, so the depth prepass and the shadows see the same ground.
         assert_eq!(triangles(&folded), triangles(&base));
@@ -745,10 +933,10 @@ mod tests {
         let six = [layer(0.1), layer(0.2), layer(0.3), layer(0.4), layer(0.5), layer(0.6)];
         let six_refs: Vec<&[f32]> = six.iter().map(Vec::as_slice).collect();
         let origin = Vec2::new(-17.0 * 4096.0, 3.0 * 4096.0);
-        let all = folded_mesh(&land, 0, &six_refs, origin, 256.0).unwrap();
+        let all = folded_mesh(&land, &stored(&land), 0, &six_refs, origin, 256.0).unwrap();
         let Some(VertexAttributeValues::Float32x2(uv)) = all.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
         assert!(close([uv[v][0], uv[v][1], 0.0, 0.0], [0.5, 0.6, 0.0, 0.0]) && uv[0] == [0.0, 0.0]);
-        let with_uv = quadrant_mesh(&land, 0, None, origin, 256.0).unwrap();
+        let with_uv = quadrant_mesh(&land, &stored(&land), 0, None, origin, 256.0).unwrap();
         let Some(VertexAttributeValues::Float32x2(real)) = with_uv.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
         let Some(VertexAttributeValues::Float32x3(pos)) = with_uv.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!() };
         for (uv, p) in real.iter().zip(pos) {
@@ -756,7 +944,7 @@ mod tests {
             assert_eq!(((uv[0] - worked_out[0]).fract(), (uv[1] - worked_out[1]).fract()), (0.0, 0.0), "{uv:?} {p:?}");
         }
         // Fewer layers: the others' opacities are 0.
-        let two = folded_mesh(&land, 0, &refs[..2], Vec2::ZERO, 300.0).unwrap();
+        let two = folded_mesh(&land, &stored(&land), 0, &refs[..2], Vec2::ZERO, 300.0).unwrap();
         let Some(VertexAttributeValues::Float32x2(uv_b)) = two.attribute(Mesh::ATTRIBUTE_UV_1) else { panic!() };
         let Some(VertexAttributeValues::Float32x4(tan)) = two.attribute(Mesh::ATTRIBUTE_TANGENT) else { panic!() };
         assert_eq!((uv_b[v], tan[v][3]), ([0.4, 0.0], TANGENT_SIGN));
@@ -784,18 +972,18 @@ mod tests {
     fn a_layer_keeps_only_the_triangles_it_paints() {
         let land = sloped_land();
         // The base keeps every triangle.
-        let base = quadrant_mesh(&land, 0, None, Vec2::ZERO, 256.0).unwrap();
+        let base = quadrant_mesh(&land, &stored(&land), 0, None, Vec2::ZERO, 256.0).unwrap();
         assert_eq!(triangles(&base).len(), (QUAD_SIDE - 1) * (QUAD_SIDE - 1) * 2);
         // Opacity at one inner vertex: the six triangles around it.
         let mut alpha = vec![0.0; QUAD_SIDE * QUAD_SIDE];
         let v = 5 * QUAD_SIDE + 7;
         alpha[v] = 0.4;
-        let layer = quadrant_mesh(&land, 0, Some(&alpha), Vec2::ZERO, 256.0).unwrap();
+        let layer = quadrant_mesh(&land, &stored(&land), 0, Some(&alpha), Vec2::ZERO, 256.0).unwrap();
         let tris = triangles(&layer);
         assert_eq!(tris.len(), 6);
         assert!(tris.iter().all(|t| t.contains(&(v as u32))));
         // No opacity anywhere: no mesh at all.
-        assert!(quadrant_mesh(&land, 0, Some(&vec![0.0; QUAD_SIDE * QUAD_SIDE]), Vec2::ZERO, 256.0).is_none());
+        assert!(quadrant_mesh(&land, &stored(&land), 0, Some(&vec![0.0; QUAD_SIDE * QUAD_SIDE]), Vec2::ZERO, 256.0).is_none());
     }
 
     fn base(q: u8, tex: u32) -> Layer {
