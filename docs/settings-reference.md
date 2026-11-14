@@ -647,8 +647,8 @@ After the Controls tab's own rows (see the end of this page):
 
 ### `upscaler-quality`: Upscaling mode
 
-- On the page: The share of the screen the world is drawn at; the upscaler rebuilds the rest
-  (Bilinear stretches it). Native AA: full size. Quality to Ultra Performance: ever faster.
+- On the page: The share of the screen the world is drawn at; the upscaler rebuilds the
+  rest. Native AA: full size. Quality to Ultra Performance: ever faster.
 - In full: The share of the screen's width and height the world is drawn at; the upscaler
   rebuilds the rest. Native AA: full resolution, anti-aliasing only (DLSS: DLAA; Bilinear:
   no change). Quality: the sharpest upscaled look, for 1440p and 4K. Balanced: more speed

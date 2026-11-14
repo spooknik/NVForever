@@ -729,7 +729,7 @@ pub(crate) const LEGACY_KEY: &str = "fsr-upscaling";
 
 /// The two rows' notes.
 pub(crate) const UPSCALER_NOTE: &str = "FSR 3.1 or NVIDIA DLSS rebuilds the world at display resolution; Bilinear only stretches it. DLSS needs an RTX card and its files in the dlss folder.";
-pub(crate) const QUALITY_NOTE: &str = "The share of the screen the world is drawn at; the upscaler rebuilds the rest (Bilinear stretches it). Native AA: full size. Quality to Ultra Performance: ever faster.";
+pub(crate) const QUALITY_NOTE: &str = "The share of the screen the world is drawn at; the upscaler rebuilds the rest. Native AA: full size. Quality to Ultra Performance: ever faster.";
 
 /// The two rows' command-line switches: each row names all three, so a test run that gives
 /// any of them keeps both rows at the command line's choice over the INI
