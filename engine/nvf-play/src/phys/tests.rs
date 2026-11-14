@@ -513,6 +513,23 @@ fn sim_with_placed(id: u32, pos: [f32; 3], rot: [f32; 3]) -> SimState {
     SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
 }
 
+/// The ground probe of the `actor_feet` test aid sees through a dynamic body resting on
+/// the spot (pete-terrain met a tumbleweed at Pete's feet, #2149); a character's own
+/// ground query still meets it.
+#[test]
+fn the_fixed_ground_leaves_out_dynamic_bodies() {
+    let d = play_data();
+    let (sim, _id, crate_at) = sim_with_crate();
+    let mut p = state(true);
+    p.load(&LoadCtx { d: &d, sim: &sim, data: None }, PhysCell::Exterior(0, 0));
+    let from = [crate_at[0], crate_at[1], crate_at[2] + 100.0];
+    let terrain = 0.01 * crate_at[0] + 0.005 * crate_at[1];
+    let (with_crate, _) = p.ground_drawn(from, 600.0, None).expect("the crate");
+    assert!(with_crate > crate_at[2], "ground_drawn meets the crate's top: {with_crate}");
+    let (fixed, _) = p.fixed_ground_drawn(from, 600.0).expect("the terrain");
+    assert!((fixed - terrain).abs() < 1.0, "fixed_ground_drawn meets the terrain at {terrain}: {fixed}");
+}
+
 #[test]
 fn placed_clutter_moved_by_physics_is_written_back_and_reloads_there() {
     let d = play_data();

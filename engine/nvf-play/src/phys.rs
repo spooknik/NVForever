@@ -772,11 +772,19 @@ impl PhysState {
     /// that surface, or, when it is a placed model with drawn floors, the highest of its
     /// drawn floors within [`DRAWN_FLOOR_WINDOW`] of it (`drawn::DrawnFloors`).
     pub fn ground_drawn(&mut self, at: [f32; 3], down: f32, exclude: Option<fnv_phys::Key>) -> Option<(f32, f32)> {
-        self.ground_under(at, down, exclude).map(|g| (g.bare, g.drawn))
+        self.ground_under(at, down, exclude, false).map(|g| (g.bare, g.drawn))
     }
 
-    fn ground_under(&mut self, at: [f32; 3], down: f32, exclude: Option<fnv_phys::Key>) -> Option<GroundUnder> {
-        let mut filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
+    /// [`PhysState::ground_drawn`] under fixed collision only: dynamic bodies (clutter,
+    /// wind-blown tumbleweeds) are left out. For measuring the ground itself (the
+    /// `actor_feet` test aid), where a loose body resting on the spot is not the ground;
+    /// characters still stand on dynamic bodies through `ground_drawn` [design, #2149].
+    pub fn fixed_ground_drawn(&mut self, at: [f32; 3], down: f32) -> Option<(f32, f32)> {
+        self.ground_under(at, down, None, true).map(|g| (g.bare, g.drawn))
+    }
+
+    fn ground_under(&mut self, at: [f32; 3], down: f32, exclude: Option<fnv_phys::Key>, no_dynamic: bool) -> Option<GroundUnder> {
+        let mut filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), no_dynamic, ..Default::default() };
         filter.exclude.extend(self.npcs.values().map(|b| b.ch.key()).chain(exclude));
         let hit = self.ray(at, [0.0, 0.0, -1.0], down, filter)?;
         Some(GroundUnder { bare: hit.point[2], drawn: self.drawn_over(&hit), shell: hit.shell })
@@ -1670,7 +1678,7 @@ impl PhysState {
     /// character: on the drawn ground when they rest on the collision, else lifted with
     /// the landscape when `on_landscape` and they stand on it, else none.
     fn authored_sink(&mut self, feet: [f32; 3], down: f32, on_landscape: bool) -> f32 {
-        match self.ground_under([feet[0], feet[1], feet[2] + 1.0], down, None) {
+        match self.ground_under([feet[0], feet[1], feet[2] + 1.0], down, None, false) {
             Some(g) if (feet[2] - g.bare - g.shell).abs() <= REST_TOLERANCE => feet[2] - g.drawn,
             _ if on_landscape => self.landscape_lift(feet).map_or(0.0, |lift| -lift),
             _ => 0.0,
