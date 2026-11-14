@@ -660,13 +660,14 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
   off, ambient occlusion and FXAA on: the 8-bit picture), `bilinear-switch` (FSR 3.1, then
   Bilinear picked, its mode changed, the window resized, FSR again and Off, on the settings page
   while playing).
-- **Measured on the N150** (1920x1080, Bilinear Performance at 960x540, the HDR view, before
-  the two changes above; GPU ms a frame) [observed, 2026-11-14: the main session's profile
-  build]: main opaque 16.7, early prepass 7.7, `nvf_bilinear` 2.6, main transparent 1.5, the
-  image-space grade 1.5, tonemapping 1.3, the final blit 0.73. Not measured yet: what the
-  8-bit view and the skipped depth expansion save [hypothesis: the tonemapping pass, about
-  0.3 ms of the blit, about half of `nvf_bilinear` for the depth and half the rest for the
-  bytes, and some of the main passes' bandwidth].
+- **Measured on the N150** (Intel N150 integrated graphics, 1920x1080 output, Bilinear
+  Performance at 960x540, the Low preset, GPU ms a frame) [observed, 2026-11-14: the main
+  session's profile build]. Before the two changes above (the view always HDR, the depth
+  always expanded): main opaque 16.7, early prepass 7.7, `nvf_bilinear` 2.6, main transparent
+  1.5, the image-space grade 1.5, tonemapping 1.3, the final blit 0.73 (0.75 in the run
+  compared below). After them (the glow off, so the 8-bit view, and nothing reading the depth
+  after the stretch, so no expansion): `nvf_bilinear` 2.6 -> 0.51, the 1.3 ms tonemapping pass
+  gone, the final blit 0.75 -> 0.47, the frame 31.5 -> about 27 ms.
 - **The image-space grade stays at the window's size** (1.38 ms natively at 1080p on the N150,
   as much with Bilinear). Grading at the render size before the stretch would cost a quarter
   of that at Performance, but the grade is Bevy's full-screen material after tonemapping, FXAA,
