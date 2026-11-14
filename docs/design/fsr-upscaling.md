@@ -660,8 +660,21 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
   off, ambient occlusion and FXAA on: the 8-bit picture), `bilinear-switch` (FSR 3.1, then
   Bilinear picked, its mode changed, the window resized, FSR again and Off, on the settings page
   while playing).
-- **Not measured yet**: what it saves on the N150 [hypothesis: about what the issue's
-  1280x720 and 960x540 runs save, less one display-size pass and the AO at its size].
+- **Measured on the N150** (1920x1080, Bilinear Performance at 960x540, the HDR view, before
+  the two changes above; GPU ms a frame) [observed, 2026-11-14: the main session's profile
+  build]: main opaque 16.7, early prepass 7.7, `nvf_bilinear` 2.6, main transparent 1.5, the
+  image-space grade 1.5, tonemapping 1.3, the final blit 0.73. Not measured yet: what the
+  8-bit view and the skipped depth expansion save [hypothesis: the tonemapping pass, about
+  0.3 ms of the blit, about half of `nvf_bilinear` for the depth and half the rest for the
+  bytes, and some of the main passes' bandwidth].
+- **The image-space grade stays at the window's size** (1.38 ms natively at 1080p on the N150,
+  as much with Bilinear). Grading at the render size before the stretch would cost a quarter
+  of that at Performance, but the grade is Bevy's full-screen material after tonemapping, FXAA,
+  SMAA and the blur passes (`imagespace.rs`): it would need a pass of its own limited to the
+  render rectangle with its screen positions (the radial blur's centre, the VATS sweep and its
+  vignette, the doubled image) mapped to it, only on an 8-bit view (an HDR one is not
+  tonemapped before the stretch), and it would grade before FXAA and the blurs, not after.
+  Not done.
 
 ## Limits
 
