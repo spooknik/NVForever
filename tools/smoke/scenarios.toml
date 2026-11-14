@@ -26629,6 +26629,38 @@ expect = [
 ]
 
 [[scenario]]
+name = "terrain-smoothing"
+source = "#2149 (maintainer decision 2026-11-13: smoothing on by default, collision follows it): the landscape is drawn and collided on one smoothed surface (crates/fnv-world/src/land_surface.rs), each grid square in 2 x 2 within 8 units of the stored triangles"
+note = "Goodsprings' hills with the default settings: the start says the run is smoothed, every drawn cell is, the player is placed and does not fall through the collision"
+areas = ["rendering", "terrain"]
+paths = ["crates/fnv-world/src/land_surface.rs", "crates/fnv-phys/src/terrain.rs", "engine/nvf-play/src/smooth_terrain.rs", "engine/nvf-play/src/phys/prepare.rs", "engine/nvforever/src/terrain.rs"]
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  "terrain: smoothed, each grid square drawn and collided as 2 x 2, at most 8 units from the stored triangles",
+  { re = 'terrain summary: (\d+) cells drawn smoothed', range = [9, 100000], label = "the loaded cells are drawn smoothed" },
+  { re = 'terrain summary: \d+ cells drawn smoothed, (\d+) on the stored triangles', max = 0, label = "none on the stored triangles" },
+  { re = 'player placed: feet \(', label = "the player is placed on the ground" },
+]
+forbid = [{ text = "player fell through", label = "the collision is where the ground is" }, { text = "panicked", label = "no panic" }, { text = "Caught rendering error", label = "no rendering (validation) error" }]
+
+[[scenario]]
+name = "terrain-smoothing-off"
+source = "#2149: --no-smooth-terrain (the Smooth terrain setting off) draws and collides the stored LAND triangles, as before smoothing came"
+note = "the twin of terrain-smoothing with the switch off"
+areas = ["rendering", "terrain"]
+paths = ["crates/fnv-world/src/land_surface.rs", "engine/nvf-play/src/smooth_terrain.rs", "engine/nvforever/src/terrain.rs"]
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages", "--no-smooth-terrain"]
+run_seconds = 20
+expect = [
+  "terrain: the stored triangles, not smoothed",
+  { re = 'terrain summary: (\d+) cells drawn smoothed', max = 0, label = "no cell is smoothed" },
+  { re = 'terrain summary: \d+ cells drawn smoothed, (\d+) on the stored triangles', range = [9, 100000], label = "the loaded cells are drawn on the stored triangles" },
+  { re = 'player placed: feet \(', label = "the player is placed on the ground" },
+]
+forbid = [{ text = "player fell through", label = "the collision is where the ground is" }, { text = "panicked", label = "no panic" }, { text = "Caught rendering error", label = "no rendering (validation) error" }]
+
+[[scenario]]
 name = "reports-anomaly-fell-through"
 source = "#2055, docs/design/player-reports.md section 4.4: the engine's rescue after falling through the land becomes a fell_out_of_world anomaly in the session summary (engine/nvforever/src/reports/anomaly.rs)"
 areas = ["reports"]
