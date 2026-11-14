@@ -886,3 +886,94 @@ fn several_dynamic_bodies_join_into_one_with_their_shapes_in_place() {
     assert!(one_dynamic_body(&[body(0.0, Motion::Dynamic), body(10.0, Motion::Keyframed)]).is_none());
     assert!(one_dynamic_body(&[body(0.0, Motion::Static), body(10.0, Motion::Dynamic)]).is_none());
 }
+
+/// Places in a smoothed cell (cell-local x, y) where the smoothed surface lies more than
+/// 5 units off the stored triangles, from the south-west on.
+fn lifted_spots(s: &fnv_world::land_surface::Surface) -> Vec<(f32, f32)> {
+    let mut out = Vec::new();
+    for k in 0..4000 {
+        let (x, y) = (300.0 + (k as f32 * 97.31) % 3500.0, 300.0 + (k as f32 * 61.17) % 3500.0);
+        if s.lift_at(x, y).is_some_and(|l| l.abs() > 5.0) && out.iter().all(|&(a, b): &(f32, f32)| (a - x).hypot(b - y) > 400.0) {
+            out.push((x, y));
+        }
+    }
+    out
+}
+
+/// A made-up exterior cell on a smoothed landscape (#2149): hills in steps of 8, and a
+/// static box standing on the ground at the second of [`lifted_spots`], its top 12 units
+/// above the stored triangles there (above the smoothed surface too).
+fn smooth_cell(job: &Job) -> Prepared {
+    let PhysCell::Exterior(gx, gy) = job.cell else { panic!("exterior cells only") };
+    let heights: Vec<f32> = (0..SIDE * SIDE)
+        .map(|i| {
+            let (r, c) = ((i / SIDE) as f32, (i % SIDE) as f32);
+            ((140.0 * (c * 0.7).sin() * (r * 0.5).cos() + 60.0 * ((c - r) * 0.9).sin()) / 8.0).round() * 8.0
+        })
+        .collect();
+    let mut block: fnv_world::land_surface::Block = [[None; 3]; 3];
+    block[1][1] = Some(&heights);
+    let surface = fnv_world::land_surface::Surface::smoothed(&block).expect("heights");
+    let params = PhysParams::default();
+    let (x0, y0) = (gx as f32 * CELL_SIZE, gy as f32 * CELL_SIZE);
+    let (bx, by) = lifted_spots(&surface)[1];
+    let top = surface.stored_height_at(bx, by).unwrap() + 12.0;
+    let pl = Placement {
+        form_id: 0x0200_0000,
+        sig: *b"REFR",
+        flags: 0,
+        base: None,
+        position: [x0 + bx, y0 + by, top - 50.0],
+        rotation: [0.0; 3],
+        scale: 1.0,
+        enable_parent: None,
+        open_by_default: false,
+        teleport: false,
+        emittance: None,
+        imposter: false,
+        primitive: false,
+    };
+    let prepared = PreparedRef::new(&params, &RefPose::from_placement(&pl), &[object(50.0, Motion::Static)]);
+    let refs = vec![Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, animated: None, drawn: None, model: None }) }];
+    let terrain = Some(PreparedTerrain::from_surface(&params, (gx, gy), &surface));
+    Prepared { cell: job.cell, surface: Some(surface), terrain, refs, times: LoadTimes::default() }
+}
+
+/// An actor standing without a character at an authored or navmesh height over the bare
+/// landscape is drawn on the smoothed surface as it stood on the stored triangles; at
+/// furniture, on a static or well above the ground it stays where its feet are (#2149).
+#[test]
+fn an_actor_standing_on_the_landscape_follows_the_smoothed_surface() {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(smooth_cell), loader: loader::Loader::manual(), ..Default::default() };
+    p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    let s = p.cells[&PhysCell::Exterior(0, 0)].surface.clone().expect("terrain");
+    let spots = lifted_spots(&s);
+    let (x, y) = spots[0];
+    let (stored, smooth) = (s.stored_height_at(x, y).unwrap(), s.height_at(x, y).unwrap());
+    assert!((smooth - stored).abs() > 5.0);
+    assert_eq!(p.terrain_z(x, y), Some(smooth), "the collision is the smoothed surface");
+    // On the stored ground (an authored height): drawn on the smoothed ground.
+    let drawn = p.standing_drawn_feet(1, [x, y, stored], true);
+    assert!((drawn[2] - smooth).abs() < 1e-3, "{drawn:?}, ground {smooth}");
+    assert!((p.drawn_sink_of(1) - (stored - smooth)).abs() < 1e-3);
+    // A navmesh height 6 units over the stored ground: 6 over the smoothed.
+    let drawn = p.standing_drawn_feet(1, [x, y, stored + 6.0], true);
+    assert!((drawn[2] - (smooth + 6.0)).abs() < 1e-3, "{drawn:?}");
+    // At furniture: where its feet are.
+    assert_eq!(p.standing_drawn_feet(1, [x, y, stored], false), [x, y, stored]);
+    // Far above the ground (on something the collision does not know): where its feet are.
+    assert_eq!(p.standing_drawn_feet(2, [x, y, stored + 200.0], true), [x, y, stored + 200.0]);
+    // Resting on the collision as a character would: on the drawn ground, as before.
+    let rest = p.standing_drawn_feet(3, [x, y, smooth + fnv_phys::TERRAIN_SHELL], true);
+    assert!((rest[2] - smooth).abs() < 0.1, "{rest:?}");
+    // On the static box standing on the ground: where its feet are.
+    let (bx, by) = spots[1];
+    let top = s.stored_height_at(bx, by).unwrap() + 12.0;
+    assert_eq!(p.standing_drawn_feet(4, [bx, by, top], true), [bx, by, top]);
+    assert_eq!(p.landscape_lift([bx, by, top]), None);
+    // Indoors nothing follows the landscape.
+    p.space = Space::Interior(7);
+    assert_eq!(p.landscape_lift([x, y, stored]), None);
+}

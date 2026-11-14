@@ -3184,8 +3184,10 @@ pub fn drive(
         // steps run at a fixed rate, and frames that held none showed the actor standing
         // (no movement this frame, so the idle clip), which made walks stop and start.
         // Without a character, standing: on the drawn ground when its feet rest on the
-        // collision as a character's would.
-        let feet = phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet)));
+        // collision as a character's would; on the bare landscape, with the smoothed
+        // surface (#2149), unless it is at furniture.
+        let on_landscape = r.seat.furniture().is_none();
+        let feet = phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet, on_landscape)));
         let step = [feet[0] - r.drawn_feet[0], feet[1] - r.drawn_feet[1]];
         let moving = agent.activity == Activity::Travelling && step[0].hypot(step[1]) > 1e-4;
         if visible && r.spawned && !on && !core.held_now && agent.activity == Activity::Travelling {

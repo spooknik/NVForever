@@ -132,9 +132,10 @@ pub struct PhysState {
     /// The height of each living actor's drawn bounds, game units, as `crate::hitvol`
     /// last measured them: an actor's character is made this tall ([`PhysState::add_npc`]).
     pub actor_heights: HashMap<u32, f32>,
-    /// Actors drawn standing without a character: their feet and how far below them
-    /// the body is drawn ([`PhysState::standing_drawn_feet`]).
-    standing: HashMap<u32, ([f32; 3], f32)>,
+    /// Actors drawn standing without a character: their feet, whether they may follow the
+    /// landscape, and how far below them the body is drawn
+    /// ([`PhysState::standing_drawn_feet`]).
+    standing: HashMap<u32, ([f32; 3], bool, f32)>,
     pub stats: PhysStats,
     /// Feet before the last fixed step (the camera interpolates from it).
     pub(crate) prev_feet: [f32; 3],
@@ -252,6 +253,13 @@ pub fn drawn_sink(c: &Character, drawn: Option<f32>) -> f32 {
 /// where a character would rest, game units [design: the observed rest heights spread
 /// 0.35 either side of the shell, physics.md §6.2].
 pub const REST_TOLERANCE: f32 = 0.5;
+
+/// Feet without a character this close to the stored LAND triangles under them, with
+/// nothing but the landscape below, stand on the landscape: drawn as far above or below
+/// the stored triangles on the smoothed surface (#2149) as they were on the stored one
+/// [design, #2149: authored and navmesh heights follow the ground the data's triangles
+/// make, within a few units; beyond this band an actor stands on something else].
+pub const TERRAIN_STAND_BAND: f32 = 32.0;
 
 /// The ground under a point ([`PhysState::ground_drawn`]): the bare collision surface,
 /// the drawn ground and the collision's contact shell.
@@ -742,7 +750,7 @@ impl PhysState {
         if id == fnv_sim::FormId::PLAYER_REF.0 {
             if self.player.is_some() { self.player_sink } else { 0.0 }
         } else {
-            self.npcs.get(&id).map(|b| b.sink).or_else(|| self.standing.get(&id).map(|l| l.1)).unwrap_or(0.0)
+            self.npcs.get(&id).map(|b| b.sink).or_else(|| self.standing.get(&id).map(|l| l.2)).unwrap_or(0.0)
         }
     }
 
@@ -1606,22 +1614,50 @@ impl PhysState {
     /// character rests (the contact shell above the collision under them, within
     /// [`REST_TOLERANCE`]: where a walk by physics, the arrival rule or a placement on
     /// the ground left them) are drawn as a character's would be, on the drawn ground
-    /// ([`PhysState::ground_drawn`]); others (a placed height, the navmesh's height) at
-    /// `feet`. Looked up again only when the feet move.
-    pub fn standing_drawn_feet(&mut self, id: u32, feet: [f32; 3]) -> [f32; 3] {
+    /// ([`PhysState::ground_drawn`]). Others (a placed height, the navmesh's height) are
+    /// drawn at `feet`, except that with `on_landscape` (not for an actor at furniture)
+    /// feet standing on the bare landscape follow the smoothed surface: drawn as far
+    /// above it as they were above the stored triangles ([`PhysState::landscape_lift`],
+    /// #2149). Looked up again only when the feet or `on_landscape` change.
+    pub fn standing_drawn_feet(&mut self, id: u32, feet: [f32; 3], on_landscape: bool) -> [f32; 3] {
         let sink = match self.standing.get(&id) {
-            Some((at, sink)) if *at == feet => *sink,
+            Some((at, on, sink)) if *at == feet && *on == on_landscape => *sink,
             _ => {
                 let down = 1.0 + fnv_phys::TERRAIN_SHELL + REST_TOLERANCE;
                 let sink = match self.ground_under([feet[0], feet[1], feet[2] + 1.0], down, None) {
                     Some(g) if (feet[2] - g.bare - g.shell).abs() <= REST_TOLERANCE => feet[2] - g.drawn,
+                    _ if on_landscape => self.landscape_lift(feet).map_or(0.0, |lift| -lift),
                     _ => 0.0,
                 };
-                self.standing.insert(id, (feet, sink));
+                self.standing.insert(id, (feet, on_landscape, sink));
                 sink
             }
         };
         [feet[0], feet[1], feet[2] - sink]
+    }
+
+    /// How far the smoothed landscape surface lies above the stored LAND triangles under
+    /// `feet` (#2149; `Surface::lift_at`), when the feet stand on the bare landscape:
+    /// outdoors, within [`TERRAIN_STAND_BAND`] of the stored triangles, and with the
+    /// landscape the first collision below them (not a static, furniture or another
+    /// placed floor). `None` otherwise, and on the stored surface.
+    pub fn landscape_lift(&mut self, feet: [f32; 3]) -> Option<f32> {
+        if self.space != Space::Exterior {
+            return None;
+        }
+        let (gx, gy) = cell_of(feet[0], feet[1]);
+        let s = self.cells.get(&PhysCell::Exterior(gx, gy))?.surface.as_ref().filter(|s| s.is_smoothed())?;
+        let (x, y) = (feet[0] - gx as f32 * CELL_SIZE, feet[1] - gy as f32 * CELL_SIZE);
+        let (stored, lift) = (s.stored_height_at(x, y)?, s.lift_at(x, y)?);
+        if (feet[2] - stored).abs() > TERRAIN_STAND_BAND {
+            return None;
+        }
+        // From over the feet and the surface down past the surface: the landscape first.
+        let top = feet[2].max(stored + lift) + 1.0;
+        let mut filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
+        filter.exclude.extend(self.npcs.values().map(|b| b.ch.key()));
+        let hit = self.ray([feet[0], feet[1], top], [0.0, 0.0, -1.0], top - (stored + lift) + 2.0, filter)?;
+        matches!(hit.owner, Owner::Terrain { .. }).then_some(lift)
     }
 
     pub fn reset(&mut self, space: Space) {
