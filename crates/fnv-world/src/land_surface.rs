@@ -17,9 +17,9 @@
 //! - the patch over a square reads the vertices one square beyond it, so it reads the
 //!   neighbouring cells' LAND along the edges ([`Block`]): a vertex outside the cell is
 //!   read from the cell that owns it (the one where it is not on the north or east edge),
-//!   then from the other cell that has it; where no loaded cell has it, it is the point
-//!   reflection of the vertex as far inside the cell through the edge vertex (a plane
-//!   carries on as a plane);
+//!   then from the other cell that has it; where no loaded cell has it, it carries on the
+//!   lines of present vertices nearest to it ([`extrapolated`]: the same value whichever
+//!   cell asks, and a plane carries on as a plane);
 //! - a new vertex `(i, j)` is always worked out in square `(i / SUBDIV, j / SUBDIV)`, so
 //!   the two cells sharing an edge work out its vertices from the same numbers in the
 //!   same order and they come out identical;
@@ -65,6 +65,11 @@ pub fn land_ids(g: (i32, i32), land_of: impl Fn((i32, i32)) -> Option<u32>) -> L
 /// `side * side`, row-major, rows south → north, `spacing` apart, each square split
 /// along its south-west → north-east diagonal. `None` outside the grid.
 pub fn grid_height_at(heights: &[f32], side: usize, spacing: f32, x: f32, y: f32) -> Option<f32> {
+    triangle_height(|r, c| heights[r * side + c], side, spacing, x, y)
+}
+
+/// [`grid_height_at`] over the vertex heights `h(row, column)`.
+fn triangle_height(h: impl Fn(usize, usize) -> f32, side: usize, spacing: f32, x: f32, y: f32) -> Option<f32> {
     let size = spacing * (side - 1) as f32;
     if !(0.0..=size).contains(&x) || !(0.0..=size).contains(&y) {
         return None;
@@ -72,7 +77,6 @@ pub fn grid_height_at(heights: &[f32], side: usize, spacing: f32, x: f32, y: f32
     let (fx, fy) = (x / spacing, y / spacing);
     let (c, r) = ((fx as usize).min(side - 2), (fy as usize).min(side - 2));
     let (u, v) = (fx - c as f32, fy - r as f32);
-    let h = |r: usize, c: usize| heights[r * side + c];
     let (sw, se, nw, ne) = (h(r, c), h(r, c + 1), h(r + 1, c), h(r + 1, c + 1));
     Some(if u >= v { sw + u * (se - sw) + v * (ne - se) } else { sw + v * (nw - sw) + u * (ne - nw) })
 }
@@ -201,6 +205,22 @@ impl Surface {
         grid_height_at(&self.heights, self.side(), self.spacing(), x, y)
     }
 
+    /// Height at cell-local (`x`, `y`) on the stored LAND triangles, from the LAND vertices
+    /// the surface keeps (the same as [`Surface::height_at`] when not smoothed); `None`
+    /// outside the cell.
+    pub fn stored_height_at(&self, x: f32, y: f32) -> Option<f32> {
+        triangle_height(|r, c| self.heights[self.land_vertex(r, c)], SIDE, SPACING, x, y)
+    }
+
+    /// How far the surface lies above the stored LAND triangles at cell-local (`x`, `y`)
+    /// (0 when not smoothed; at most [`MAX_DEVIATION`] either way).
+    pub fn lift_at(&self, x: f32, y: f32) -> Option<f32> {
+        if !self.is_smoothed() {
+            return self.height_at(x, y).map(|_| 0.0);
+        }
+        Some(self.height_at(x, y)? - self.stored_height_at(x, y)?)
+    }
+
     /// [`Surface::height_at`] with the point brought into the cell first.
     pub fn height_at_clamped(&self, x: f32, y: f32) -> f32 {
         let size = crate::CELL_SIZE;
@@ -270,26 +290,53 @@ fn padded(block: &Block) -> Option<Vec<f32>> {
             }
         }
     }
-    // Missing beyond a side: the point reflection through the edge vertex, rows first
-    // (from inside), then columns (from inside or the rows just filled).
-    let edge = |k: isize| if k < 0 { 0 } else { last };
-    for r in (-pad..=last + pad).filter(|r| !inside(*r)) {
-        for c in 0..=last {
-            if p[idx(r, c)].is_nan() {
-                let e = edge(r);
-                p[idx(r, c)] = 2.0 * p[idx(e, c)] - p[idx(2 * e - r, c)];
-            }
+    // Missing (no loaded cell has it): extrapolated from the present vertices along the
+    // eight grid directions, by a rule of the world vertex and of which cells are present
+    // only, so every cell that reads it gets the same value (module notes).
+    let present = |r: isize, c: isize| -> Option<f32> {
+        if inside(r) && inside(c) {
+            Some(centre[r as usize * SIDE + c as usize])
+        } else {
+            world_vertex(block, r, c).filter(|v| v.is_finite())
         }
-    }
+    };
     for r in -pad..=last + pad {
-        for c in (-pad..=last + pad).filter(|c| !inside(*c)) {
+        for c in -pad..=last + pad {
             if p[idx(r, c)].is_nan() {
-                let e = edge(c);
-                p[idx(r, c)] = 2.0 * p[idx(r, e)] - p[idx(r, 2 * e - c)];
+                p[idx(r, c)] = extrapolated(&present, r, c);
             }
         }
     }
     Some(p)
+}
+
+/// The grid directions [`extrapolated`] looks along, in the order it adds them up
+/// (rows first: south, north, west, east, then the diagonals).
+const DIRECTIONS: [(isize, isize); 8] = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)];
+
+/// A vertex no loaded cell has, at (`r`, `c`): for the least step `k` (1 or 2) at which any
+/// direction has present vertices `k` and `2k` steps away, the mean over those directions
+/// of the line through them carried on to the vertex (`2·a − b`), added up in
+/// [`DIRECTIONS`]' order. Every vertex within [`PAD`] of the cell has such a line into the
+/// cell itself by `k` = 2, so the search always ends there; a plane carries on as a plane.
+/// It reads only present vertices by their place in the world, so two cells asking for
+/// the same vertex get the same number (their shared edges' normals agree too).
+fn extrapolated(present: &impl Fn(isize, isize) -> Option<f32>, r: isize, c: isize) -> f32 {
+    for k in 1..=PAD as isize {
+        let (mut sum, mut n) = (0.0f32, 0u32);
+        for (dr, dc) in DIRECTIONS {
+            if let (Some(a), Some(b)) = (present(r + k * dr, c + k * dc), present(r + 2 * k * dr, c + 2 * k * dc)) {
+                sum += 2.0 * a - b;
+                n += 1;
+            }
+        }
+        if n > 0 {
+            return sum / n as f32;
+        }
+    }
+    // Not reached for vertices within PAD of the cell (above); the nearest cell vertex.
+    let last = (SIDE - 1) as isize;
+    present(r.clamp(0, last), c.clamp(0, last)).unwrap_or(0.0)
 }
 
 /// LAND vertex (`r`, `c`) of the centre cell's frame, outside it: from the neighbouring
@@ -366,22 +413,58 @@ mod tests {
 
     /// The LAND heights of cell `g` cut from [`world`].
     fn cell(g: (i32, i32)) -> Vec<f32> {
+        cell_of(world, g)
+    }
+
+    /// The LAND heights of cell `g` cut from the world heights `f`.
+    fn cell_of(f: fn(i32, i32) -> f32, g: (i32, i32)) -> Vec<f32> {
         let n = (SIDE - 1) as i32;
-        (0..SIDE * SIDE).map(|k| world(g.0 * n + (k % SIDE) as i32, g.1 * n + (k / SIDE) as i32)).collect()
+        (0..SIDE * SIDE).map(|k| f(g.0 * n + (k % SIDE) as i32, g.1 * n + (k / SIDE) as i32)).collect()
     }
 
     /// The heights around `g`, without the cells `missing` names.
     fn around(g: (i32, i32), missing: &[(i32, i32)]) -> [[Option<Vec<f32>>; 3]; 3] {
+        around_of(world, g, missing)
+    }
+
+    fn around_of(f: fn(i32, i32) -> f32, g: (i32, i32), missing: &[(i32, i32)]) -> [[Option<Vec<f32>>; 3]; 3] {
         std::array::from_fn(|r| {
             std::array::from_fn(|c| {
                 let at = (g.0 + c as i32 - 1, g.1 + r as i32 - 1);
-                (!missing.contains(&at)).then(|| cell(at))
+                (!missing.contains(&at)).then(|| cell_of(f, at))
             })
         })
     }
 
     fn smoothed(g: (i32, i32), missing: &[(i32, i32)]) -> Surface {
-        Surface::smoothed(&block_of(&around(g, missing))).unwrap()
+        smoothed_of(world, g, missing)
+    }
+
+    fn smoothed_of(f: fn(i32, i32) -> f32, g: (i32, i32), missing: &[(i32, i32)]) -> Surface {
+        Surface::smoothed(&block_of(&around_of(f, g, missing))).unwrap()
+    }
+
+    /// Both sides of the east edge of (0, 0) and of its north edge, heights and normals.
+    fn assert_edges_agree(f: fn(i32, i32) -> f32, missing: &[(i32, i32)]) {
+        let side = (SIDE - 1) * SUBDIV + 1;
+        let last = side - 1;
+        let a = smoothed_of(f, (0, 0), missing);
+        let present = |g: (i32, i32)| !missing.contains(&g);
+        let north = present((0, 1)).then(|| smoothed_of(f, (0, 1), missing));
+        let east = present((1, 0)).then(|| smoothed_of(f, (1, 0), missing));
+        for k in 0..side {
+            if let Some(north) = &north {
+                let (top, bottom) = (last * side + k, k);
+                assert_eq!(a.heights()[top], north.heights()[bottom], "north edge {k} ({missing:?})");
+                assert_eq!(a.normals().unwrap()[top], north.normals().unwrap()[bottom], "north normal {k} ({missing:?})");
+            }
+            if let Some(east) = &east {
+                let (right, left) = (k * side + last, k * side);
+                assert_eq!(a.heights()[right], east.heights()[left], "east edge {k} ({missing:?})");
+                assert_eq!(a.normals().unwrap()[right], east.normals().unwrap()[left], "east normal {k} ({missing:?})");
+            }
+        }
+        assert!(north.is_some() || east.is_some());
     }
 
     #[test]
@@ -438,6 +521,21 @@ mod tests {
     }
 
     #[test]
+    fn the_stored_triangles_and_the_lift_are_read_from_the_land_vertices() {
+        let h = cell((1, 1));
+        let stored = Surface::stored(&h);
+        let s = smoothed((1, 1), &[]);
+        for k in 0..500 {
+            let (x, y) = ((k as f32 * 37.77) % CELL_SIZE, (k as f32 * 91.31 + 5.0) % CELL_SIZE);
+            assert_eq!(s.stored_height_at(x, y), stored.height_at(x, y));
+            assert_eq!(stored.lift_at(x, y), Some(0.0));
+            let lift = s.lift_at(x, y).unwrap();
+            assert!(lift.abs() <= MAX_DEVIATION + 1e-3 && (s.height_at(x, y).unwrap() - stored.height_at(x, y).unwrap() - lift).abs() < 1e-3);
+        }
+        assert_eq!(s.lift_at(-1.0, 0.0), None);
+    }
+
+    #[test]
     fn a_plane_stays_a_plane_with_or_without_neighbours() {
         let plane = |x: f32, y: f32| 1000.0 + 0.3 * x - 0.125 * y;
         let h: Vec<f32> = (0..SIDE * SIDE).map(|k| plane((k % SIDE) as f32 * SPACING, (k / SIDE) as f32 * SPACING)).collect();
@@ -461,28 +559,26 @@ mod tests {
     /// cells missing around them.
     #[test]
     fn shared_cell_edges_are_identical_from_both_sides() {
-        let side = (SIDE - 1) * SUBDIV + 1;
-        let last = side - 1;
-        for missing in [&[][..], &[(-1, 1), (1, -1)][..], &[(-1, 0), (-1, 1), (2, 1)][..]] {
-            let a = smoothed((0, 0), missing);
-            let north = smoothed((0, 1), missing);
-            let east = smoothed((1, 0), missing);
-            for k in 0..side {
-                let (top, bottom) = (last * side + k, k);
-                assert_eq!(a.heights()[top], north.heights()[bottom], "north edge {k} ({missing:?})");
-                let (right, left) = (k * side + last, k * side);
-                assert_eq!(a.heights()[right], east.heights()[left], "east edge {k} ({missing:?})");
-            }
-            if missing.is_empty() {
-                for k in 0..side {
-                    assert_eq!(a.normals().unwrap()[last * side + k], north.normals().unwrap()[k], "north normal {k}");
-                    assert_eq!(a.normals().unwrap()[k * side + last], east.normals().unwrap()[k * side], "east normal {k}");
-                }
-            }
+        for missing in [&[][..], &[(-1, 1), (1, -1)][..], &[(-1, 0), (-1, 1), (2, 1)][..], &[(0, 1)][..], &[(1, 1), (-1, -1)][..]] {
+            assert_edges_agree(world, missing);
         }
         // The corner four cells share.
+        let side = (SIDE - 1) * SUBDIV + 1;
         let ne = smoothed((1, 1), &[]);
         assert_eq!(smoothed((0, 0), &[]).heights()[side * side - 1], ne.heights()[0]);
+    }
+
+    /// A missing cell is filled in the same way whichever cell reads it: with heights
+    /// 8 (Y - 32)² and the cell north of (0, 0) missing (the one north-east of it there),
+    /// (0, 0) and (1, 0) once disagreed on the normals along their edge (review of #2149).
+    #[test]
+    fn a_missing_neighbour_is_filled_the_same_from_both_sides() {
+        fn bowl(_x: i32, y: i32) -> f32 {
+            8.0 * ((y - 32) * (y - 32)) as f32
+        }
+        assert_edges_agree(bowl, &[(0, 1)]);
+        assert_edges_agree(bowl, &[(0, 1), (-1, 0)]);
+        assert_edges_agree(world, &[(0, 1), (1, -1), (-1, 1)]);
     }
 
     #[test]
