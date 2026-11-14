@@ -829,7 +829,15 @@ pub(crate) fn setup(app: &mut App) {
     app.insert_resource(SettingsFile::for_run(crate::test_aid::Unattended::from_env().0));
     app.add_systems(PostStartup, (apply_stored, crate::bindings::apply_stored));
     app.add_systems(PostStartup, fix_ui_scale.after(apply_stored));
+    app.add_systems(PostStartup, fix_smooth_terrain.after(apply_stored));
     app.add_systems(Update, revert_unkept);
+}
+
+/// Whether the landscape is smoothed is fixed for the run once the INI is read
+/// (`crate::smooth_terrain`): before the first cell loads, for drawing and collision alike.
+pub fn fix_smooth_terrain() {
+    crate::smooth_terrain::fix();
+    info!("{}", crate::smooth_terrain::describe());
 }
 
 /// The UI scale is fixed for the run once the INI is read (`crate::interface::fix_ui_scale`).

@@ -286,6 +286,20 @@ pub fn register(app: &mut App) {
             slider: None,
         },
     );
+    // Whether the landscape is smoothed (#2149): read when the game starts, so the row
+    // keeps the next start's state (nvf_play::smooth_terrain).
+    add_setting(
+        app,
+        Setting {
+            key: nvf_play::smooth_terrain::KEY,
+            group: GROUP_GRAPHICS,
+            label: "Smooth terrain",
+            note: nvf_play::smooth_terrain::NOTE,
+            get: |_| nvf_play::smooth_terrain::setting(),
+            set: |_, on| nvf_play::smooth_terrain::set_setting(on),
+            slider: None,
+        },
+    );
     add_setting(
         app,
         Setting {

@@ -218,6 +218,13 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Terrain smoothing: how far and when (#2149).** [design, #2149] Smoothing is on by
+  default and collision follows it (your decision of 2026-11-13). Chosen here: each grid
+  square in 2 × 2, the surface held within 8 units (one height step, `MAX_DEVIATION`) of
+  the stored triangles, and the setting taking effect at the next start rather than at
+  once (drawn ground and collision must change together). A larger bound rounds more
+  but moves the ground further from placed rocks and roads; 4 × 4 costs four times the
+  vertices again. ([world §3 "Smoothing"](spec-notes/world.md#3-landscape-land))
 - **Linux overlay GPU source priority (#2249).** [design, #2249] `GPU_SOURCE_ORDER`
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.

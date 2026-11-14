@@ -424,7 +424,9 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
     `first-person-body` (`--first-person-body`, player-body.md §1.5), `weapon-sway`
     (`--no-weapon-sway`, player-body.md §1.4a), `sun-shadows`
     (`--sun-shadows`), `grass` (`--no-grass`), `distant-lod` (`--no-lod`), `grade`
-    (`--no-grade`), `overlay` (`--no-overlay`), `navmesh` (`--show-navmesh`).
+    (`--no-grade`), `overlay` (`--no-overlay`), `navmesh` (`--show-navmesh`),
+    `smooth-terrain` (`--no-smooth-terrain`; #2149, on by default, takes effect at the next
+    start: `nvf_play::smooth_terrain`, docs/spec-notes/world.md §3 "Smoothing").
   - What switching while the game runs needed: grass switched off is hidden and cells
     loaded meanwhile are owed theirs (`grass.rs` `GrassOwed`), grown a cell a frame once
     it is on again; head tracking off lets heads ease back, and actors get their

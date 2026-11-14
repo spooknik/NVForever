@@ -186,6 +186,44 @@ apart and the last row/column coincides with the neighbour's first.
   `SDefaultLandNormalTexture=DirtWasteland01_N.dds` [documented]. Before this change
   those quadrants were drawn untextured, which showed as hard-edged patches along quadrant
   edges (owner's screenshot, 2026-10-08) [observed].
+- **Smoothing** [design, #2149: NVForever's own choice, not the original's behaviour]. The
+  grid is coarse (128 units), heights come in steps of 8 and every square is split along
+  the same south-west → north-east diagonal (a [hypothesis] about the original), so ridges
+  zig-zag and gentle slopes show steps; the VNML lighting is already smooth, the facets
+  are in the geometry. The maintainer decided on 2026-11-13: "terrain smoothing should be
+  the default have the collision follow the smoothed surface". The rule
+  (`crates/fnv-world/src/land_surface.rs`, one surface for drawing, collision and every
+  height query):
+  - each grid square is cut into `SUBDIV` × `SUBDIV` = 2 × 2 squares, split along the
+    same diagonal, so every new triangle lies inside one stored triangle;
+  - the new vertices lie on a Catmull-Rom bicubic patch through the LAND vertices; every
+    LAND vertex keeps its stored height exactly;
+  - the patch's distance from the stored triangle is clamped to ± `MAX_DEVIATION` = 8
+    units (one stored step): cliffs and sharp edges keep their shape, placed objects
+    neither float nor sink by more than that;
+  - along a cell edge the patch reads the neighbouring cells' LAND (all eight, so the
+    corners too): a vertex outside the cell comes from the cell that owns it, else the
+    other one that has it, else it is the point reflection of the vertex as far inside
+    through the edge vertex; each new vertex is worked out in one fixed square, so both
+    cells of an edge compute it from the same numbers and their edges are identical
+    (heights and normals);
+  - the normals are central differences of the smoothed heights (one vertex of margin
+    beyond the cell); the vertex colours and the texture layers' opacities are
+    interpolated on the stored triangles, so the paint lies where it did;
+  - collision (`fnv-phys` terrain, `collider_surface`), `PhysState::terrain_z`, grass,
+    the feet and detection probes use the same surface, so actors and objects stand on
+    what is drawn.
+  The setting `smooth-terrain` (Graphics, on by default; `--no-smooth-terrain`) takes
+  effect at the next start: off, the stored triangles are drawn and collided exactly as
+  before. Not smoothed: the Pip-Boy local map's outline and the console's CenterOnCell
+  (the cell's centre is a LAND vertex). Distant LOD is not touched: its chunks are sunk
+  under the loaded cells with skirts (§7), and the loaded edge moves only between LAND
+  vertices, by at most 8 units. On Goodsprings' cells (−17, 0) and (−18, 0), 1,084 and
+  1,541 of the 3,136 new vertices move by more than half a unit, the 95th percentile by
+  3.3 and 4.6 units, and 19 and 43 reach the bound [observed 2026-11-14: `fnvtool world
+  land` of the nine cells around each, with a port of the rule]. Cost: four times the terrain vertices (17 × 17 → 33 × 33
+  per quadrant mesh, blended layers included) and nine LAND height reads per cell
+  instead of one; frame cost and memory to be measured.
 
 ## 4. Reference rotation convention
 
