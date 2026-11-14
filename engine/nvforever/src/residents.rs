@@ -428,7 +428,7 @@ impl Mover for PhysMover<'_> {
             Steer::Arrived | Steer::OffPath => {
                 phys.remove_npc(id);
                 walker.travelled += (feet[0] - walker.feet[0]).hypot(feet[1] - walker.feet[1]);
-                walker.feet = feet;
+                walker.feet = phys.stored_feet(feet);
                 walker.turning = false;
                 walker.moving = false;
                 return Some(WalkEvent::Arrived);
@@ -494,7 +494,7 @@ impl Mover for PhysMover<'_> {
                     }
                     None => {
                         self.skip_until.insert(id, self.now + 4.0);
-                        walker.feet = feet;
+                        walker.feet = phys.stored_feet(feet);
                         give_up(phys, walker, f);
                         return None;
                     }
@@ -565,7 +565,7 @@ impl Mover for PhysMover<'_> {
                             walker.heading = heading_of(dir);
                         }
                         walker.travelled += dir[0].hypot(dir[1]);
-                        walker.feet = to;
+                        walker.feet = phys.stored_feet(to);
                         walker.turning = false;
                         walker.tri = fnv_nav::graph::NONE;
                         walker.follower = Some(f);
@@ -593,7 +593,7 @@ impl Mover for PhysMover<'_> {
                             self.skip_until.insert(id, self.now + PHYSICS_RETRY);
                             self.unstuck.remove(&id);
                             self.stats[1] += 1;
-                            walker.feet = feet;
+                            walker.feet = phys.stored_feet(feet);
                             give_up(phys, walker, f);
                             return None;
                         }
@@ -608,14 +608,14 @@ impl Mover for PhysMover<'_> {
                     self.skip_until.insert(id, self.now + PHYSICS_RETRY);
                     self.unstuck.remove(&id);
                     self.stats[1] += 1;
-                    walker.feet = feet;
+                    walker.feet = phys.stored_feet(feet);
                     give_up(phys, walker, f);
                     return None;
                 }
             },
         };
         walker.travelled += (feet[0] - walker.feet[0]).hypot(feet[1] - walker.feet[1]);
-        walker.feet = feet;
+        walker.feet = phys.stored_feet(feet);
         walker.tri = fnv_nav::graph::NONE;
         walker.follower = Some(f);
         walker.moving = event == WalkEvent::Moved && velocity != [0.0, 0.0];
@@ -657,7 +657,7 @@ impl Mover for PhysMover<'_> {
             b.velocity = [d[0] * speed, d[1] * speed];
         }
         walker.travelled += (feet[0] - walker.feet[0]).hypot(feet[1] - walker.feet[1]);
-        walker.feet = feet;
+        walker.feet = phys.stored_feet(feet);
         walker.tri = fnv_nav::graph::NONE;
         walker.turning = false;
         let c = self.coasting.entry(id).or_insert_with(|| {
@@ -1232,8 +1232,8 @@ fn is_actor(refs: &RefTable, id: FormId) -> bool {
 }
 
 impl Residents {
-    /// Put an actor's walker where its body now stands (game space feet, heading), as
-    /// after getting up from furniture: a knocked-out actor laid over its ragdoll to get up
+    /// Put an actor's walker where its body now stands (game space feet, heading; over
+    /// the stored landscape, `PhysState::stored_feet`), as after getting up from furniture: a knocked-out actor laid over its ragdoll to get up
     /// (`knockouts.rs`) is drawn there from now on. False for an actor that is not a
     /// resident.
     pub fn put_walker(&mut self, actor: FormId, feet: [f32; 3], heading: f32) -> bool {
@@ -2051,6 +2051,8 @@ impl Core {
         for (&id, &(from, asked)) in &last {
             let Some(feet) = phys.npcs.get(&id).map(|b| b.ch.feet) else { continue };
             if let Some(a) = self.ai.agents.get_mut(&FormId(id)).filter(|a| a.activity != Activity::Travelling) {
+                // Kept over the stored landscape, as every walker's feet (#2149).
+                let feet = phys.stored_feet(feet);
                 a.walker.feet = feet;
                 a.walker.tri = fnv_nav::graph::NONE;
                 let place = fnv_nav::path::Place { space: a.walker.space, pos: feet };
@@ -3184,8 +3186,8 @@ pub fn drive(
         // steps run at a fixed rate, and frames that held none showed the actor standing
         // (no movement this frame, so the idle clip), which made walks stop and start.
         // Without a character, standing: on the drawn ground when its feet rest on the
-        // collision as a character's would; where its character left it, as it was
-        // drawn; on the bare landscape, with the smoothed surface (#2149), unless the
+        // collision as a character's would. Its feet are kept over the stored landscape
+        // (`PhysState::stored_feet`) and stand on the smoothed one (#2149), unless the
         // furniture has it (walking up to it, on it or getting off: `on`). One waiting for
         // a seat or refused one stands free and follows the landscape.
         let on_landscape = !on;

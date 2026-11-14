@@ -219,14 +219,18 @@ apart and the last row/column coincides with the neighbour's first.
   effect at the next start: off, the stored triangles are drawn and collided exactly as
   before. The Pip-Boy local map's outline reads the same surface beyond the loaded
   collision; the console's CenterOnCell reads the stored grid, which is the same there
-  (the cell's centre is a LAND vertex). An actor standing without a physics character at
-  an authored or navmesh height over the bare landscape (within 32 units of the stored
-  triangles, the landscape the first collision under it, not walking up to, on or
-  getting off furniture) is drawn as far above the smoothed surface as it stood above
-  the stored triangles (`nvf_play::phys` `landscape_lift`); one whose feet rest on the
-  collision is drawn on it as before, and feet a physics character left are drawn as the
-  character was (never lifted twice). The answer is kept per actor and looked at again
-  when its feet change or collision loads or unloads next to it. Distant LOD is not touched: its chunks are sunk
+  (the cell's centre is a LAND vertex). An actor's own feet (the walker's, which the game
+  keeps and saves) are always over the stored triangles: authored and navmesh heights
+  are, and feet taken from a physics character or a body on the ground are lowered by
+  the lift there when they stand on the bare landscape (`PhysState::stored_feet`).
+  Standing without a character on the bare landscape (within 32 units of the stored
+  triangles, the landscape the first collision under it, not while furniture has the
+  actor), they stand on `feet + lift` (`landscape_lift`, the smoothed surface's height
+  over the stored triangles there), and from there as before: on the drawn ground where
+  they rest on the collision, else at those feet. The lift depends on the place only, so
+  feet a character left are lifted back exactly once, also after a trip indoors or a
+  save and load. The answer is kept per actor and looked at again when its feet change
+  or collision loads or unloads next to it. Distant LOD is not touched: its chunks are sunk
   under the loaded cells with skirts (§7), and the loaded edge moves only between LAND
   vertices, by at most 8 units. On Goodsprings' cells (−17, 0) and (−18, 0), 1,084 and
   1,541 of the 3,136 new vertices move by more than half a unit, the 95th percentile by

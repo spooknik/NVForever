@@ -246,7 +246,10 @@ fn show_knockouts(
                         // when it has one: the walker comes along, and the character is made
                         // again where it stands when it next walks.
                         if let Some(res) = residents.as_deref_mut() {
-                            res.put_walker(id, t.translation.to_array(), crate::nav::tr_heading(&t));
+                            // Walker feet are kept over the stored landscape (#2149).
+                            let at = t.translation.to_array();
+                            let at = phys.as_deref_mut().map_or(at, |p| p.stored_feet(at));
+                            res.put_walker(id, at, crate::nav::tr_heading(&t));
                         }
                         if let Some(p) = phys.as_deref_mut() {
                             p.remove_npc(r.0);

@@ -965,8 +965,11 @@ fn an_actor_standing_on_the_landscape_follows_the_smoothed_surface() {
     assert_eq!(p.standing_drawn_feet(1, [x, y, stored], false), [x, y, stored]);
     // Far above the ground (on something the collision does not know): where its feet are.
     assert_eq!(p.standing_drawn_feet(2, [x, y, stored + 200.0], true), [x, y, stored + 200.0]);
-    // Resting on the collision as a character would: on the drawn ground, as before.
-    let rest = p.standing_drawn_feet(3, [x, y, smooth + fnv_phys::TERRAIN_SHELL], true);
+    // A character's rest height on the collision, kept over the stored landscape
+    // (`stored_feet`): back on the collision when drawn, so on the drawn ground, as before.
+    let kept = p.stored_feet([x, y, smooth + fnv_phys::TERRAIN_SHELL]);
+    assert!((kept[2] - (stored + fnv_phys::TERRAIN_SHELL)).abs() < 1e-3, "{kept:?}");
+    let rest = p.standing_drawn_feet(3, kept, true);
     assert!((rest[2] - smooth).abs() < 0.1, "{rest:?}");
     // On the static box standing on the ground: where its feet are.
     let (bx, by) = spots[1];
@@ -1006,10 +1009,12 @@ fn a_standing_actor_is_looked_at_again_when_its_collision_loads() {
 }
 
 /// A character that walks and stops on a sloping, smoothed landscape and is then taken
-/// away is drawn where it was drawn: its feet came from physics and are not lifted onto
-/// the landscape a second time (#2149, review round 2).
+/// away leaves its feet over the stored landscape (`stored_feet`), and they are drawn
+/// back on the run's surface once: not lifted a second time, also after a reset of the
+/// physics (a trip indoors) when nothing of the character is left (#2149, review rounds
+/// 2 and 3).
 #[test]
-fn feet_a_character_left_are_drawn_as_the_character_was() {
+fn feet_a_character_left_are_lifted_once_also_after_a_reset() {
     let (d, sim) = (play_data(), sim());
     let ctx = LoadCtx { d: &d, sim: &sim, data: None };
     let mut p = PhysState { fake: Some(smooth_cell), loader: loader::Loader::manual(), ..Default::default() };
@@ -1029,11 +1034,22 @@ fn feet_a_character_left_are_drawn_as_the_character_was() {
     let (feet, sink) = (b.ch.feet, b.sink);
     assert!(b.ch.grounded, "it came to rest on the landscape: {feet:?}");
     assert!((feet[0] - x).hypot(feet[1] - y) > 1.0, "it walked: {feet:?} from ({x}, {y})");
+    // As the residents do when a walk ends: the character goes, the walker keeps the feet
+    // over the stored landscape.
+    let kept = p.stored_feet(feet);
     p.remove_npc(7);
-    let drawn = p.standing_drawn_feet(7, feet, true);
-    assert_eq!(drawn, [feet[0], feet[1], feet[2] - sink], "drawn where its character was drawn");
-    // Feet moved since (a walk on the navmesh): no longer the character's.
-    let moved = [feet[0] + 50.0, feet[1], feet[2]];
-    let _ = p.standing_drawn_feet(7, moved, true);
-    assert!(!p.left.contains_key(&7));
+    let lift = p.landscape_lift(kept).expect("on the bare landscape");
+    assert!((kept[2] + lift - feet[2]).abs() < 1e-3, "kept {kept:?} lifted by {lift} is the character's feet {feet:?}");
+    // Drawn at the character's feet, or on the drawn ground where they rest: never the
+    // character's feet lifted again.
+    let drawn = p.standing_drawn_feet(7, kept, true);
+    let once = |d: [f32; 3]| (d[2] - feet[2]).abs() < 1e-3 || (d[2] - (feet[2] - sink)).abs() < 1e-3;
+    assert!(once(drawn), "drawn {drawn:?}, character's feet {feet:?} drawn {sink} lower");
+    // A trip indoors and back: everything the physics knew is gone, the same feet are
+    // drawn in the same place.
+    p.reset(Space::Interior(9));
+    p.reset(Space::Exterior);
+    p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    assert!(p.cells.contains_key(&PhysCell::Exterior(0, 0)));
+    assert_eq!(p.standing_drawn_feet(7, kept, true), drawn);
 }

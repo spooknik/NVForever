@@ -136,11 +136,6 @@ pub struct PhysState {
     /// landscape, and how far below them the body is drawn
     /// ([`PhysState::standing_drawn_feet`]).
     standing: HashMap<u32, ([f32; 3], bool, f32)>,
-    /// Where each actor's character stood, and how far below it its body was drawn, when
-    /// the character was taken away ([`PhysState::remove_npc`]): feet still there came
-    /// from physics and are drawn as the character was, never lifted onto the landscape
-    /// again ([`PhysState::standing_drawn_feet`], #2149).
-    left: HashMap<u32, ([f32; 3], f32)>,
     pub stats: PhysStats,
     /// Feet before the last fixed step (the camera interpolates from it).
     pub(crate) prev_feet: [f32; 3],
@@ -217,7 +212,6 @@ impl Default for PhysState {
             player_lift: step_lift::StepLift::default(),
             actor_heights: HashMap::new(),
             standing: HashMap::new(),
-            left: HashMap::new(),
             stats: PhysStats::default(),
             prev_feet: [0.0; 3],
             persistent_by_grid: HashMap::new(),
@@ -1614,7 +1608,6 @@ impl PhysState {
 
     pub fn remove_npc(&mut self, id: u32) {
         if let Some(b) = self.npcs.remove(&id) {
-            self.left.insert(id, (b.ch.feet, b.sink));
             self.world.remove_character(b.ch);
         }
     }
@@ -1631,33 +1624,28 @@ impl PhysState {
         }
     }
 
-    /// Where actor `id`, standing at `feet` without a character, is drawn. Feet where a
-    /// character rests (the contact shell above the collision under them, within
-    /// [`REST_TOLERANCE`]: where a walk by physics, the arrival rule or a placement on
-    /// the ground left them) are drawn as a character's would be, on the drawn ground
-    /// ([`PhysState::ground_drawn`]). Feet where its character was taken away from it
-    /// ([`PhysState::remove_npc`]) are drawn as the character was. Others (a placed
-    /// height, the navmesh's height) are drawn at `feet`, except that with `on_landscape`
-    /// (not for an actor under the furniture's control) feet standing on the bare
-    /// landscape follow the smoothed surface: drawn as far above it as they were above the
-    /// stored triangles ([`PhysState::landscape_lift`], #2149). Looked up again when the
-    /// feet or `on_landscape` change and when collision comes or goes next to them.
+    /// Where actor `id`, standing at `feet` without a character, is drawn.
+    ///
+    /// An actor's own feet (its walker's) are always kept over the stored LAND triangles
+    /// (#2149): authored and navmesh heights are, and feet taken from a physics character
+    /// are brought back there ([`PhysState::stored_feet`]). On the bare landscape (with
+    /// `on_landscape`: not while the furniture has the actor) they stand on the run's
+    /// surface `feet + `[`PhysState::landscape_lift`] (the same feet when not smoothed).
+    /// Feet there that rest on the collision (the contact shell above it, within
+    /// [`REST_TOLERANCE`]: where a walk by physics, the arrival rule or a placement on the
+    /// ground left them) are drawn as a character's would be, on the drawn ground
+    /// ([`PhysState::ground_drawn`]); others at those feet. Looked up again when the feet
+    /// or `on_landscape` change and when collision comes or goes next to them.
     pub fn standing_drawn_feet(&mut self, id: u32, feet: [f32; 3], on_landscape: bool) -> [f32; 3] {
         let sink = match self.standing.get(&id) {
             Some((at, on, sink)) if *at == feet && *on == on_landscape => *sink,
             _ => {
+                let lift = if on_landscape { self.landscape_lift(feet).unwrap_or(0.0) } else { 0.0 };
+                let at = [feet[0], feet[1], feet[2] + lift];
                 let down = 1.0 + fnv_phys::TERRAIN_SHELL + REST_TOLERANCE;
-                let physics = match self.left.get(&id) {
-                    Some((at, sink)) if *at == feet => Some(*sink),
-                    Some(_) => {
-                        self.left.remove(&id);
-                        None
-                    }
-                    None => None,
-                };
-                let sink = match physics {
-                    Some(sink) => sink,
-                    None => self.authored_sink(feet, down, on_landscape),
+                let sink = match self.ground_under([at[0], at[1], at[2] + 1.0], down, None) {
+                    Some(g) if (at[2] - g.bare - g.shell).abs() <= REST_TOLERANCE => feet[2] - g.drawn,
+                    _ => -lift,
                 };
                 self.standing.insert(id, (feet, on_landscape, sink));
                 sink
@@ -1666,15 +1654,16 @@ impl PhysState {
         [feet[0], feet[1], feet[2] - sink]
     }
 
-    /// [`PhysState::standing_drawn_feet`]'s sink for feet that did not come from a
-    /// character: on the drawn ground when they rest on the collision, else lifted with
-    /// the landscape when `on_landscape` and they stand on it, else none.
-    fn authored_sink(&mut self, feet: [f32; 3], down: f32, on_landscape: bool) -> f32 {
-        match self.ground_under([feet[0], feet[1], feet[2] + 1.0], down, None) {
-            Some(g) if (feet[2] - g.bare - g.shell).abs() <= REST_TOLERANCE => feet[2] - g.drawn,
-            _ if on_landscape => self.landscape_lift(feet).map_or(0.0, |lift| -lift),
-            _ => 0.0,
-        }
+    /// Feet on the run's landscape surface (a physics character's, or a body drawn on the
+    /// ground) brought back over the stored LAND triangles, where an actor's own feet are
+    /// kept ([`PhysState::standing_drawn_feet`], #2149): lowered by the
+    /// [`PhysState::landscape_lift`] there when they stand on the bare landscape, as they
+    /// are otherwise. [`PhysState::standing_drawn_feet`] lifts them back by the same amount
+    /// (the lift depends on the place only), so nothing is lifted twice, whatever happened
+    /// in between (a reset, a save and load).
+    pub fn stored_feet(&mut self, feet: [f32; 3]) -> [f32; 3] {
+        let lift = self.landscape_lift(feet).unwrap_or(0.0);
+        [feet[0], feet[1], feet[2] - lift]
     }
 
     /// How far the smoothed landscape surface lies above the stored LAND triangles under
@@ -1706,7 +1695,6 @@ impl PhysState {
             self.remove_npc(id);
         }
         self.standing.clear();
-        self.left.clear();
         self.loader.clear();
         let all: Vec<PhysCell> = self.cells.keys().copied().collect();
         for c in all {
