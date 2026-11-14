@@ -464,9 +464,10 @@ pub struct DataState {
     drag_from: Option<Vec2>,
     /// The Local Map's outline of the place, as far as it is made.
     outline: Option<Outline>,
-    /// The landscape heights of the cells the outline read (by grid square; `None` for a
-    /// square without land), kept while one outline is made.
-    outline_land: HashMap<(i32, i32), Option<Vec<f32>>>,
+    /// The landscape surfaces of the cells the outline read (by grid square; `None` for a
+    /// square without land), smoothed or stored as the run draws and collides them
+    /// (`crate::smooth_terrain`, #2149), kept while one outline is made.
+    outline_land: HashMap<(i32, i32), Option<fnv_world::land_surface::Surface>>,
     /// How many markers the world map showed when last logged.
     world_logged: Option<(u32, usize, usize, usize, usize)>,
     /// The World Map's marker under the highlight box, when last drawn.
@@ -2525,11 +2526,13 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
     let mut ground = |x: f32, y: f32| -> Option<f32> {
         let ((lo, schema, index), grid) = (data?, grid?);
         let g = ((x / model::CELL).floor() as i32, (y / model::CELL).floor() as i32);
-        let heights = lands.entry(g).or_insert_with(|| {
-            let land = index.cells.get(grid.get(&g)?)?.land?;
-            fnv_world::land::load_land(lo, schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights
+        // The surface the loaded collision has too, so the outline does not change where
+        // the rays leave the loaded cells.
+        let surface = lands.entry(g).or_insert_with(|| {
+            let ids = fnv_world::land_surface::land_ids(g, |n| grid.get(&n).and_then(|c| index.cells.get(c)).and_then(|c| c.land));
+            fnv_world::land_surface::load_surface(lo, schema, &ids, crate::smooth_terrain::on())
         });
-        fnv_phys::terrain::height_at(heights.as_ref()?, x - g.0 as f32 * model::CELL, y - g.1 as f32 * model::CELL)
+        surface.as_ref()?.height_at(x - g.0 as f32 * model::CELL, y - g.1 as f32 * model::CELL)
     };
     let Some(phys) = game.phys.as_mut() else { return };
     let player_key = phys.player.as_ref().map(|c| c.key());

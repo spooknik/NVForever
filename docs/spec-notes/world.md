@@ -203,8 +203,10 @@ apart and the last row/column coincides with the neighbour's first.
     neither float nor sink by more than that;
   - along a cell edge the patch reads the neighbouring cells' LAND (all eight, so the
     corners too): a vertex outside the cell comes from the cell that owns it, else the
-    other one that has it, else it is the point reflection of the vertex as far inside
-    through the edge vertex; each new vertex is worked out in one fixed square, so both
+    other one that has it; where no loaded cell has it, it carries on the nearest lines
+    of present vertices (for the least step k of 1 or 2, the mean over the eight grid
+    directions of 2·a − b from the vertices k and 2k away), a rule of the world vertex
+    alone, so every cell that reads it gets the same value; each new vertex is worked out in one fixed square, so both
     cells of an edge compute it from the same numbers and their edges are identical
     (heights and normals);
   - the normals are central differences of the smoothed heights (one vertex of margin
@@ -215,13 +217,20 @@ apart and the last row/column coincides with the neighbour's first.
     what is drawn.
   The setting `smooth-terrain` (Graphics, on by default; `--no-smooth-terrain`) takes
   effect at the next start: off, the stored triangles are drawn and collided exactly as
-  before. Not smoothed: the Pip-Boy local map's outline and the console's CenterOnCell
-  (the cell's centre is a LAND vertex). Distant LOD is not touched: its chunks are sunk
+  before. The Pip-Boy local map's outline reads the same surface beyond the loaded
+  collision; the console's CenterOnCell reads the stored grid, which is the same there
+  (the cell's centre is a LAND vertex). An actor standing without a physics character at
+  an authored or navmesh height over the bare landscape (within 32 units of the stored
+  triangles, the landscape the first collision under it, not at furniture) is drawn as
+  far above the smoothed surface as it stood above the stored triangles
+  (`nvf_play::phys` `landscape_lift`); one whose feet rest on the collision is drawn on
+  it as before. Distant LOD is not touched: its chunks are sunk
   under the loaded cells with skirts (§7), and the loaded edge moves only between LAND
   vertices, by at most 8 units. On Goodsprings' cells (−17, 0) and (−18, 0), 1,084 and
   1,541 of the 3,136 new vertices move by more than half a unit, the 95th percentile by
-  3.3 and 4.6 units, and 19 and 43 reach the bound [observed 2026-11-14: `fnvtool world
-  land` of the nine cells around each, with a port of the rule]. Cost: four times the terrain vertices (17 × 17 → 33 × 33
+  3.3 and 4.6 units, and 19 and 43 reach the bound [documented: `fnvtool world land`
+  heights of the nine cells around each (FalloutNV.esm, WastelandNV), run through a
+  Python port of the rule above on 2026-11-14; a calculation, not a game run]. Cost: four times the terrain vertices (17 × 17 → 33 × 33
   per quadrant mesh, blended layers included) and nine LAND height reads per cell
   instead of one; frame cost and memory to be measured.
 
