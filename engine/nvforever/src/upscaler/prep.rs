@@ -27,7 +27,10 @@
 // `upscaler.rs` allows dead code for its not yet wired status types; this module is wired.
 #![warn(dead_code)]
 
-use std::{borrow::Cow, sync::atomic::AtomicBool};
+use std::{
+    borrow::Cow,
+    sync::atomic::{AtomicBool, AtomicU8},
+};
 
 use bevy::camera::{CameraMainTextureUsages, MainPassResolutionOverride};
 use bevy::diagnostic::FrameCount;
@@ -317,9 +320,10 @@ pub(crate) struct PreparedUpscale {
     resolution: wgpu::Buffer,
     /// The upscaler reconstructed this frame (not the spatial fallback).
     pub(crate) history_valid: AtomicBool,
-    /// A backend without state of its own has said that it draws this view (Bilinear's
-    /// `bilinear_pass`, once per prepared view: each switch on and each new size).
-    pub(crate) drawing_said: AtomicBool,
+    /// What a backend without state of its own last said of drawing this view: 0 nothing yet
+    /// (Bilinear's `bilinear_pass` says it once per prepared view, each switch on and each new
+    /// size, and again when the picture turns HDR or 8-bit: `bilinear::says_drawing`).
+    pub(crate) drawing_said: AtomicU8,
 }
 
 impl PreparedUpscale {
@@ -334,7 +338,7 @@ impl PreparedUpscale {
                 label: Some("fsr_resolution"), contents: &resolution_bytes, usage: wgpu::BufferUsages::UNIFORM,
             }),
             history_valid: AtomicBool::new(false),
-            drawing_said: AtomicBool::new(false),
+            drawing_said: AtomicU8::new(0),
         }
     }
 }

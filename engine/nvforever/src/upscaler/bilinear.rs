@@ -26,7 +26,7 @@ use bevy::render::{
     renderer::{RenderContext, RenderDevice, ViewQuery},
     view::ViewTarget,
 };
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use super::prep::{Policy, PreparedUpscale, UpscaleRenderer, UpscaleSettings};
 use super::UpscaleQuality;
@@ -73,6 +73,15 @@ impl DepthReaders {
     }
 }
 
+/// Whether the stretch says what it draws this frame (`Bilinear stretch active: ...`): the first
+/// frame of a prepared view, and each frame its picture has turned HDR or 8-bit since it last
+/// said so (the light glow switched while Bilinear draws: `graphics::apply`); `said` is the
+/// prepared view's [`super::prep::PreparedUpscale::drawing_said`] (0 nothing yet, 1 8-bit, 2 HDR).
+fn says_drawing(said: &AtomicU8, hdr: bool) -> bool {
+    let now = if hdr { 2 } else { 1 };
+    said.swap(now, Ordering::Relaxed) != now
+}
+
 /// Bilinear's pass for a view it draws: the render rectangle stretched to the display size
 /// (`prep::Pipelines::stretch`, with the scene's alpha restored where a shape marks it), then
 /// the depth prepass expanded to the display size, as FSR and DLSS do, but only when a pass
@@ -110,9 +119,10 @@ pub(crate) fn bilinear_pass(
         span.end(ctx.command_encoder());
         return;
     }
-    if !prepared.drawing_said.swap(true, Ordering::Relaxed) {
+    let hdr = target.main_texture_format() == wgpu::TextureFormat::Rgba16Float;
+    if says_drawing(&prepared.drawing_said, hdr) {
         let (render, output) = (prepared.render_size, prepared.output_size);
-        let picture = if target.main_texture_format() == wgpu::TextureFormat::Rgba16Float { "HDR" } else { "8-bit" };
+        let picture = if hdr { "HDR" } else { "8-bit" };
         info!("Bilinear stretch active: {}x{} -> {}x{}, {picture} picture", render.x, render.y, output.x, output.y);
     }
     let readers = DepthReaders {
@@ -144,6 +154,17 @@ mod tests {
             assert_eq!(p.render_size, quality.render_size(output));
         }
         assert_eq!(policy(UpscaleQuality::UltraPerformance, UVec2::new(2, 2)).render_size, UVec2::ONE, "never empty");
+    }
+
+    /// The stretch says what it draws on a prepared view's first frame and again each time its
+    /// picture turns HDR or 8-bit (the glow switched), not every frame.
+    #[test]
+    fn the_stretch_says_each_picture_format_it_turns_to() {
+        let said = AtomicU8::new(0);
+        let frames = [false, false, true, true, false, false, true];
+        let says: Vec<bool> = frames.iter().map(|hdr| says_drawing(&said, *hdr)).collect();
+        assert_eq!(says, [true, false, true, false, true, false, true]);
+        assert!(says_drawing(&AtomicU8::new(0), true), "a new prepared view (switched on, resized) says it at once");
     }
 
     /// The depth is expanded only for a pass that reads it after the stretch: none at the Low

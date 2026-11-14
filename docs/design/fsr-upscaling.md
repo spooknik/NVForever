@@ -654,12 +654,20 @@ How [design: `upscaler/bilinear.rs`, `upscaler/prep.rs`, `graphics.rs` `apply`]:
   and menus draw after it, at the window's size.
 - **Native AA** with Bilinear draws at full size and changes nothing but adds the copy.
 - **What it says**: `Bilinear stretch active: 640x360 -> 1280x720, HDR picture` (or `8-bit
-  picture`) once per prepared view (each switch on, each new size); the performance overlay's
-  Upscaling row `Bilinear Performance  640x360 -> 1280x720`. Smoke: `bilinear-quality`
-  (Goodsprings, enhanced, from the command line: the HDR picture), `bilinear-8-bit` (the glow
-  off, ambient occlusion and FXAA on: the 8-bit picture), `bilinear-switch` (FSR 3.1, then
-  Bilinear picked, its mode changed, the window resized, FSR again and Off, on the settings page
-  while playing).
+  picture`) once per prepared view (each switch on, each new size) and again when the picture
+  turns HDR or 8-bit (`bilinear::says_drawing`); the performance overlay's Upscaling row
+  `Bilinear Performance  640x360 -> 1280x720`. Switching the ambient occlusion off says
+  `ambient occlusion: off on a view, its passes and occlusion texture let go` (and `its uniform
+  index`): the view's prepared occlusion goes with the camera's component (`ssao.rs`
+  `forget_without_ao`; Bevy's extraction removes only the component itself from the render
+  view), so no occlusion pass runs on stale state and Bilinear stops expanding the depth for it.
+  Smoke: `bilinear-quality` (Goodsprings, enhanced, from the command line: the HDR picture),
+  `bilinear-8-bit` (the glow off, ambient occlusion and FXAA on: the 8-bit picture),
+  `bilinear-switch` (FSR 3.1, then Bilinear picked, its mode changed, the window resized, FSR
+  again and Off, on the settings page while playing), `bilinear-glow-switch` (the glow on and
+  off while Bilinear draws: HDR, then 8-bit again), `bilinear-ao-switch` and
+  `bilinear-ao-after-switch` (the occlusion on and off, before the upscaler and with
+  `NVF_AO_BEFORE_FSR=0` after tonemapping).
 - **Measured on the N150** (Intel N150 integrated graphics, 1920x1080 output, Bilinear
   Performance at 960x540, the Low preset, GPU ms a frame) [observed, 2026-11-14: the main
   session's profile build]. Before the two changes above (the view always HDR, the depth

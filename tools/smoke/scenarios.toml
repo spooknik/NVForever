@@ -24809,6 +24809,75 @@ order = [[
 forbid = [{ text = "requires a single-sampled HDR view", label = "an unusable view: drawn natively" }, { text = "FSR dispatch failed", label = "an FSR dispatch failing" }, { re = 'FSR reactive reference: .* not drawn', label = "FSR's reference pass failing" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "panicked", label = "a panic" }]
 
 [[scenario]]
+name = "bilinear-glow-switch"
+source = "#2414, docs/design/fsr-upscaling.md \"Bilinear\": the light glow switched on and off on the settings page while Bilinear Performance draws: the view turns HDR (the glow with its eye adaptation, whose metering mask reads the depth Bilinear then expands) and back to 8-bit, the stretch and the passes after it through the pipelines of each format, no rendering errors"
+note = "graphics.rs apply (Hdr only with the glow under Bilinear), upscaler/prep.rs format_suitable and Pipelines::ensure_format, upscaler/bilinear.rs says_drawing (the stretch says its picture again each time it turns HDR or 8-bit) and DepthReaders (eye_mask), ssao.rs format_matches. --graphics-only no-glow,fxaa starts 8-bit as in bilinear-8-bit; each pause is resumed so the picture is drawn while playing. 640x360 is FSR's ratio 2 at 1280x720. In the frame the format turns, the view and its main texture may disagree; a pipeline of the other format would be a validation error"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/fsr_fallback.wgsl", "engine/nvforever/src/fsr_depth.wgsl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/eye_adapt.rs", "engine/nvforever/src/post.rs"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "bilinear-glow-switch-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:15", NVF_PLAY_TEST_SETTINGS = "8.5:glow,13.5:glow" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "bilinear", "--upscaler-quality", "performance", "--graphics-only", "no-glow,fxaa", "--no-voice", "--no-lodgen"]
+run_seconds = 18
+expect = ["graphics: Bilinear Performance active", "settings: glow on", "settings: glow off"]
+order = [[
+  { text = "Bilinear stretch active: 640x360 -> 1280x720, 8-bit picture", label = "8-bit at start: the glow off" },
+  "settings: glow on",
+  { re = 'graphics: light glow, FXAA, bilinear upscaling$', label = "the glow on" },
+  { text = "Bilinear stretch active: 640x360 -> 1280x720, HDR picture", label = "the view turned HDR for the glow" },
+  "settings: glow off",
+  { re = 'graphics: FXAA, bilinear upscaling$', label = "the glow off" },
+  { text = "Bilinear stretch active: 640x360 -> 1280x720, 8-bit picture", label = "back to the 8-bit view" },
+]]
+forbid = [{ text = "FSR 3.1.4:", label = "FSR's state made for Bilinear" }, { text = "FSR dispatch", label = "an FSR dispatch" }, { text = "requires a single-sampled HDR view", label = "an unusable view: drawn natively" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error (a pipeline of the other format, a pass bound to a stale texture)" }, { text = "panicked", label = "a panic" }]
+
+[[scenario]]
+name = "bilinear-ao-switch"
+source = "#2414, docs/design/fsr-upscaling.md \"Bilinear\": the ambient occlusion switched on and off on the settings page while Bilinear Performance draws an 8-bit view; switched off, the view's prepared occlusion (its passes, texture and uniform index) is let go, so no occlusion pass runs on stale state and Bilinear stops expanding the depth for it"
+note = "ssao.rs forget_without_ao (the review of 2026-11-14: the render view kept AoView and the uniform index after the camera's AmbientOcclusion was removed; Bevy removes only the extracted component), ao_pass and ao_before_fsr With<AmbientOcclusion>, upscaler/bilinear.rs DepthReaders through ssao::reads_depth_after_upscaler. --graphics-only no-glow,fxaa starts without the occlusion and 8-bit; each pause is resumed so the picture is drawn while playing. One camera carries it, so each let-go line comes once"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/fsr_fallback.wgsl", "engine/nvforever/src/fsr_depth.wgsl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "bilinear-ao-switch-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:15", NVF_PLAY_TEST_SETTINGS = "8.5:ambient-occlusion,13.5:ambient-occlusion" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "bilinear", "--upscaler-quality", "performance", "--graphics-only", "no-glow,fxaa", "--no-voice", "--no-lodgen"]
+run_seconds = 18
+expect = [
+  "graphics: Bilinear Performance active",
+  { text = "ambient occlusion: off on a view, its passes and occlusion texture let go", count = 1, label = "switched off: the view's occlusion passes and texture let go, once" },
+  { text = "ambient occlusion: off on a view, its uniform index let go", count = 1, label = "switched off: the view's uniform index let go, once" },
+]
+order = [[
+  { text = "Bilinear stretch active: 640x360 -> 1280x720, 8-bit picture", label = "Bilinear draws the 8-bit view" },
+  "settings: ambient-occlusion on",
+  { re = 'graphics: ambient occlusion, FXAA, bilinear upscaling$', label = "the occlusion on" },
+  "settings: ambient-occlusion off",
+  { re = 'graphics: FXAA, bilinear upscaling$', label = "the occlusion off" },
+  "ambient occlusion: off on a view, its passes and occlusion texture let go",
+]]
+forbid = [{ text = "FSR 3.1.4:", label = "FSR's state made for Bilinear" }, { text = "FSR dispatch", label = "an FSR dispatch" }, { text = "requires a single-sampled HDR view", label = "an unusable view: drawn natively" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error (a pipeline of the other format, a pass bound to a stale texture)" }, { text = "panicked", label = "a panic" }]
+
+[[scenario]]
+name = "bilinear-ao-after-switch"
+source = "#2414, docs/design/fsr-upscaling.md \"Bilinear\": the ambient occlusion switched on and off on the settings page while Bilinear Performance draws an 8-bit view, with the occlusion applied after tonemapping (NVF_AO_BEFORE_FSR=0), the one reader of the depth Bilinear expands among these settings; switched off, the view's prepared occlusion (its passes, texture and uniform index) is let go, so no occlusion pass runs on stale state and Bilinear stops expanding the depth for it"
+note = "ssao.rs forget_without_ao (the review of 2026-11-14: the render view kept AoView and the uniform index after the camera's AmbientOcclusion was removed; Bevy removes only the extracted component), ao_pass and ao_before_fsr With<AmbientOcclusion>, upscaler/bilinear.rs DepthReaders through ssao::reads_depth_after_upscaler. --graphics-only no-glow,fxaa starts without the occlusion and 8-bit; each pause is resumed so the picture is drawn while playing. One camera carries it, so each let-go line comes once; the occlusion after the upscaler is the case where stale state kept the depth expansion on"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/fsr_fallback.wgsl", "engine/nvforever/src/fsr_depth.wgsl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "bilinear-ao-after-switch-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:15", NVF_PLAY_TEST_SETTINGS = "8.5:ambient-occlusion,13.5:ambient-occlusion", NVF_AO_BEFORE_FSR = "0" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "bilinear", "--upscaler-quality", "performance", "--graphics-only", "no-glow,fxaa", "--no-voice", "--no-lodgen"]
+run_seconds = 18
+expect = [
+  "graphics: Bilinear Performance active",
+  { text = "ambient occlusion: off on a view, its passes and occlusion texture let go", count = 1, label = "the occlusion after tonemapping switched off: its passes and texture let go, once" },
+  { text = "ambient occlusion: off on a view, its uniform index let go", count = 1, label = "the occlusion after tonemapping switched off: its uniform index let go, once" },
+]
+order = [[
+  { text = "Bilinear stretch active: 640x360 -> 1280x720, 8-bit picture", label = "Bilinear draws the 8-bit view, the occlusion to come after tonemapping" },
+  "settings: ambient-occlusion on",
+  { re = 'graphics: ambient occlusion, FXAA, bilinear upscaling$', label = "the occlusion on, applied after tonemapping" },
+  "settings: ambient-occlusion off",
+  { re = 'graphics: FXAA, bilinear upscaling$', label = "the occlusion after tonemapping off" },
+  { text = "ambient occlusion: off on a view, its passes and occlusion texture let go", label = "its state let go after it was switched off: the depth no longer expanded for it" },
+]]
+forbid = [{ text = "FSR 3.1.4:", label = "FSR's state made for Bilinear" }, { text = "FSR dispatch", label = "an FSR dispatch" }, { text = "requires a single-sampled HDR view", label = "an unusable view: drawn natively" }, { text = "Shader validation error", label = "a shader validation error" }, { text = "Validation Error", label = "a Vulkan validation error (a pipeline of the other format, a pass bound to a stale texture)" }, { text = "panicked", label = "a panic" }]
+
+[[scenario]]
 name = "fsr-moving-weapon"
 source = "docs/design/fsr-upscaling.md revision 2: moving camera, animated first-person weapon and NPC rigs exercise real temporal inputs after correcting the motion-buffer binding"
 areas = ["graphics", "player-body", "animation"]
