@@ -100,6 +100,11 @@ impl Plugin for AntiLagInitPlugin {
         // both, and removes nothing.
         unsafe {
             settings.add_create_device_callback(|args, adapter, features| {
+                // Diagnostic (#2825, local build only): leave the extension off the device.
+                if nvf_play::dialogue::debug_switch(std::env::var("NVF_PLAY_DEBUG_NO_ANTI_LAG").ok().as_deref()) {
+                    info!("latency reduction: VK_AMD_anti_lag left off the device (NVF_PLAY_DEBUG_NO_ANTI_LAG)");
+                    return;
+                }
                 if !supported(adapter) {
                     return;
                 }
