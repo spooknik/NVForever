@@ -51,6 +51,8 @@ wgpu = { version = "30", default-features = false, features = ["vulkan"] }
 # MIT FSR 3.1.4 source port, pinned and vendored with shaders/build sources/notices.
 wgpu-ffx = { path = "../vendor/wgpu-ffx/wgpu-ffx" }
 ash = { version = "0.38", default-features = false }
+# Diagnostic (#2825, local build only): an unmapped Vulkan error panics with its VkResult name.
+wgpu-hal = { version = "30", features = ["internal_error_panic"] }
 # Only with the `tracy` feature: the Tracy client Bevy's trace_tracy uses, the version Bevy
 # already pins, made to record only while a viewer is connected (`ondemand`: no data piles
 # up in memory) and to listen and announce itself on this machine only (`only-localhost`);
