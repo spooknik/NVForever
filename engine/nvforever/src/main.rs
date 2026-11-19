@@ -2270,6 +2270,10 @@ fn main() -> AppExit {
         });
     }
     let exit = app.run();
+    // The device-polling thread ended and waited for before anything else (gpu_poll.rs, #1825):
+    // on Linux a thread still polling while `main` returns faults inside the GPU driver's
+    // destructors, and Streamline's shutdown below wants no Vulkan call in parallel.
+    gpu_poll::stop();
     // The app and its renderer are gone; Streamline shut down before the device and instance it
     // used (dlss/, "Shutdown"). Nothing when Streamline was not loaded.
     dlss::shutdown();

@@ -19,11 +19,26 @@
 //! invoked in parallel", Streamline's `sl_core_api.h:130-131`) holds the gate's write side; each
 //! poll holds its read side. Pipeline creation holds the same read side in vendored
 //! `bevy_render::render_resource::pipeline_cache::create_pipeline_task`.
+//!
+//! [`stop`]: `main` ends the thread and waits for it once `App::run` has returned, before
+//! `dlss::shutdown` and before `main` returns (#1825). Left running, it went on polling
+//! while the process exited, and on Linux `exit` runs the libraries' destructors with every
+//! other thread still going: NVIDIA's driver tore its state down under a poll in
+//! `vkGetSemaphoreCounterValue` [observed: a player's core dump, RTX 4060, driver
+//! 615.78.08, 2026-11-19: SIGSEGV at fault address 0xa0 in `libnvidia-glcore`, the `gpu poll`
+//! thread in `wgpu_hal::vulkan` `get_fence_value`], so every run ended in SIGSEGV after
+//! "the game exited normally". Windows ends the other threads before any DLL detaches,
+//! which is why it never showed there [documented: Microsoft Learn, "Terminating a
+//! Process": `ExitProcess` terminates the other threads, then sends `DLL_PROCESS_DETACH`].
+//! The thread holds a clone of the device, dropped as it ends; Streamline keeps clones of its
+//! own until after `slShutdown` (dlss/mod.rs "Shutdown"), so the device outlives that either way.
 
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use bevy::render::{Render, RenderApp, RenderSystems};
-use std::sync::{PoisonError, RwLockWriteGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, RwLockWriteGuard};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use bevy::render::render_resource::RENDER_DEVICE_API_GATE as GATE;
@@ -53,18 +68,104 @@ fn start_poll(device: Res<RenderDevice>, mut started: Local<bool>) {
         return;
     }
     let device = device.wgpu_device().clone();
-    let spawned = std::thread::Builder::new().name("gpu poll".into()).spawn(move || loop {
-        std::thread::sleep(PERIOD);
-        let polled = {
-            let _gate = GATE.read().unwrap_or_else(PoisonError::into_inner);
-            device.poll(wgpu::PollType::Poll)
-        };
-        if let Err(e) = polled {
-            warn!("gpu poll: stopped, {e}");
-            return;
-        }
+    let spawned = Poller::spawn(move || {
+        let _gate = GATE.read().unwrap_or_else(PoisonError::into_inner);
+        device.poll(wgpu::PollType::Poll).map(drop).map_err(|e| e.to_string())
     });
-    if let Err(e) = spawned {
-        warn!("gpu poll: no thread, {e}");
+    match spawned {
+        Ok(p) => *POLLER.lock().unwrap_or_else(PoisonError::into_inner) = Some(p),
+        Err(e) => warn!("gpu poll: no thread, {e}"),
+    }
+}
+
+/// End the polling thread and wait for it (the module comment, [`stop`]). Does nothing when it
+/// never started or has already been stopped.
+pub fn stop() {
+    let poller = POLLER.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(p) = poller {
+        p.stop();
+    }
+}
+
+/// The polling thread while it runs.
+static POLLER: Mutex<Option<Poller>> = Mutex::new(None);
+
+/// A thread calling `poll` every [`PERIOD`] until stopped or until `poll` fails.
+struct Poller {
+    stop: Arc<AtomicBool>,
+    thread: JoinHandle<()>,
+}
+
+impl Poller {
+    fn spawn(mut poll: impl FnMut() -> Result<(), String> + Send + 'static) -> std::io::Result<Self> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopping = Arc::clone(&stop);
+        let thread = std::thread::Builder::new().name("gpu poll".into()).spawn(move || {
+            while !stopping.load(Ordering::Acquire) {
+                std::thread::sleep(PERIOD);
+                if stopping.load(Ordering::Acquire) {
+                    break;
+                }
+                if let Err(e) = poll() {
+                    warn!("gpu poll: stopped, {e}");
+                    return;
+                }
+            }
+        })?;
+        Ok(Self { stop, thread })
+    }
+
+    /// Ask the thread to end and wait until it has: a poll under way finishes first, then
+    /// `poll` (and the device it holds) is dropped on that thread.
+    fn stop(self) {
+        self.stop.store(true, Ordering::Release);
+        if self.thread.join().is_err() {
+            warn!("gpu poll: the thread panicked");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Poller;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    /// Dropped when the poller's closure is: stands in for the device it holds.
+    struct Held(Arc<AtomicUsize>);
+    impl Drop for Held {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn stop_ends_the_thread_and_drops_what_it_holds_before_returning() {
+        let polls = Arc::new(AtomicUsize::new(0));
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let (p, held) = (Arc::clone(&polls), Held(Arc::clone(&dropped)));
+        let poller = Poller::spawn(move || {
+            let _ = &held;
+            p.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .unwrap();
+        let start = Instant::now();
+        while polls.load(Ordering::SeqCst) < 3 {
+            assert!(start.elapsed() < Duration::from_secs(10), "the poller never polled");
+            std::thread::yield_now();
+        }
+        poller.stop();
+        assert_eq!(dropped.load(Ordering::SeqCst), 1, "the closure (and so the device) is dropped by the time stop returns");
+        let after = polls.load(Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(20));
+        assert_eq!(polls.load(Ordering::SeqCst), after, "no poll after stop");
+    }
+
+    #[test]
+    fn a_failed_poll_ends_the_thread_and_stop_still_returns() {
+        let poller = Poller::spawn(|| Err("device lost".into())).unwrap();
+        poller.stop();
     }
 }
