@@ -397,11 +397,16 @@ pub fn add_end_now(app: &mut App) {
 /// its writer otherwise finishes in the teardown this skips), Streamline shut down
 /// (`crate::dlss::end_now`: `main`'s shutdown after `App::run` is skipped too; a player's
 /// runs that left DLSS Frame Generation to the DLLs' detach crashed on this exit [observed],
-/// the detach being the cause is [hypothesis], #2733); the process ends
-/// here, the system freeing its memory at once.
+/// the detach being the cause is [hypothesis], #2733), the device-polling thread stopped
+/// (`crate::gpu_poll::stop`: `main` stops it after `App::run`, which this exit never reaches;
+/// on NVIDIA's Linux driver a poll still running while `exit` tears the driver down faults
+/// at `0xa0` in `libnvidia-glcore` and leaves this run's window and audio up, #1825, #3065);
+/// the process ends here, the system freeing its memory at once.
 fn end_now(world: &mut World) {
     if matches!(world.resource::<Handoff>().0, Leaving::HandedOver) {
         crate::frame_telemetry::finish_for_exit(world);
+        // Before Streamline's shutdown, as in `main`: no Vulkan call alongside it.
+        crate::gpu_poll::stop();
         crate::dlss::end_now(world, "the run hands over to a new one");
         std::process::exit(0);
     }
