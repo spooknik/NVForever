@@ -172,7 +172,7 @@ struct CloudVolume {
     // light (stage 2e)
     // Packed by volumetric_clouds_light.rs `lighting`, read only by `vc_shading`, `vc_ray_light_of` and
     // `vc_incident` (lmode.y). y the column depth per unit height share, z the ambient's fall per optical
-    // depth, w the direct light's weight (the `SUN` aid); x not read here.
+    // depth, w the direct light's weight (the `SUN` aid); x weights diffuse sunlight on a joining dry deck.
     lmode: vec4<f32>,
     // rgb: the weighted light from above (linear); w not read here.
     lupper: vec4<f32>,

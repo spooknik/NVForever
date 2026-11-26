@@ -1520,7 +1520,7 @@ pub struct CloudVolumeUniform {
     // light (stage 2e)
     // volumetric_clouds_light.rs `lighting` packs these.
     /// y: the column depth per unit height share (`table_depth` x density x `MEAN_SHAPE`); z: the ambient's
-    /// fall per optical depth (`AMBIENT_FALL`); w: the direct light's weight (the `SUN` aid); x unused.
+    /// fall per optical depth (`AMBIENT_FALL`); w: the direct light's weight (the `SUN` aid); x: the dry transition's diffuse sunlight weight.
     pub lmode: Vec4,
     /// rgb: the weighted light from above (linear, bounded); w unused.
     pub lupper: Vec4,
@@ -1637,6 +1637,8 @@ pub struct VolumeInputs {
     pub drift: [f64; 2],
     /// The weather's amount: the mean of its composed cover (`CloudCoverOutput::mean_cover`).
     pub amount: f32,
+    /// Diffuse sunlight reaching a lower face as a dry bank joins a deck.
+    pub joining_sun: f32,
     /// `PUFF`: the weight of the connected fair-weather lobes.
     pub puff: f32,
     /// The classification bias of the sky ([`sky_bias`]) and a type forced everywhere.
@@ -2762,6 +2764,7 @@ pub fn usable_values(sky: &SkyState, c: &CloudCoverOutput, i: &VolumeInputs) -> 
         && i.above_ground.is_finite()
         && i.drift.iter().all(|v| v.is_finite())
         && i.uv_scale.is_finite()
+        && i.joining_sun.is_finite()
         && i.light_dir.is_finite()
         && i.light_strength.is_finite()
         && rgb(i.sunlight)
@@ -2824,13 +2827,25 @@ fn count_sky_jumps(
 /// own covers (the amount and the tint shares, [`blend_covers`]).
 fn inputs(sky: &SkyState, c: &CloudCoverOutput, blended: &BlendedCover, temporal: bool) -> VolumeInputs {
     let (light_dir, light_strength) = direct_light(sky.sun_dir(), sky.sun_elevation(), sky.climate.has_moon());
+    let fading = sky.prev.as_ref().filter(|_| sky.fade < 1.0);
+    let dry = |w: &fnv_world::sky::Weather| !w.rainy && w.classification & (4 | 8) == 0;
+    let joining_sun = match c.weathers {
+        [Some(a), Some(b)] if dry(&sky.weather) && fading.is_some_and(dry) && blended.weights.iter().all(|w| *w > 0.0) => {
+            let contrast = (smoothstep(0.55, 0.73, a.mean) - smoothstep(0.55, 0.73, b.mean)).abs();
+            let dense = if a.mean > b.mean { blended.weights[0] } else { blended.weights[1] };
+            // The shader first measures sheet depth at .55 cover. Start there with zero slope.
+            smoothstep(0.55, 0.62, blended.amount) * contrast * dense * (1.0 - smoothstep(0.85, 1.0, dense))
+        }
+        _ => 0.0,
+    };
     START.inputs(VolumeInputs {
         plane_height: c.plane_height,
         above_ground: crate::cloud_shadows::plane_above_ground(),
         uv_scale: c.uv_scale,
         drift: c.drift,
         amount: blended.amount,
-        bias: sky_bias(sky.weather.classification, sky.prev.as_ref().filter(|_| sky.fade < 1.0).map(|w| w.classification), sky.fade),
+        joining_sun,
+        bias: sky_bias(sky.weather.classification, fading.map(|w| w.classification), sky.fade),
         light_dir,
         light_strength,
         sunlight: sky.color(ColorType::Sunlight),
@@ -3011,6 +3026,54 @@ pub(crate) mod tests {
         assert_eq!(blend_covers(b_alone, &[Some(a), None]), None);
         let nan = WeatherCover { mean: f32::NAN, ..b };
         assert_eq!(blend_covers(b_alone, &[Some(nan), None]), None);
+    }
+
+    #[test]
+    fn joining_sunlight_follows_the_denser_dry_weather_in_either_direction() {
+        use crate::cloud_shadows::{live_covers, live_weathers};
+        use fnv_world::sky::Weather;
+
+        let hazy = Weather { form_id: 1, classification: 1, ..Default::default() };
+        let deck = Weather { form_id: 2, classification: 1, ..Default::default() };
+        let at = |from: Option<&Weather>, to: &Weather, fade: f32, means: [f32; 2]| {
+            let mut sky = SkyState::default();
+            (sky.weather, sky.prev, sky.fade) = (to.clone(), from.cloned(), fade);
+            let measured = |id, mean| WeatherCover { id, mean, shares: [mean, 0.0, 0.0, 0.0] };
+            let known = [measured(1, means[0]), measured(2, means[1])];
+            let live = live_weathers(&sky);
+            let weathers = live_covers(&known, live);
+            let blended = blend_covers(live, &weathers).unwrap();
+            let cover = CloudCoverOutput {
+                settling: None, uv_scale: Vec2::ONE, drift: [0.0; 2], plane_height: 20_000.0,
+                mean_cover: blended.amount, layer_cover: blended.layer_cover, layer_weathers: blended.layer_weathers, weathers,
+            };
+            let mut input = inputs(&sky, &cover, &blended, true);
+            input.sky.elevation = 45.0;
+            let u = uniform(&input);
+            let base = uniform(&VolumeInputs { joining_sun: 0.0, ..input });
+            assert_eq!(CloudVolumeUniform { lmode: u.lmode.with_x(0.0), ..u }, base);
+            assert_eq!(needs_write(&u, &base), u.lmode.x != 0.0);
+            u.lmode.x
+        };
+        let means = [0.07, 0.73];
+        let outbound = |dense| at(Some(&hazy), &deck, dense, means);
+        for dense in [0.0, 0.6, 0.75, 0.8, 0.85, 0.9, 0.9999, 1.0] {
+            assert!((outbound(dense) - at(Some(&deck), &hazy, 1.0 - dense, means)).abs() < 1e-6);
+        }
+        assert_eq!(outbound(0.6), 0.0);
+        assert!(outbound(0.8) > 0.5 && outbound(0.85) > 0.84 && outbound(0.9) > 0.65);
+        assert!(outbound(0.9999) < 2e-6);
+        for (from, to) in [(&hazy, &deck), (&deck, &hazy)] {
+            assert_eq!(at(Some(from), to, 0.0, means), 0.0);
+            assert_eq!(at(None, to, 1.0, means), 0.0);
+            assert_eq!(at(Some(from), to, 0.8, [0.65, 0.65]), 0.0);
+            assert!(at(Some(from), to, 0.8, [0.65, 0.65001]) < 0.0001);
+        }
+        for (classification, rainy) in [(4, false), (8, false), (0, true)] {
+            let wet = Weather { classification, rainy, ..deck.clone() };
+            assert_eq!(at(Some(&hazy), &wet, 0.85, means), 0.0);
+            assert_eq!(at(Some(&wet), &hazy, 0.15, means), 0.0);
+        }
     }
 
     /// The weather's type mix: from the amount and the classification bias (blended across a

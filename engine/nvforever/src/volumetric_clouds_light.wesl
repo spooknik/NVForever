@@ -25,8 +25,8 @@ struct VcShading {
     // term alone, 7 the ambient alone, 8 the optical depth toward the light (the other codes shade
     // as 0; the march does not call this for the views it draws on the bent base).
     mode: u32,
-    // The uniform's `lmode`: y the column depth per unit height share, z the ambient's fall, w the
-    // direct light's weight (the `SUN` aid).
+    // The uniform's `lmode`: x the dry transition's diffuse sunlight weight, y the column depth
+    // per unit height share, z the ambient's fall, w the direct light's weight (the `SUN` aid).
     column: vec4<f32>,
     // The light from above and from below, each times its hemisphere weight (`lupper`, `llower`).
     upper: vec3<f32>,
@@ -179,10 +179,12 @@ fn vc_lean_shade(d: vec4<f32>, altitude: f32, depth: f32, sampled: bool, ray: Vc
     let q1 = min(max(max(ray.p1, f), shoulder), ray.cap);
     let phase = (1.0 - s.octave.x) * q0 * v0 + retained * retained * s.octave.x * q1 * v1;
     var source = vc_powder(ext, ray.powder) * phase;
+    var intercepted = 0.0;
     if sheet_depth > 0.0 {
         // [hypothesis] In a continuous deck, the intercepted beam reaches the lower face
         // from a broader area. Estimate its path from the front and the column overhead.
-        let covered = smoothstep(0.55, 0.73, d.z) * (1.0 - exp(-sheet_depth / max(s.rise, 0.25)));
+        intercepted = 1.0 - exp(-sheet_depth / max(s.rise, 0.25));
+        let covered = smoothstep(0.55, 0.73, d.z) * intercepted;
         let path = sheet_depth + mix(bulk, sheet_depth * (1.0 - h), 0.6);
         let scattered = s.octave.x * max(s.rise, 0.0) * vc_through(s.octave.y * path, 1.0);
         source = mix(source, scattered, covered);
@@ -199,6 +201,12 @@ fn vc_lean_shade(d: vec4<f32>, altitude: f32, depth: f32, sampled: bool, ray: Vc
         let diffuse = s.octave.x * max(s.rise, 0.0) * vc_through(path, s.octave.y);
         source = mix(source, diffuse, s.front.x);
         above = mix(above, overhead, s.front.x);
+    }
+    if s.column.x > 0.0 && intercepted > 0.0 {
+        // As a dry bank closes, sunlight scattered across the developing sheet can reach its lower face.
+        let diffuse = s.octave.x * max(s.rise, 0.0) * vc_through(s.octave.y * sheet_depth * (2.0 - h), 1.0);
+        let lower_face = 1.0 - smoothstep(0.25, 0.65, h);
+        source += max(diffuse - source, 0.0) * (s.column.x * intercepted * lower_face);
     }
     var direct = ray.light * (s.column.w * source);
     let lower = s.lower * mix(1.0, VC_LEAN_FAIR_LOWER, fair);

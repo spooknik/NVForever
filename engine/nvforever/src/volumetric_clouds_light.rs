@@ -616,10 +616,13 @@ pub fn lighting(i: &VolumeInputs) -> Lighting {
     let amount = if i.amount.is_finite() { i.amount.clamp(0.0, 1.0) } else { 0.0 };
     let column = table_depth_of(&EXTINCTION_TABLE, amount) * nn(i.density) * MEAN_SHAPE;
     let back = a.phase_weight(LightWeight::Backscatter, night);
+    let joining_sun = if i.forced.is_none() && elevation.is_finite() {
+        nn(i.joining_sun).min(1.0) * smooth(0.0, crate::volumetric_clouds::LIGHT_FADE_DEG, elevation)
+    } else { 0.0 };
     Lighting {
         light: f(direct),
         ambient: f(ambient),
-        lmode: Vec4::new(0.0, column, AMBIENT_FALL * a.weight(LightWeight::Occlude), a.weight(LightWeight::Sun)),
+        lmode: Vec4::new(joining_sun, column, AMBIENT_FALL * a.weight(LightWeight::Occlude), a.weight(LightWeight::Sun)),
         lupper: f(upper).extend(0.0),
         llower: f(lower).extend(0.0),
         loct: Vec4::new(octave_weight(a.weight(LightWeight::Octave)), OCTAVE_DEPTH, OCTAVE_PHASE, a.phase_weight(LightWeight::Forward, night)),
@@ -863,8 +866,10 @@ pub fn lean_shade(d: Vec4, altitude: f32, depth: f32, sampled: bool, ray: &RayLi
     let q1 = ray.p1.max(f).max(shoulder).min(ray.cap);
     let phase = (1.0 - s.octave.x) * q0 * v0 + retained * retained * s.octave.x * q1 * v1;
     let mut source = powder(ext, ray.powder) * phase;
+    let mut intercepted = 0.0;
     if sheet_depth > 0.0 {
-        let covered = smooth(0.55, 0.73, d.z) * (1.0 - (-sheet_depth / s.rise.max(0.25)).exp());
+        intercepted = 1.0 - (-sheet_depth / s.rise.max(0.25)).exp();
+        let covered = smooth(0.55, 0.73, d.z) * intercepted;
         let path = sheet_depth + bulk + 0.6 * (sheet_depth * (1.0 - h) - bulk);
         let scattered = s.octave.x * s.rise.max(0.0) * through(s.octave.y * path, 1.0);
         source += covered * (scattered - source);
@@ -878,6 +883,11 @@ pub fn lean_shade(d: Vec4, altitude: f32, depth: f32, sampled: bool, ray: &RayLi
         let diffuse = s.octave.x * s.rise.max(0.0) * through(path, s.octave.y);
         source += s.front.x * (diffuse - source);
         above += s.front.x * (overhead - above);
+    }
+    if s.column.x > 0.0 && intercepted > 0.0 {
+        let diffuse = s.octave.x * s.rise.max(0.0) * through(s.octave.y * sheet_depth * (2.0 - h), 1.0);
+        let lower_face = 1.0 - smooth(0.25, 0.65, h);
+        source += (diffuse - source).max(0.0) * (s.column.x * intercepted * lower_face);
     }
     let direct = ray.light * (s.column.w * source);
     let lower = s.lower * (1.0 + (LEAN_FAIR_LOWER - 1.0) * fair);
@@ -1033,6 +1043,8 @@ mod tests {
             "above = mix(max(above, max(lid, crown_depth * max(s.rise, 0.0))), bulk, foot);",
             "let phase = (1.0 - s.octave.x) * q0 * v0 + retained * retained * s.octave.x * q1 * v1;",
             "var source = vc_powder(ext, ray.powder) * phase;",
+            "intercepted = 1.0 - exp(-sheet_depth / max(s.rise, 0.25));",
+            "let covered = smoothstep(0.55, 0.73, d.z) * intercepted;",
             "source = mix(source, scattered, covered);",
             "let toward = select(regional, min(measured * max(s.rise, 0.0), 3.0 * regional), sampled);",
             "let measured_share = smoothstep(s.back.z, s.back.w, s.rise);",
@@ -1040,6 +1052,9 @@ mod tests {
             "let diffuse = s.octave.x * max(s.rise, 0.0) * vc_through(path, s.octave.y);",
             "source = mix(source, diffuse, s.front.x);",
             "above = mix(above, overhead, s.front.x);",
+            "let diffuse = s.octave.x * max(s.rise, 0.0) * vc_through(s.octave.y * sheet_depth * (2.0 - h), 1.0);",
+            "let lower_face = 1.0 - smoothstep(0.25, 0.65, h);",
+            "source += max(diffuse - source, 0.0) * (s.column.x * intercepted * lower_face);",
             "var direct = ray.light * (s.column.w * source);",
             "const VC_LEAN_FAIR_LOWER: f32 = 0.7;",
             "let lower = s.lower * mix(1.0, VC_LEAN_FAIR_LOWER, fair);",
@@ -1049,6 +1064,7 @@ mod tests {
         }
         let lean = &leaf[leaf.find("fn vc_lean_shade(").unwrap()..];
         let lean = &lean[..lean.find("\n}\n").unwrap()];
+        assert!(lean.find("source = mix(source, diffuse, s.front.x);").unwrap() < lean.find("source += max(diffuse - source, 0.0)").unwrap());
         for term in ["silver", "backlit", "scatter_loss", "s.shade", "sky_open", "diffuse_sky"] {
             assert!(!lean.contains(term), "the lean light takes no `{term}`");
         }
@@ -1153,6 +1169,39 @@ mod tests {
     /// A unit white light with both octaves' phases `p0`, `p1`.
     fn lit(p0: f32, p1: f32) -> RayLight {
         RayLight { light: Vec3::ONE, p0, p1, cap: PHASE_CAP, powder: 0.0 }
+    }
+
+    #[test]
+    fn diffuse_sunlight_reaches_only_a_covered_lower_face_that_needs_it() {
+        use crate::volumetric_clouds::CloudType;
+        let input = VolumeInputs {
+            joining_sun: 0.8, sky: SkyLight { elevation: 45.0, ..Default::default() }, ..Default::default()
+        };
+        assert_eq!(lighting(&input).lmode.x, 0.8);
+        assert_eq!(lighting(&VolumeInputs { forced: Some(CloudType::Sheet), ..input }).lmode.x, 0.0);
+        assert_eq!(lighting(&VolumeInputs { sky: SkyLight { elevation: -45.0, ..input.sky }, ..input }).lmode.x, 0.0);
+        let mut s = shading(&uniform(&input));
+        s.column.y = 4.0;
+        s.column.w = 1.0;
+        s.rise = 0.8;
+        s.octave.x = 0.4;
+        s.octave.y = 0.5;
+        s.upper = Vec3::splat(0.2);
+        s.lower = Vec3::splat(0.1);
+        let ray = lit(1.0, 1.0);
+        let light = |join, mode, h, sheet_depth, regional| {
+            let shade = Shading { mode, column: s.column.with_x(join), front: Vec2::new(1.0, regional), ..s };
+            lean_shade(Vec4::new(0.8, 0.001, 0.65, h), 700.0, 6.0, true, &ray, &shade, 0.0, 0.0, sheet_depth, 0.0).x
+        };
+        let dark = light(0.0, 6, 0.12, 1.0, 10.0);
+        let lifted = light(0.8, 6, 0.12, 1.0, 10.0);
+        let broad = 0.4 * 0.8 * through(0.5 * (2.0 - 0.12), 1.0);
+        let weight = 0.8 * (1.0 - (-1.0f32 / 0.8).exp());
+        assert!(lifted > dark + 0.04 && lifted < broad);
+        assert!((lifted - (dark + weight * (broad - dark))).abs() < 1e-6);
+        for (mode, h, depth, regional) in [(6, 0.75, 1.0, 10.0), (6, 0.12, 0.0, 10.0), (6, 0.12, 1.0, 0.0), (7, 0.12, 1.0, 10.0)] {
+            assert_eq!(light(0.8, mode, h, depth, regional), light(0.0, mode, h, depth, regional));
+        }
     }
 
     #[test]
